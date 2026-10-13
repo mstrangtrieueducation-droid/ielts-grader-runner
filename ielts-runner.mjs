@@ -1,0 +1,48 @@
+import {readSpeakingArtifact} from './artifact-reader.mjs';
+import {installApprovedSpeakingBarem} from './speaking-barem-runtime.mjs';
+import fs from 'node:fs';import path from 'node:path';import vm from 'node:vm';import {randomUUID} from 'node:crypto';
+import {Blob,RichBuilder,Style,request,utilities} from './google-adapter.mjs';
+import {stateStore} from './runner-state.mjs';
+import {assessmentInstruction} from './assessment-policy.mjs';
+
+export function runIelts({google,config,key,root,deadline,emit,audit=false,maxJobs=8,maxApiCalls=Infinity}){
+ if(!config.ielts)return {finished:0,paidCalls:0};
+ const binding=config.ielts;
+ if(google.sa.client_email!==config.serviceAccount)throw Error('RUNNER_SERVICE_ACCOUNT_MISMATCH');
+ const properties=new Map(Object.entries({...binding.properties,IELTS_SPEAKING_CONTROL_ID:binding.controlId,IELTS_SPEAKING_ARTIFACT_FOLDER:binding.artifactFolder,IELTS_SPEAKING_GEMINI_API_KEY:key}));
+ const props={getProperty:k=>properties.get(k)||null,setProperty:(k,v)=>{properties.set(k,String(v));return props;},deleteProperty:k=>{properties.delete(k);return props;},getProperties:()=>Object.fromEntries(properties)};
+ const c=vm.createContext({Date,PropertiesService:{getScriptProperties:()=>props},Utilities:utilities(),SpreadsheetApp:{openById:id=>google.book(id),flush:()=>{},newRichTextValue:()=>new RichBuilder(),newTextStyle:()=>new Style()},DriveApp:{getFileById:id=>google.file(id)},ScriptApp:{getOAuthToken:()=>google.token()},UrlFetchApp:{fetch:(url,o={})=>{let body=o.payload;if(url.includes(':generateContent')){const data=JSON.parse(body);data.systemInstruction={parts:[{text:'BƯỚC 0: Đây là bài audio của lớp IELTS. Chỉ chấm ngôn ngữ nghe được theo bốn tiêu chí IELTS Speaking: Fluency & Coherence, Lexical Resource, Grammatical Range & Accuracy, Pronunciation. Không có hình nên tuyệt đối không nhận xét ánh mắt, tư thế hay ngôn ngữ cơ thể. Lời khen và sửa lỗi tách đúng nhóm; không xã giao.'}]};body=JSON.stringify(data);}return request({url,method:(o.method||'GET').toUpperCase(),headers:{...(o.headers||{}),...(o.contentType?{'Content-Type':o.contentType}:{})},body});}}});
+ for(const file of fs.readdirSync(path.join(root,'ielts-gas')).filter(f=>f.endsWith('.gs')))vm.runInContext(fs.readFileSync(path.join(root,'ielts-gas',file),'utf8'),c,{filename:file});
+ if(process.env.SPEAKING_BAREM_CATALOG)installApprovedSpeakingBarem(c,process.env.SPEAKING_BAREM_CATALOG);
+ const originalPrompt=c.isgPrompt_;c.isgPrompt_=(guide,count)=>assessmentInstruction('IELTS Speaking')+'\n'+originalPrompt(guide,count);
+ c.isgLock_=fn=>fn();c.isgLease_=fn=>fn();
+ c.isgArtifact_=(label,value)=>{const b=google.book(binding.controlId),s=b.getSheetByName('RunnerArtifacts')||b.insertSheet('RunnerArtifacts');const id='runner:'+randomUUID(),text=JSON.stringify(value),rows=[];for(let i=0;i<text.length;i+=40000)rows.push([id,i/40000,text.slice(i,i+40000)]);s.appendRows(rows);return id;};
+ c.isgReadArtifact_=id=>readSpeakingArtifact(google,binding.controlId,id);
+ let finished=0,paidCalls=0;
+ const table=c.isgTable_();
+ if(audit){emit({event:'IELTS_AUDIT',counts:c.isgJobs_(table).reduce((a,x)=>(a[x.job.status]=(a[x.job.status]||0)+1,a),{})});return {finished,paidCalls};}
+ const state=stateStore(google,binding.controlId);state.acquire(deadline+60000);
+ try{
+  const sourceId=vm.runInContext('ISG.source',c),sourceTabs=vm.runInContext('ISG.sourceTabs',c);google.preloadSource(sourceId,12,sourceTabs);
+  const rawRows=c.isgSourceRows_(),latest=c.isgLatest_(rawRows),newest=new Map(latest.map(s=>[s.className+'|'+c.isgName_(s.name)+'|'+s.code,s]));
+  const getKey=s=>s.className+'|'+c.isgName_(s.name)+'|'+s.code;
+  let old=0;
+  for(const item of c.isgJobs_(table))if(newest.get(getKey(item.job.source))?.signature!==item.job.source.signature&&!['DONE','SKIPPED_EXISTING_FEEDBACK','SKIPPED_OLD_SUBMISSION'].includes(item.job.status)){item.job.status='SKIPPED_OLD_SUBMISSION';delete item.job.retryAt;c.isgSave_(table,item.row,item.job);old++;}
+  // Enqueue every valid lesson independently; a new lesson does not supersede another.
+  const known=new Set(c.isgJobs_(table).map(x=>x.job.source.signature));
+  const scanUntil=Math.min(deadline-90000,Date.now()+25000);let enqueued=0;
+  for(const source of latest){if(Date.now()>scanUntil)break;if(known.has(source.signature)||!c.isgScopeAllows_(source))continue;c.isgEnqueue_(table,source,'live');known.add(source.signature);enqueued++;}
+  // Processing performs the full target/name/guideline/file preflight before any API call.
+  emit({event:'IELTS_SCAN',enqueued});
+  emit({event:'IELTS_DEDUPLICATION',skippedOld:old});
+  const fresh=c.isgFresh_;c.isgFresh_=source=>{google.refreshFileMetadata();google.preloadSource(sourceId,12,sourceTabs);google.books.get(vm.runInContext('ISG.classes',c)[source.className])?.cache.clear();return fresh(source);};
+  c.isgIsLatestStudent_=source=>c.isgLatest_(c.isgSourceRows_()).some(s=>s.signature===source.signature);
+  c.isgBindCostModel_=(job,save)=>{if(job.rawId)return;const model=binding.model||'gemini-2.5-flash';if(model==='gemini-2.5-flash'&&binding.modelAvailable===false)throw Error('SPEAKING_MODEL_UNAVAILABLE');if(job.requestModel!==model){delete job.inputHash;delete job.inputId;}job.requestModel=model;job.costPolicy='native-ielts-quality-v2';save();};
+  const call=c.isgCallGemini_;c.isgCallGemini_=(...args)=>{if(paidCalls>=maxApiCalls)throw Error('SPEAKING_RUN_API_LIMIT');paidCalls++;const result=call(...args);emit({event:'IELTS_API_USAGE',jobId:args[0].id,usage:args[0].apiUsage});return result;};
+  for(const item of c.isgJobs_(table)){
+   if(item.job.status==='NEEDS_REVIEW'&&item.job.error==='SPEAKING_MODEL_UNAVAILABLE'&&!item.job.rawId&&binding.modelAvailable!==false){item.job.status='QUEUED';item.job.error='';delete item.job.retryAt;c.isgSave_(table,item.row,item.job);}
+   if(Date.now()>deadline-90000||finished>=maxJobs||paidCalls>=maxApiCalls)break;if(item.job.mode!=='live'||!['QUEUED','RETRY','GENERATED','PROCESSING','GENERATING'].includes(item.job.status))continue;c.isgProcess_(table,item);emit({event:'IELTS_JOB',id:item.job.id,status:item.job.status,error:item.job.error||'',className:item.job.source.className,code:item.job.source.code,cell:item.job.target?.address||''});if(item.job.status==='DONE')finished++;
+  }
+  emit({event:'IELTS_COMPLETE',finished,paidCalls,counts:c.isgJobs_(table).reduce((a,x)=>(a[x.job.status]=(a[x.job.status]||0)+1,a),{})});return {finished,paidCalls};
+ }finally{state.release();}
+}
