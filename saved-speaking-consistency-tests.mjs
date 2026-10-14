@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {normalizeSavedSpeaking} from './saved-speaking-consistency.mjs';
+const grade={coverage:[{fileIndex:1,durationSeconds:200}],pronunciation:{errors:[{word:'chill out',fileIndex:1,atSeconds:103}]},criterionScores:{pronunciation:{band:6,evidence:[{quote:'chill out',fileIndex:1,atSeconds:138}]}}};
+const response=g=>({candidates:[{content:{parts:[{text:JSON.stringify(g)}]}}],usageMetadata:{promptTokenCount:123}});
+const raw=response(grade),original=JSON.stringify(raw),out=normalizeSavedSpeaking(raw),parsed=JSON.parse(out.raw.candidates[0].content.parts[0].text);
+assert.equal(out.changes.length,1);assert.equal(parsed.criterionScores.pronunciation.evidence[0].atSeconds,103);assert.equal(parsed.criterionScores.pronunciation.band,6);assert.equal(JSON.stringify(raw),original);assert.deepEqual(out.raw.usageMetadata,raw.usageMetadata);
+const ambiguous=structuredClone(grade);ambiguous.pronunciation.errors.push({...ambiguous.pronunciation.errors[0],atSeconds:80});assert.equal(normalizeSavedSpeaking(response(ambiguous)).changes.length,0);
+const invalid=structuredClone(grade);invalid.pronunciation.errors[0].atSeconds=300;assert.equal(normalizeSavedSpeaking(response(invalid)).changes.length,0);
+const unrelated=structuredClone(grade);unrelated.criterionScores.pronunciation.evidence[0].quote='other phrase';assert.equal(normalizeSavedSpeaking(response(unrelated)).changes.length,0);
+assert.equal(normalizeSavedSpeaking(out.raw).changes.length,0);
+console.log('PASS deterministic saved-reference repair, immutable original/usage/bands, ambiguity and duration guards; provider calls: 0.');
