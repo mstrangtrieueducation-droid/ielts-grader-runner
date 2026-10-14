@@ -1,5 +1,5 @@
 import {PEDAGOGY_INSTRUCTION} from './pedagogical-language.mjs';
-import {installReturnedSpeakingPolicy} from './speaking-returned-result-policy.mjs';
+import {installReturnedSpeakingPolicy,reconcileDeliveredSpeaking} from './speaking-returned-result-policy.mjs';
 import {withSpeakingOutputReserve} from './speaking-output-reserve.mjs';
 import {sourceInMasterScope,masterScopeAllowsJob} from './master-submission-scope.mjs';
 import {masterSweepEnabled} from './master-cross-class-sweep.mjs';
@@ -51,6 +51,7 @@ export function runIelts({google,config,key,root,deadline,emit,audit=false,maxJo
   for(const source of latest){if(Date.now()>scanUntil)break;if(known.has(source.signature)||!c.isgScopeAllows_(source))continue;c.isgEnqueue_(table,source,'live');known.add(source.signature);enqueued++;}
   if(masterSweepEnabled())masterSweep=prepareNativeSweep({google,lane:'ielts',controlId:binding.controlId,classes:sweepClasses,sources:latest,jobs:c.isgJobs_(table),save:(j,row)=>c.isgSave_(table,row,j),readyStatus:'GENERATED',freshStatus:'QUEUED',hasFeedback:text=>c.isgHasFeedback_(text),emit,resolve:s=>{const dst=c.isgTarget_(s);return {...dst,cell:dst.range};}});
   queueBuffer?.flush();
+  emit({event:'SPEAKING_EXISTING_DELIVERY_RECONCILED',...reconcileDeliveredSpeaking(c,c.isgJobs_(table),(j,row)=>c.isgSave_(table,row,j),sourceInMasterScope)});
   if(masterSweep)try{masterSweep.publish();}catch(e){emit({event:'MASTER_SWEEP_REPORT_ERROR',error:e.message});}
   // Processing performs the full target/name/guideline/file preflight before any API call.
   emit({event:'IELTS_SCAN',enqueued});

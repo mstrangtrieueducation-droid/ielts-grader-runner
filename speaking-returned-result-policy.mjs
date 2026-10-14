@@ -26,3 +26,12 @@ export function installReturnedSpeakingPolicy(c){
   return 'DONE';
  };
 }
+export function reconcileDeliveredSpeaking(c,items,save,scopeAllows){
+ let confirmed=0;
+ for(const item of items){const j=item.job;if(j.status!=='NEEDS_REVIEW'||j.internalDiagnostic!=='BATCH_UNSUPPORTED_MUTATION'||!j.rawId||!scopeAllows(j.source))continue;
+  try{const grade=c.isgParseResponse_(c.isgReadArtifact_(j.rawId),j.source.fileIds.length,j.promptVersion);if(!grade.usable)continue;const expected=c.isgRichText_(grade,j.source,true).getText(),dst=c.isgTarget_(j.source);if(dst.text!==expected)continue;
+   j.resultHash=createHash('sha256').update(JSON.stringify(expected)).digest('hex');j.status='DONE';j.error='';j.gradeUsable=true;j.deliveryConfirmedAt=new Date().toISOString();j.deliveryPolicy='saved-raw-matches-current-cell-no-rewrite';save(j,item.row);confirmed++;
+  }catch{/* One unresolved record never prevents another existing delivery check. */}
+ }
+ return {confirmed,providerCalls:0};
+}
