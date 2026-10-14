@@ -1,0 +1,12 @@
+import {createMasterSweep} from './master-cross-class-sweep.mjs';
+export function prepareNativeSweep({google,lane,controlId,classes,sources,jobs,resolve,hasFeedback,save,readyStatus,freshStatus,emit}){
+ const bySignature=new Map(jobs.map(x=>[x.job.source.signature,x]));
+ const sweep=createMasterSweep({google,lane,controlId,classes,entries:sources.map(source=>({source,cls:classes.find(c=>c.className===source.className)})),findJob:s=>bySignature.get(s.signature),resolve,hasFeedback,save,readyStatus,freshStatus,enqueue:()=>{throw Error('MASTER_SOURCE_NOT_ENQUEUED');},emit});sweep.scan();return sweep;
+}
+export function bufferSpeakingQueue(c,table,g,controlId){
+ const originalJobs=c.isgJobs_,originalSave=c.isgSave_,originalLast=table.getLastRow,items=originalJobs(table),changes=new Map();let last=originalLast.call(table),closed=false;
+ c.isgJobs_=sheet=>sheet===table?items:originalJobs(sheet);table.getLastRow=()=>last;
+ c.isgSave_=(sheet,row,job)=>{if(sheet!==table)return originalSave(sheet,row,job);job.updatedAt=new Date().toISOString();last=Math.max(last,row);const item=items.find(x=>x.row===row);if(item)item.job=job;else items.push({row,job});changes.set(row,[job.id,job.status,job.updatedAt,job.retryAt||'',job.attempts||0,JSON.stringify(job)]);};
+ return {flush(){if(changes.size){g.api('https://sheets.googleapis.com/v4/spreadsheets/'+controlId+'/values:batchUpdate','POST',{valueInputOption:'RAW',data:[...changes].map(([row,values])=>({range:"'IELTS SPEAKING AI'!A"+row+':F'+row,values:[values]}))});changes.clear();}if(!closed){c.isgJobs_=originalJobs;c.isgSave_=originalSave;table.getLastRow=originalLast;g.books.get(controlId)?.cache.clear();closed=true;}},get items(){return items;}};
+}
+export function restoreSpeakingCache(c,item,table,approval){const j=item.job;if(!j.rawId)return false;const dst=c.isgTarget_(j.source);if(c.isgHasFeedback_(dst.text)){j.status='SKIPPED_EXISTING_FEEDBACK';c.isgSave_(table,item.row,j);return true;}if(j.inputId){const input=c.isgReadArtifact_(j.inputId);if(input.source?.signature!==j.source.signature)throw Error('SPEAKING_CACHED_SOURCE_MISMATCH');}const grade=c.isgParseResponse_(c.isgReadArtifact_(j.rawId),j.source.fileIds.length,j.promptVersion);if(!grade.usable)return false;const rich=c.isgRichText_(grade,j.source,true);dst.range.setRichTextValue(rich);j.gradeUsable=true;j.status='DONE';j.error='';j.masterSweepCachedReturnedAt=new Date().toISOString();c.isgSave_(table,item.row,j);approval.finish(j);return true;}

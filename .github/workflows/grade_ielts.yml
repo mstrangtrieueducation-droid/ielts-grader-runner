@@ -35,6 +35,7 @@ jobs:
           node hosted-bootstrap.mjs
           node automatic-authorization-tests.mjs
           node ielts-speaking-tests.mjs
+          node master-cross-class-sweep-tests.mjs
           node --check run-speaking.mjs
           node --check ielts-runner.mjs
       - name: Install audio validation tools

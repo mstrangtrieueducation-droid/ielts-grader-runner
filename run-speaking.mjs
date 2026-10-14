@@ -15,7 +15,7 @@ async function main(){
   if(process.env.GITHUB_REPOSITORY!==config.approvedRepository)throw Error('APPROVED_REPOSITORY_REQUIRED');
  }
  if(mode==='grade'&&process.env.SPEAKING_ENABLED!=='true')throw Error('SPEAKING_HANDOFF_NOT_ENABLED');
- if(mode==='grade')process.env.AUTOMATIC_GRADING_AUTHORIZED='true';
+ if(mode==='grade'){process.env.AUTOMATIC_GRADING_AUTHORIZED='true';process.env.MASTER_CROSS_CLASS_SWEEP='true';}
  const privateDir=path.join(root,'.runtime');fs.mkdirSync(privateDir,{recursive:true,mode:0o700});const catalogFile=path.join(privateDir,'speaking-barem.json');fs.writeFileSync(catalogFile,JSON.stringify(barem),{mode:0o600});
  process.env.SPEAKING_BAREM_CATALOG=catalogFile;process.env.RUNNER_HOST='github';if(config.nonStudentAudioRegistry){fs.mkdirSync(path.join(root,'private'),{recursive:true});fs.writeFileSync(path.join(root,'private/non-student-audio-registry.json'),JSON.stringify(config.nonStudentAudioRegistry));}
  const {Google,request}=await import('./google-adapter.mjs'),{runIelts}=await import('./ielts-runner.mjs'),{speakingCatalog}=await import('./speaking-barem-runtime.mjs'),{localGuard}=await import('./runner-state.mjs');
@@ -29,9 +29,9 @@ async function main(){
    const result=runIelts({google,config,key,root,deadline,emit,audit:true});console.log(JSON.stringify({preflight:true,providerGenerateCalls:0,...result}));return;
   }
   do{
-   const result=runIelts({google,config,key,root,deadline,emit,maxJobs:Math.min(8,24-finished),maxApiCalls:Math.min(8,24-requests)});finished+=result.finished;requests+=result.paidCalls;
+   const result=runIelts({google,config,key,root,deadline,emit,maxJobs:Infinity,maxApiCalls:Infinity});finished+=result.finished;requests+=result.paidCalls;
    if(!result.finished&&!result.paidCalls)break;
-  }while(Date.now()<deadline-120000&&finished<24&&requests<24);
+  }while(Date.now()<deadline-120000);
   const result={finished,providerGenerateCalls:requests};console.log(JSON.stringify(result));
   if(process.env.GITHUB_STEP_SUMMARY)fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,`IELTS Speaking: ${finished} results returned; ${requests} provider requests.\n`);
  }finally{release();}
