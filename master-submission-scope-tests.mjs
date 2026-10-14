@@ -16,6 +16,7 @@ try{
  const c={step_:()=>calls++,persist_:()=>calls++};installMasterScoreProtection(c);c.step_(old,2);assert.equal(calls,0);
  const sources=[old.receipt,current.receipt].map((s,i)=>({...s,className:'Fixture',code:'TASK-'+i})),enqueued=[];
  const sweep=createMasterSweep({lane:'kids',classes:[{className:'Fixture'}],entries:sources.map(source=>({source,cls:{className:'Fixture'}})),findJob:()=>null,resolve:()=>({text:''}),hasFeedback:()=>false,enqueue:s=>{enqueued.push(s);return {job:{},row:2};},save:()=>{}});
- assert.equal(sweep.scan(),1);assert.equal(enqueued.length,1);assert.equal(enqueued[0].code,'TASK-1');
+ assert.equal(sweep.scan(),1);assert.equal(sweep.allowsJob({id:'old'}),false);assert.equal(enqueued.length,1);assert.equal(enqueued[0].code,'TASK-1');
+ const occupied=createMasterSweep({lane:'kids',classes:[{className:'Fixture'}],entries:[{source:sources[1],cls:{className:'Fixture'}}],findJob:()=>({job:current,row:2}),resolve:()=>({text:'Teacher feedback'}),hasFeedback:()=>true,enqueue:()=>{throw Error('MUST_SKIP');},save:()=>{throw Error('MUST_SKIP');}});occupied.scan();assert.equal(occupied.allowsJob(current),false);assert.equal(occupied.refresh()[0].existing,1);
 }finally{if(prior===undefined)delete process.env.MASTER_CROSS_CLASS_SWEEP;else process.env.MASTER_CROSS_CLASS_SWEEP=prior;}
 console.log('PASS September submission boundary, all native timestamp shapes, invalid dates, old paid cache and explicit approval protection; provider calls: 0.');

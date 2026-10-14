@@ -15,12 +15,12 @@ export function createMasterSweep({google,lane,controlId,classes,entries,resolve
  const itemState=(s,cls)=>{const key=keyOf(lane,s);if(!states.has(key))states.set(key,{key,source:s,cls});return states.get(key);};
  const countable=(j,text)=>j?.masterSweep?.version===SWEEP_VERSION&&j.masterSweep.baseline==='EMPTY'&&(['RETURNED','DONE'].includes(j.status)&&(/Chất lượng:[^\n]*\d+\s*%/.test(text)||lane==='ielts'&&/\b(?:[0-9](?:\.5|\.0)?)\s*\/\s*9|Overall|Tổng điểm|Band/i.test(text))||/^COMPLETED_.*RESUBMISSION$/.test(j.status)&&j.autoNotice===text);
  function inspect(item,mutate){
-  const s=item.source,cls=item.cls,row=summary.get(s.className)||{className:s.className,newReturned:0,existing:0,assignment:0,pending:0};summary.set(s.className,row);const existing=findJob(s),j=existing?.job;
+  const s=item.source,cls=item.cls,row=summary.get(s.className)||{className:s.className,newReturned:0,existing:0,assignment:0,pending:0};summary.set(s.className,row);const existing=findJob(s),j=existing?.job;item.jobId=j?.id;
   try{const dst=resolve(s,j),text=dst.cell?dst.cell.getDisplayValue():dst.text,formula=dst.cell?.getFormula?.()||dst.formula||'';if(dst.cell?.sheet?.book?.id&&dst.cell.r&&dst.cell.c)item.targetKey=[dst.cell.sheet.book.id,dst.cell.sheet.getSheetId(),dst.cell.r,dst.cell.c].join('|');
    if(hasFeedback(text,formula)||formula||dst.cell?.getDataValidation?.())return countable(j,text)?'newReturned':'existing';
    if(mutate){
     if(j){if(cachedOrUnpaid(j)){let changed=!j.masterSweep;const nextStatus=j.rawId?readyStatus:freshStatus;j.masterSweep ||= {version:SWEEP_VERSION,baseline:'EMPTY',mode:j.rawId?'CACHE':'NEW',at:new Date().toISOString()};if((j.rawId||/^(SKIPPED_|NEEDS_ASSIGNMENT|NEEDS_REVIEW|BLOCKED|STALE|RETURNED|DONE)/.test(j.status))&&(j.status!==nextStatus||j.error||j.nextAt)){j.status=nextStatus;j.error='';j.nextAt=0;changed=true;}if(changed)save(j,existing.row);}}
-    else{const created=enqueue(s,cls);created.job.masterSweep={version:SWEEP_VERSION,baseline:'EMPTY',mode:'NEW',at:new Date().toISOString()};save(created.job,created.row);}
+    else{const created=enqueue(s,cls);item.jobId=created.job.id;created.job.masterSweep={version:SWEEP_VERSION,baseline:'EMPTY',mode:'NEW',at:new Date().toISOString()};save(created.job,created.row);}
    }
    return 'pending';
   }catch(e){if(issueError(e)){if(mutate){const bucket=issues.get(cls?.spreadsheetId)||{cls,items:new Map()};bucket.items.set(item.key,{...item,reason:e.message,jobId:j?.id||''});issues.set(cls?.spreadsheetId,bucket);}return 'assignment';}item.error=e.message;return 'pending';}
@@ -35,7 +35,8 @@ export function createMasterSweep({google,lane,controlId,classes,entries,resolve
   google.api('https://sheets.googleapis.com/v4/spreadsheets/'+controlId+':batchUpdate','POST',{requests});if(!tab)registerCreatedSheet(book,title,sheetId,Math.max(100,rows.length+5),7);
   emit({event:'MASTER_SWEEP_REPORT',lane,classes:rows.length,scanned:states.size,newReturned:rows.reduce((n,r)=>n+r.newReturned,0),existing:rows.reduce((n,r)=>n+r.existing,0),assignment:rows.reduce((n,r)=>n+r.assignment,0),pending:rows.reduce((n,r)=>n+r.pending,0),issueWriteFailures:issueResult.failed.length,providerCalls:0});return {rows,issueResult,spreadsheetId:controlId,sheetId};
  }
- return {scan,refresh,publish,states};
+ const allowsJob=job=>[...states.values()].some(item=>item.jobId===job.id&&item.outcome==='pending');
+ return {scan,refresh,publish,states,allowsJob};
 }
 function stableSheetId(id,title,book){let n=createHash('sha256').update(id+'|'+title).digest().readUInt32BE(0)&0x7fffffff;const ids=new Set(book.sheets.map(s=>s.getSheetId()));while(ids.has(n))n=(n+1)&0x7fffffff;return n;}
 function registerCreatedSheet(book,title,sheetId,rowCount,columnCount){if(book.getSheetByName(title))return;const meta={properties:{sheetId,title,gridProperties:{rowCount,columnCount,frozenRowCount:1}},merges:[]};book.sheets.push(new Sheet(book,meta));if(book.meta?.sheets)book.meta.sheets.push(meta);book.cache?.set(title+'|master',gridMaster([],columnCount));}
