@@ -1,3 +1,4 @@
+import {studentSpeechDetected} from './student-speech-evidence.mjs';
 import {spawnSync} from 'node:child_process';
 import {normalizeName} from './master-policy.mjs';
 export const SILENT_NOTICE='❌ CẦN NỘP LẠI — Video/Audio của con không có tiếng đọc bài. Con kiểm tra lại micro và nộp lại để cô nhận xét nhé!';
@@ -26,5 +27,5 @@ export function oldGradedSubmission(job,jobs,isGraded){
   if([...ids(prior)].some(id=>current.has(id))&&isGraded(prior))return prior;
  }return null;
 }
-export const noSpeech=g=>g.speechStatus==='NO_SPEECH_DETECTED'||g.reason==='NO_SPEECH_DETECTED'||g.assessable===false&&!g.roseSections?.length&&!Object.values(g.sections||{}).some(s=>s.text);
+export const noSpeech=g=>!studentSpeechDetected(g)&&(g.speechStatus==='NO_SPEECH_DETECTED'||g.reason==='NO_SPEECH_DETECTED');
 export function hasExistingFeedback(value){const text=String(value||'').trim(),marker='— NHẬN XÉT GV —';if(!text)return false;if(text.includes(marker))return !!text.slice(text.indexOf(marker)+marker.length).trim();return text.split('\n').some(line=>{const s=line.trim();return s&&!/^(?:✅\s*(?:ĐÃ NỘP|ĐÃ GHI NHẬN)(?:\s*·.*)?|⚠️?\s*(?:ĐÃ NỘP MUỘN|NỘP MUỘN)(?:\s*·.*)?|❌\s*CHƯA NỘP|\[?\d{1,2}\/\d{1,2}\/\d{4}[^\n]*\]?|Lượt \d+:.*|— CHƯA GHI NHẬN.*)$/i.test(s);});}
