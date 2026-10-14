@@ -1,0 +1,5 @@
+import assert from 'node:assert/strict';import {scopeFirstClassSnapshot} from './master-destination-batch.mjs';
+const classes=[{spreadsheetId:'class-one',sheetName:'THEO DÕI TOÀN DIỆN'},{spreadsheetId:'class-two',sheetName:'THEO DÕI'}],url='https://sheets.googleapis.com/v4/spreadsheets/class-one?includeGridData=true&fields=sheets(properties,data)&ranges=Audit';
+const out=new URL(scopeFirstClassSnapshot(url,'class-one',classes));assert.deepEqual(out.searchParams.getAll('ranges'),["'THEO DÕI TOÀN DIỆN'"]);assert.equal(out.searchParams.get('fields'),'sheets(properties,data)');
+for(const other of ['https://sheets.googleapis.com/v4/spreadsheets/class-two?includeGridData=true','https://sheets.googleapis.com/v4/spreadsheets/class-one/values/A1','https://www.googleapis.com/drive/v3/files/class-one'])assert.equal(scopeFirstClassSnapshot(other,'class-one',classes),other);
+console.log('PASS first native class snapshot excludes unrelated tabs and preserves other API requests; provider calls: 0.');
