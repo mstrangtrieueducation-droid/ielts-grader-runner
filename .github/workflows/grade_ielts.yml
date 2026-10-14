@@ -32,9 +32,16 @@ jobs:
           node-version: '24'
       - name: Validate grading safeguards without provider calls
         run: |
+          node hosted-bootstrap.mjs
+          node automatic-authorization-tests.mjs
           node ielts-speaking-tests.mjs
           node --check run-speaking.mjs
           node --check ielts-runner.mjs
+      - name: Install audio validation tools
+        if: env.MODE != 'validate'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
       - name: Audit or grade on the dedicated Speaking project
         if: env.MODE != 'validate'
         env:

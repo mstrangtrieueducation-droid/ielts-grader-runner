@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';import {automaticEligible,addAutomaticAuthorizations} from './automatic-authorization.mjs';
+const student=(name,id,time='14/10/2026 10:00')=>({id,status:'READY',cls:{spreadsheetId:'fixture-class'},receipt:{student:name,time},route:{code:'fixture-task'}});
+const a=student('A','a'),b=student('B','b');
+assert.equal(automaticEligible(a,[{...b,status:'COMPLETED_PRESENTATION_RESUBMISSION'}]),true);
+assert.equal(automaticEligible(a,[{...a,id:'previous',status:'COMPLETED_PRESENTATION_RESUBMISSION'}]),false);
+for(const patch of [{rawId:'frozen'},{generateRequests:1},{generationAttempt:{calls:1}},{technicalInputFailure:{}},{status:'RETURNED'}])assert.equal(automaticEligible({...a,...patch}),false);
+const session={approved:new Map(),finish:()=>{}};
+addAutomaticAuthorizations(session,[{job:a,row:2},{job:b,row:3}],'fixture-control','Jobs',1);
+assert.equal(session.approved.size,2);assert.equal(session.approved.get('a').automatic,true);
+console.log('PASS automatic new submissions, distinct students, rejected presentations, no paid replay; zero provider calls.');
