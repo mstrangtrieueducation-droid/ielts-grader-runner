@@ -1,5 +1,6 @@
 import path from 'node:path';
 import {beginSheetBatch} from './kids-sheet-batch.mjs';
+import {reuseDestinationPreloads} from './destination-preload-reuse.mjs';
 export function scopeFirstClassSnapshot(url,firstId,classes){
  const u=new URL(url);
  if(u.origin!=='https://sheets.googleapis.com'||u.pathname!=='/v4/spreadsheets/'+firstId||u.searchParams.get('includeGridData')!=='true')return url;
@@ -18,5 +19,6 @@ export function beginMasterDestinationBatch(g,classes,root,{emit=()=>{}}={}){
  try{batch=beginSheetBatch(g,{controlId:firstId,classes},path.join(root,'private/master-destination-journal'),{emit});}finally{g.api=originalApi;}
  const book=g.book,refreshes=new Map();
  g.book=function(id){const b=book.call(g,id);if(ids.has(id)&&!refreshes.has(id)){refreshes.set(id,{b,refresh:b.refresh});b.refresh=()=>{};}return b;};
- return {flush:()=>batch.flush(),close(){g.book=book;for(const {b,refresh}of refreshes.values())b.refresh=refresh;batch.close();}};
+ const restorePreloads=reuseDestinationPreloads(g,classes);
+ return {flush:()=>batch.flush(),close(){restorePreloads();g.book=book;for(const {b,refresh}of refreshes.values())b.refresh=refresh;batch.close();}};
 }
