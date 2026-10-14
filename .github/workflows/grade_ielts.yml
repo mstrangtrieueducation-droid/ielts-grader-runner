@@ -36,6 +36,7 @@ jobs:
           node automatic-authorization-tests.mjs
           node ielts-speaking-tests.mjs
           node master-cross-class-sweep-tests.mjs
+          node master-submission-scope-tests.mjs
           node --check run-speaking.mjs
           node --check ielts-runner.mjs
       - name: Install audio validation tools
