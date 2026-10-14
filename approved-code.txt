@@ -3,16 +3,17 @@
   "createdAt": "2026-10-14T07:11:04.802Z",
   "files": {
     "student-audio.mjs": "1d005aee6d54895342957aac10d543745d5ba5b664caac606de7a8b5f6402b38",
-    "master-barem.mjs": "5d3e858b09622dfa2219006b68e5c8ea8fc847d6116a4d08ebefc73c1f9927cd",
-    "speaking-barem-runtime.mjs": "0beb7728c30317d9b6cdecf9f62e66e8329336787ddfffa98ff3459802360555",
+    "master-barem.mjs": "b70a6cafe07ec65b6eed23b4675db9b258ffae0455000dedf713af1aa8a5dcb9",
+    "speaking-barem-runtime.mjs": "d8466b99cb1a56b37d7b0e50e25a7a1999d31754ad966f62cf3ff83b8f9c0f3d",
     "kids-sheet-batch.mjs": "35dff170816c108caac92c8401055f575a215a43c0e8717d71b6d5de254572fe",
-    "google-adapter.mjs": "c92ff63f84cdd9e093659bbadf1c2774ba324ef3a8ea1df241c0e04fdbb80fcc",
-    "runner-state.mjs": "220081c53ce4a69ab373964e289c76d5375f65b6c52be94441e36aade5631348",
-    "gas/AssessmentPolicy.gs": "f60d1aa9e873316952ab94d2e07c8e3b0ef5649c98bc5bafb3e4d7b75d3faf8d",
-    "ielts-gas/SpeakingConfig.gs": "e55852c9a70f2c88922f363e45858e1baff8975b1fb25e498b555cb3b5f1adf6",
-    "ielts-gas/SpeakingCostPolicy.gs": "038982a08e5f80be541f21e75d2253e8f10c899edea14bbe1f91841dba858cfb",
-    "ielts-gas/SpeakingGemini.gs": "08bdc6e9386a169669cc131de9df2156ba1deaa90cca961535e55eca14240d40",
-    "ielts-gas/SpeakingQueue.gs": "91f126713be3290eda0a92ab9d3c49e8d2e35e40cede62f8ea55e0137a1916c3",
-    "ielts-gas/SpeakingSources.gs": "35eb554a3473572760bebf3e2d45368c41eb4871adc1e68b486e332f19f70211"
-  }
+    "google-adapter.mjs": "542c0c6e4df3ce95a243a168ce8f0bcf21b3c04720e93488e8e6b8d642d046d3",
+    "runner-state.mjs": "edee069a9e6b9ba250ea92fbb6f354f4e72ee7d3e0fcf91ee85cf28ba9bbadca",
+    "gas/AssessmentPolicy.gs": "2387d6009f8587c4880a94fe7809ecd23ba62d264ff4304a665ac90e1507f04b",
+    "ielts-gas/SpeakingConfig.gs": "9280d39642923e2fdd85724deb734b60f16008cfeb87825b25707df40a7a865b",
+    "ielts-gas/SpeakingCostPolicy.gs": "7a9101784831d898e2a3d1a6631b4a779ec66465df0ec02476ec2299fe0710fa",
+    "ielts-gas/SpeakingGemini.gs": "14deaafc1125898c4248ce771f0c446113c23bb4574d3b539aa62da96cc41bb1",
+    "ielts-gas/SpeakingQueue.gs": "9887f0aef5e967f5c7e19e6d48a728623a504dc1f1f1784a756f83de71048a4a",
+    "ielts-gas/SpeakingSources.gs": "c341d9a10eb7a2717598b4324defb663992cb259716048579922d10ffc5c58f0"
+  },
+  "lineEndings": "LF canonical; runtime freeze uses actual checkout bytes"
 }
