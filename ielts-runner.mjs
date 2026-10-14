@@ -1,4 +1,5 @@
 import {PEDAGOGY_INSTRUCTION} from './pedagogical-language.mjs';
+import {installReturnedSpeakingPolicy} from './speaking-returned-result-policy.mjs';
 import {withSpeakingOutputReserve} from './speaking-output-reserve.mjs';
 import {sourceInMasterScope,masterScopeAllowsJob} from './master-submission-scope.mjs';
 import {masterSweepEnabled} from './master-cross-class-sweep.mjs';
@@ -24,6 +25,7 @@ export function runIelts({google,config,key,root,deadline,emit,audit=false,maxJo
  let activeAudioJob;
  const c=vm.createContext({Date,PropertiesService:{getScriptProperties:()=>props},Utilities:utilities(),SpreadsheetApp:{openById:id=>google.book(id),flush:()=>{},newRichTextValue:()=>new RichBuilder(),newTextStyle:()=>new Style()},DriveApp:{getFileById:id=>google.file(id)},ScriptApp:{getOAuthToken:()=>google.token()},UrlFetchApp:{fetch:(url,o={})=>{let body=o.payload;if(url.includes(':generateContent')){const data=JSON.parse(body);data.systemInstruction={parts:[{text:'BƯỚC 0: Đây là bài audio của lớp IELTS. Chỉ chấm ngôn ngữ nghe được theo bốn tiêu chí IELTS Speaking: Fluency & Coherence, Lexical Resource, Grammatical Range & Accuracy, Pronunciation. Không có hình nên tuyệt đối không nhận xét ánh mắt, tư thế hay ngôn ngữ cơ thể. Lời khen và sửa lỗi tách đúng nhóm; không xã giao.'}]};data.systemInstruction.parts.push({text:PEDAGOGY_INSTRUCTION});body=validatedAudioRequest(data,activeAudioJob);}return request({url,method:(o.method||'GET').toUpperCase(),headers:{...(o.headers||{}),...(o.contentType?{'Content-Type':o.contentType}:{})},body});}}});
  for(const file of fs.readdirSync(path.join(root,'ielts-gas')).filter(f=>f.endsWith('.gs')))vm.runInContext(fs.readFileSync(path.join(root,'ielts-gas',file),'utf8'),c,{filename:file});
+ installReturnedSpeakingPolicy(c);
  if(process.env.SPEAKING_BAREM_CATALOG)installApprovedSpeakingBarem(c,process.env.SPEAKING_BAREM_CATALOG);
  const originalGenerationConfig=c.isgCostGenerationConfig_;c.isgCostGenerationConfig_=model=>({...withSpeakingOutputReserve(originalGenerationConfig(model),model),temperature:0.2});
  const originalPrompt=c.isgPrompt_;c.isgPrompt_=(guide,count)=>assessmentInstruction('IELTS Speaking')+'\n'+originalPrompt(guide,count);
