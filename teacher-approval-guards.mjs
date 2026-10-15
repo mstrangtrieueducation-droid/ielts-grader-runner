@@ -1,3 +1,4 @@
+import {screenGroundingSchema,SCREEN_OUTPUT_INSTRUCTION,compactWebScope} from './screen-grounding.mjs';
 import fs from 'node:fs';import path from 'node:path';import {randomUUID} from 'node:crypto';
 import {MASTER_TERMINAL,MASTER_MODEL,generationSpent} from './master-policy.mjs';import {STUDENT_VOICE_INSTRUCTION,voiceOrigin,audioDigest} from './student-voice-origin.mjs';
 import {SILENT_NOTICE,OLD_FILE_NOTICE,oldGradedSubmission,noSpeech,inspectSilence} from './zero-cost-gates.mjs';
@@ -36,16 +37,17 @@ export function auditPreparedPart({g,c,job,m,part,root,ffmpeg}){
 }
 export function installTeacherApprovalGuards(c,{g,root,ffmpeg,session,emit=()=>{}}){
  const originalStep=c.step_,originalGenerate=c.generate_,originalError=c.handleError_,originalSystem=c.kidsSystemInstruction_,hasFeedback=c.hasFeedback_,mediaPart=c.mediaPart_;
- c.kidsSystemInstruction_=()=>originalSystem()+'\n'+STUDENT_VOICE_INSTRUCTION+'\n'+STRICT_PRESENTATION_RULE+'\n'+COMPLETION_INSTRUCTION+'\n'+PEDAGOGY_INSTRUCTION;
- const schema=c.kidsEvidenceSchema_;if(schema)c.kidsEvidenceSchema_=form=>{const s=schema(form);return {...s,properties:{...s.properties,completionCheck:completionSchema},required:[...(s.required||[]),'completionCheck']};};
+ c.kidsSystemInstruction_=()=>originalSystem()+'\n'+STUDENT_VOICE_INSTRUCTION+'\n'+STRICT_PRESENTATION_RULE+'\n'+COMPLETION_INSTRUCTION+'\n'+PEDAGOGY_INSTRUCTION+'\n'+SCREEN_OUTPUT_INSTRUCTION;
+ const schema=c.kidsEvidenceSchema_;if(schema)c.kidsEvidenceSchema_=form=>{const s=schema(form);return {...s,properties:{...s.properties,completionCheck:completionSchema,screenGrounding:screenGroundingSchema},required:[...(s.required||[]),'completionCheck','screenGrounding']};};
  c.hasFeedback_=text=>c.approvalActiveOverwrite&&text===c.approvalActiveOverwrite.before?false:hasFeedback(text);
  if(mediaPart)c.mediaPart_=(j,m,save,deadline)=>{const part=prepareAudioWithRepair({job:j,m,prepare:()=>mediaPart(j,m,save,deadline),save,root,g,ffmpeg,emit});if(part){auditPreparedPart({g,c,job:j,m,part,root,ffmpeg});save();}return part;};
  const api=c.api_;if(api)c.api_=(url,key,options)=>{if(String(url).includes(':generateContent')){const j=c.activeAudioPayloadJob_;if(!j)throw Error('SYSTEM_AUDIO_INPUT_NO_ACTIVE_JOB');j.lastPayloadValidation=assertAudioPayload(JSON.parse(options.payload),j);j.physicalGenerateRequests=(j.physicalGenerateRequests||0)+1;}return api(url,key,options);};
  function notice(j,row,text,status,sections=null){const dst=c.destination_(j.cls,j.route,j.receipt.student),cell=dst.cell;if(c.hasFeedback_(cell.getDisplayValue())||cell.getFormula()||cell.getDataValidation()){j.status='SKIPPED_ALREADY_GRADED';c.persist_(j,row);return;}cell.setRichTextValue(sections?savedFeedbackRich(c,cell,text,sections):c.coloredFeedback_(cell,text,null));j.autoNotice=text;j.cell=cell.getA1Notation();j.status=status;j.error='';j.nextAt=0;session.finish(j);c.persist_(j,row);}
  const rejectPresentation=(j,row)=>{const out=presentationNotice(j);j.presentationResubmissionRequired={invalidFileIds:(j.media||[]).filter(m=>!m.isReference).map(m=>m.id),reason:'CONFIRMED_WRONG_PRESENTATION_FORMAT',at:new Date().toISOString()};notice(j,row,out.text,out.status,out.sections);};
- const rejectIncomplete=(j,row)=>{if(!j.rawId)return false;const draft=decodeSavedDraft(c.readArtifact_(j.rawId)),snapshot=c.masterSnapshot_?.(j)||{},out=incompleteFeedback(draft,j,g=>savedFeedback(g,j,'',snapshot));if(!out)return false;notice(j,row,out.text,out.status,out.sections);return true;};
+ const rejectIncomplete=(j,row)=>{if(!j.rawId)return false;const draft=decodeSavedDraft(c.readArtifact_(j.rawId)),snapshot=c.masterSnapshot_?.(j)||{};if(snapshot.webPracticeScope)j.verifiedWebPracticeScope=compactWebScope(snapshot.webPracticeScope);const out=incompleteFeedback(draft,j,g=>savedFeedback(g,j,'',snapshot));if(!out)return false;notice(j,row,out.text,out.status,out.sections);return true;};
  const oldFile=j=>oldGradedSubmission(j,c.teacherApprovalJobs_||[],p=>{try{return hasFeedback(c.destination_(p.cls,p.route,p.receipt.student).cell.getDisplayValue());}catch{return false;}});
  c.generate_=(j,parts,snapshot)=>{
+  if(snapshot?.webPracticeScope)j.verifiedWebPracticeScope=compactWebScope(snapshot.webPracticeScope);
   if(!j.teacherApproval?.approved)throw Error('TEACHER_APPROVAL_REQUIRED');if(j.rawId)return originalGenerate(j,parts,snapshot);
   if(knownInvalidPresentation(j,c.teacherApprovalJobs_))throw Error('PRESENTATION_FORMAT_RESUBMISSION');const old=oldFile(j);if(old)throw Error('LOCAL_OLD_GRADED_FILE');
   const media=(j.media||[]).filter(m=>!m.isReference);if(!media.length)throw Error('SYSTEM_AUDIO_INPUT_MISSING_STUDENT_AUDIO');

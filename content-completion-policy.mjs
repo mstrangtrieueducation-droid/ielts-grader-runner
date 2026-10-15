@@ -1,10 +1,14 @@
 import {percentBand,receiptDate} from './master-policy.mjs';
+import {applyScreenGrounding,completedScreenScope,hasSupportedOmission,onlyTheoryOmissions,SCREEN_FIRST_INSTRUCTION} from './screen-grounding.mjs';
 export const COMPLETION_VERSION='content-completion-caps-v1-20261014';
-export const COMPLETION_INSTRUCTION=`Kiểm tra KHỐI LƯỢNG HOÀN THÀNH trên toàn bộ barem và tất cả tệp học sinh trong cùng một lượt chấm. completionCheck: assessed chỉ true khi có căn cứ; completedFraction là phần nội dung thực sự hoàn thành (0–1), không dùng tỉ lệ thời lượng video. missingParts nêu đúng tên phần/câu hỏi còn thiếu, basis ghi căn cứ. Không mặc định con đã làm đủ chỉ vì phần từ vựng tốt. Bỏ 1–2 câu nhỏ: tối đa 85% (80–85% khi các mặt còn lại tốt). Bỏ hẳn một phần quan trọng hoặc thiếu 30–50% nội dung: tối đa 60%, bắt buộc Cần theo dõi, chỉ rõ phần bỏ sót và yêu cầu quay bổ sung. Hoàn thành dưới 50%: dưới 60%, CẦN NỘP LẠI (Chưa hoàn thành đủ nội dung bài học). Không tăng điểm thấp do lỗi khác. Không nói giảm thành 'hãy thử thách bản thân ở bài sau' khi con chưa hoàn thành bài hiện tại. Không bịa phần thiếu khi chưa có căn cứ; hình thức thuyết trình sai vẫn ưu tiên không điểm theo quy tắc riêng.`;
-export const completionSchema={type:'object',properties:{assessed:{type:'boolean'},completedFraction:{type:'number',minimum:0,maximum:1},majorPartOmitted:{type:'boolean'},minorMissingSentences:{type:'integer',minimum:0},missingParts:{type:'array',items:{type:'string'}},basis:{type:'string'}},required:['assessed','completedFraction','majorPartOmitted','minorMissingSentences','missingParts','basis'],additionalProperties:false};
+export const COMPLETION_INSTRUCTION=SCREEN_FIRST_INSTRUCTION+`\nKiểm tra KHỐI LƯỢNG HOÀN THÀNH của ĐỀ THỰC HÀNH được giao, không phải mọi ví dụ trong barem. completionCheck.assessed chỉ true khi có căn cứ. completedFraction là phần câu thực hành đã thực hiện (0–1), không dùng tỉ lệ thời lượng video. Chỉ ghi missingParts và áp dụng mức khống chế khi xác nhận abrupt_stop hoặc major_section_omitted; evidenceSource=visible_web hoặc verified_web_assignment và basis chỉ rõ căn cứ. book_only/unknown không đủ. Nếu đã thực hiện đủ từ câu đầu tới câu cuối trên web, completedFraction=1, missingParts=[]; không trừ vì câu minh họa/lý thuyết. Bỏ dở 1–2 câu nhỏ được xác nhận: tối đa 85%. Bỏ hẳn phần quan trọng hoặc thiếu 30–50% đề thật: tối đa 60%, Cần theo dõi. Hoàn thành dưới 50% đề thật: dưới 60%, CẦN NỘP LẠI. Không tăng điểm thấp do lỗi ngôn ngữ khác. Hình thức thuyết trình sai vẫn theo quy tắc riêng.`;
+export const completionSchema={type:'object',properties:{assessed:{type:'boolean'},completedFraction:{type:'number',minimum:0,maximum:1},majorPartOmitted:{type:'boolean'},minorMissingSentences:{type:'integer',minimum:0},missingParts:{type:'array',items:{type:'string'}},basis:{type:'string'},omissionEvidence:{type:'string',enum:['none','abrupt_stop','major_section_omitted','uncertain']},evidenceSource:{type:'string',enum:['visible_web','verified_web_assignment','teacher_confirmation','book_only','audio_only','unknown']}},required:['assessed','completedFraction','majorPartOmitted','minorMissingSentences','missingParts','basis','omissionEvidence','evidenceSource'],additionalProperties:false};
 export function completionDecision(draft,j={}){
  if(j.route?.kind==='ielts_speaking'||draft.assessable===false)return null;
+ if(completedScreenScope(draft,j))return null;
  const c=j.teacherConfirmedCompletion||draft.completionCheck;if(!c?.assessed||!Number.isFinite(c.completedFraction)||c.completedFraction<0||c.completedFraction>1)return null;
+ if(onlyTheoryOmissions(c,j.verifiedWebPracticeScope))return null;
+ if(!hasSupportedOmission(c,j))return null;
  const missing=c.missingParts?.filter(s=>typeof s==='string'&&s.trim())||[];
  if(c.completedFraction<0.5)return {cap:55,resubmit:true,missing};
  if(c.majorPartOmitted||c.completedFraction<=0.7)return {cap:60,resubmit:false,missing};
@@ -12,6 +16,7 @@ export function completionDecision(draft,j={}){
  return null;
 }
 export function applyCompletionPolicy(draft,j={}){
+ draft=applyScreenGrounding(draft,j);
  const decision=completionDecision(draft,j);if(!decision)return draft;
  const g=structuredClone(draft),score=percentBand(String(g.rubricBand||g.band||'').replace('%',''));
  if(score!==null){g.band=Math.min(score,decision.cap)+'%';g.rubricBand=g.band;}

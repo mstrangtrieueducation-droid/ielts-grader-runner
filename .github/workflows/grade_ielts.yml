@@ -34,6 +34,7 @@ jobs:
         run: |
           node hosted-bootstrap.mjs
           node automatic-authorization-tests.mjs
+          node screen-grounding-tests.mjs
           node ielts-speaking-tests.mjs
           node master-cross-class-sweep-tests.mjs
           node master-first-snapshot-tests.mjs
