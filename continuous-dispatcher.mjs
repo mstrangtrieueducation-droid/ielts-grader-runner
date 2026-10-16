@@ -24,7 +24,9 @@ export function actionableCount(jobs,now=Date.now()){
  }).length;
 }
 export function queueFingerprint(jobs){
- const fields=jobs.map(j=>[j.id,j.status,j.error||'',j.rawId||'',j.gradeId||'',j.resultHash||'',j.approvedGenerateRequests||0,j.nextAt||0,j.retryAt||'',j.providerRetry?.phase||'',j.providerRetry?.nextAt||0,j.gradeUsable||false]);
+ // Routine retry timestamp refreshes on an unresolved name/file are not progress.
+ // Due-time checks above still wake authorized provider retries when they mature.
+ const fields=jobs.map(j=>[j.id,j.status,j.error||'',j.rawId||'',j.gradeId||'',j.resultHash||'',j.approvedGenerateRequests||0,j.providerRetry?.phase||'',j.gradeUsable||false]);
  fields.sort((a,b)=>String(a[0]).localeCompare(String(b[0])));
  return createHash('sha256').update(JSON.stringify(fields)).digest('hex');
 }

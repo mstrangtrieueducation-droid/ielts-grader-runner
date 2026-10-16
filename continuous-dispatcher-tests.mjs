@@ -20,6 +20,7 @@ assert.equal(actionableCount([j,{...j,id:'other',status:'DONE',rawId:'already'}]
 const retry={...j,status:'PENDING_RETRY',approvedGenerateRequests:1,error:'SPEAKING_API_HTTP_429',apiFailure:{httpStatus:429},providerRetry:{policy:'teacher-provider-retry-20261016',phase:'WAITING',nextAt:now,failedRequestCount:1}};
 assert.equal(actionableCount([retry],now),1);assert.equal(actionableCount([{...retry,providerRetry:{...retry.providerRetry,nextAt:now+minute}}],now),0);assert.equal(actionableCount([{...retry,rawId:'saved'}],now),0);
 assert.equal(queueFingerprint([j,{...j,id:'two'}]),queueFingerprint([{...j,id:'two'},j]));assert.equal(queueFingerprint([j]),queueFingerprint([{...j,updatedAt:'non-semantic'}]));assert.notEqual(queueFingerprint([j]),queueFingerprint([{...j,status:'DONE',rawId:'saved'}]));
+assert.equal(queueFingerprint([j]),queueFingerprint([{...j,nextAt:now+minute,retryAt:new Date(now+minute).toISOString()}]),'Refreshing a held job cooldown is not grading progress');
 const env={GITHUB_ACTIONS:'true',GITHUB_REPOSITORY:'mstrangtrieueducation-droid/ielts-grader-runner',GITHUB_REF_NAME:'main',GITHUB_RUN_ID:'controller',GITHUB_TOKEN:'fixture',GRADING_LANE:'ielts',SPEAKING_ENABLED:'true',WATCH_DURATION_MS:'60001'};
 const response=(body,status=200)=>({ok:status<400,status,json:async()=>body});let time=now,posts=[],checks=0,readCount=0;
 function fake({active=false,completeAfterPost=false,changed=false,race=false,uncertainPost=false,teacherOff=false,handoverPending=true}={}){
