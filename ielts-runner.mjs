@@ -1,4 +1,5 @@
 import {PEDAGOGY_INSTRUCTION} from './pedagogical-language.mjs';
+import {ieltsAddressInstruction,installIeltsAddress,withIeltsNoticeAddress} from './ielts-address-policy.mjs';
 import {installReturnedSpeakingPolicy,reconcileDeliveredSpeaking} from './speaking-returned-result-policy.mjs';
 import {withSpeakingOutputReserve} from './speaking-output-reserve.mjs';
 import {sourceInMasterScope,masterScopeAllowsJob} from './master-submission-scope.mjs';
@@ -9,11 +10,13 @@ import {validateAudioPart,repairAudioLocally,validatedAudioRequest} from './audi
 import {readSpeakingArtifact} from './artifact-reader.mjs';
 import {installApprovedSpeakingBarem} from './speaking-barem-runtime.mjs';
 import {verifyCodeFreeze} from './code-freeze.mjs';
-import {nativeApprovalSession,nativeResubmission,nativeOldFile,OLD_FILE_NOTICE} from './native-approval-guards.mjs';import {inspectSilence,noSpeech} from './zero-cost-gates.mjs';import {decodeSavedDraft} from './saved-draft.mjs';
+import {nativeApprovalSession,nativeResubmission as nativeResubmissionBase,nativeOldFile,OLD_FILE_NOTICE} from './native-approval-guards.mjs';import {inspectSilence,noSpeech,SILENT_NOTICE} from './zero-cost-gates.mjs';import {decodeSavedDraft} from './saved-draft.mjs';
 import fs from 'node:fs';import path from 'node:path';import vm from 'node:vm';import {randomUUID} from 'node:crypto';
 import {Blob,RichBuilder,Style,request,utilities} from './google-adapter.mjs';
 import {stateStore} from './runner-state.mjs';
 import {assessmentInstruction} from './assessment-policy.mjs';
+
+const nativeResubmission=withIeltsNoticeAddress(nativeResubmissionBase,SILENT_NOTICE);
 
 export function runIelts({google,config,key,root,deadline,emit,audit=false,maxJobs=8,maxApiCalls=Infinity}){
  verifyCodeFreeze(root);
@@ -23,9 +26,10 @@ export function runIelts({google,config,key,root,deadline,emit,audit=false,maxJo
  const properties=new Map(Object.entries({...binding.properties,IELTS_SPEAKING_CONTROL_ID:binding.controlId,IELTS_SPEAKING_ARTIFACT_FOLDER:binding.artifactFolder,IELTS_SPEAKING_GEMINI_API_KEY:key}));
  const props={getProperty:k=>properties.get(k)||null,setProperty:(k,v)=>{properties.set(k,String(v));return props;},deleteProperty:k=>{properties.delete(k);return props;},getProperties:()=>Object.fromEntries(properties)};
  let activeAudioJob;
- const c=vm.createContext({Date,PropertiesService:{getScriptProperties:()=>props},Utilities:utilities(),SpreadsheetApp:{openById:id=>google.book(id),flush:()=>{},newRichTextValue:()=>new RichBuilder(),newTextStyle:()=>new Style()},DriveApp:{getFileById:id=>google.file(id)},ScriptApp:{getOAuthToken:()=>google.token()},UrlFetchApp:{fetch:(url,o={})=>{let body=o.payload;if(url.includes(':generateContent')){const data=JSON.parse(body);data.systemInstruction={parts:[{text:'BƯỚC 0: Đây là bài audio của lớp IELTS. Chỉ chấm ngôn ngữ nghe được theo bốn tiêu chí IELTS Speaking: Fluency & Coherence, Lexical Resource, Grammatical Range & Accuracy, Pronunciation. Không có hình nên tuyệt đối không nhận xét ánh mắt, tư thế hay ngôn ngữ cơ thể. Lời khen và sửa lỗi tách đúng nhóm; không xã giao.'}]};data.systemInstruction.parts.push({text:PEDAGOGY_INSTRUCTION});body=validatedAudioRequest(data,activeAudioJob);}return request({url,method:(o.method||'GET').toUpperCase(),headers:{...(o.headers||{}),...(o.contentType?{'Content-Type':o.contentType}:{})},body});}}});
+ const c=vm.createContext({Date,PropertiesService:{getScriptProperties:()=>props},Utilities:utilities(),SpreadsheetApp:{openById:id=>google.book(id),flush:()=>{},newRichTextValue:()=>new RichBuilder(),newTextStyle:()=>new Style()},DriveApp:{getFileById:id=>google.file(id)},ScriptApp:{getOAuthToken:()=>google.token()},UrlFetchApp:{fetch:(url,o={})=>{let body=o.payload;if(url.includes(':generateContent')){const data=JSON.parse(body);data.systemInstruction={parts:[{text:'BƯỚC 0: Đây là bài audio của lớp IELTS. Chỉ chấm ngôn ngữ nghe được theo bốn tiêu chí IELTS Speaking: Fluency & Coherence, Lexical Resource, Grammatical Range & Accuracy, Pronunciation. Không có hình nên tuyệt đối không nhận xét ánh mắt, tư thế hay ngôn ngữ cơ thể. Lời khen và sửa lỗi tách đúng nhóm; không xã giao.'}]};data.systemInstruction.parts.push({text:PEDAGOGY_INSTRUCTION});data.systemInstruction.parts.push({text:ieltsAddressInstruction('IELTS')});body=validatedAudioRequest(data,activeAudioJob);}return request({url,method:(o.method||'GET').toUpperCase(),headers:{...(o.headers||{}),...(o.contentType?{'Content-Type':o.contentType}:{})},body});}}});
  for(const file of fs.readdirSync(path.join(root,'ielts-gas')).filter(f=>f.endsWith('.gs')))vm.runInContext(fs.readFileSync(path.join(root,'ielts-gas',file),'utf8'),c,{filename:file});
  installReturnedSpeakingPolicy(c);
+ installIeltsAddress(c);
  if(process.env.SPEAKING_BAREM_CATALOG)installApprovedSpeakingBarem(c,process.env.SPEAKING_BAREM_CATALOG);
  const originalGenerationConfig=c.isgCostGenerationConfig_;c.isgCostGenerationConfig_=model=>({...withSpeakingOutputReserve(originalGenerationConfig(model),model),temperature:0.2});
  const originalPrompt=c.isgPrompt_;c.isgPrompt_=(guide,count)=>assessmentInstruction('IELTS Speaking')+'\n'+originalPrompt(guide,count);

@@ -42,6 +42,7 @@ jobs:
           node master-submission-scope-tests.mjs
           node saved-speaking-consistency-tests.mjs
           node speaking-returned-result-policy-tests.mjs
+          node ielts-address-policy-tests.mjs
           node --check run-speaking.mjs
           node --check ielts-runner.mjs
       - name: Install audio validation tools
