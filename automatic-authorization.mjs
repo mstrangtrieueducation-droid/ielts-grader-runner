@@ -1,8 +1,9 @@
 import {receiptDate,generationSpent} from './master-policy.mjs';
 import {masterScopeAllowsJob} from './master-submission-scope.mjs';
+import {speakingRetryAllowed} from './speaking-provider-retry.mjs';
 const pending=new Set(['QUEUED','READY','WAITING_MEDIA','WAITING_INPUT','WAITING_TEACHER_APPROVAL','RETRY']);
 export function automaticEligible(j,all=[]){
- if(!masterScopeAllowsJob(j)||!pending.has(j.status)||j.rawId||j.gradeId||generationSpent(j)||j.approvedGenerateRequests||j.generationAttempt?.calls||j.apiUsage||j.usage||j.technicalInputFailure||j.presentationResubmissionRequired)return false;
+ if(!speakingRetryAllowed(j)&&(!masterScopeAllowsJob(j)||!pending.has(j.status)||j.rawId||j.gradeId||generationSpent(j)||j.approvedGenerateRequests||j.generationAttempt?.calls||j.apiUsage||j.usage||j.technicalInputFailure||j.presentationResubmissionRequired))return false;
  const key=x=>[x.cls?.spreadsheetId||x.source?.className,x.receipt?.student||x.source?.name,x.route?.code||x.source?.code].join('|');
  return !all.some(p=>key(p)===key(j)&&(p.presentationResubmissionRequired||/RESUBMISSION|UNASSESSABLE|CẦN_NỘP_LẠI|NEEDS_RESUBMISSION/.test(p.status)));
 }

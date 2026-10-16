@@ -18,7 +18,7 @@ async function main(){
  if(mode==='grade'){process.env.AUTOMATIC_GRADING_AUTHORIZED='true';process.env.MASTER_CROSS_CLASS_SWEEP='true';}
  const privateDir=path.join(root,'.runtime');fs.mkdirSync(privateDir,{recursive:true,mode:0o700});const catalogFile=path.join(privateDir,'speaking-barem.json');fs.writeFileSync(catalogFile,JSON.stringify(barem),{mode:0o600});
  process.env.SPEAKING_BAREM_CATALOG=catalogFile;process.env.RUNNER_HOST='github';if(config.nonStudentAudioRegistry){fs.mkdirSync(path.join(root,'private'),{recursive:true});fs.writeFileSync(path.join(root,'private/non-student-audio-registry.json'),JSON.stringify(config.nonStudentAudioRegistry));}
- const {Google,request}=await import('./google-adapter.mjs'),{runIelts}=await import('./ielts-runner.mjs'),{speakingCatalog}=await import('./speaking-barem-runtime.mjs'),{localGuard}=await import('./runner-state.mjs');
+ const {Google,request,pause}=await import('./google-adapter.mjs'),{runIelts}=await import('./ielts-runner.mjs'),{speakingCatalog}=await import('./speaking-barem-runtime.mjs'),{localGuard}=await import('./runner-state.mjs');
  speakingCatalog(barem);const google=new Google(sa),release=localGuard(path.join(privateDir,'runner.lock'));
  let finished=0,requests=0;const deadline=Date.now()+40*60000;
  // Public logs contain only aggregate counters; names, source IDs and feedback stay in private Sheets.
@@ -30,7 +30,10 @@ async function main(){
   }
   do{
    const result=runIelts({google,config,key,root,deadline,emit,maxJobs:Infinity,maxApiCalls:Infinity});finished+=result.finished;requests+=result.paidCalls;
-   if(!result.finished&&!result.paidCalls)break;
+   if(result.nextRetryAt!==null&&Number.isFinite(result.nextRetryAt)){
+    if(result.nextRetryAt>deadline-120000)break;
+    while(Date.now()<result.nextRetryAt)pause(Math.min(30000,result.nextRetryAt-Date.now()));
+   }else if(!result.finished&&!result.paidCalls)break;
   }while(Date.now()<deadline-120000);
   const result={finished,providerGenerateCalls:requests};console.log(JSON.stringify(result));
   if(process.env.GITHUB_STEP_SUMMARY)fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,`IELTS Speaking: ${finished} results returned; ${requests} provider requests.\n`);

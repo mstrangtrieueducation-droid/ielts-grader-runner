@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';import vm from 'node:vm';
+import {hasSpeakingResult,speakingRetryAllowed,pendingSpeakingRetry,scheduleSpeakingRetry,reserveSpeakingRequest,reconcileSpeakingRetries,installSpeakingRetryProcess,nextSpeakingRetry} from './speaking-provider-retry.mjs';
+import {automaticEligible} from './automatic-authorization.mjs';
+
+const now=Date.now(),base=()=>({id:'fixture',mode:'live',status:'NEEDS_REVIEW',source:{time:'16/10/2026 10:00',className:'IELTS 48',code:'S15',name:'fixture'},approvedGenerateRequests:1,attempts:1,lastAttemptAt:new Date(now-3600000).toISOString(),updatedAt:new Date(now-3500000).toISOString(),error:'SPEAKING_API_HTTP_429',apiFailure:{httpStatus:429,retryMs:0}});
+let saves=0;const save=()=>saves++;
+const j=base();assert.equal(scheduleSpeakingRetry(j,save,now,true),true);assert.equal(j.status,'PENDING_RETRY');assert.equal(j.nextAt,now);assert.equal(j.approvedGenerateRequests,1);assert.equal(j.attempts,1);assert.equal(speakingRetryAllowed(j,now),true);assert.equal(automaticEligible(j),true);
+scheduleSpeakingRetry(j,save,now+1,true);assert.equal(j.providerRetry.failures.length,1);assert.equal(j.nextAt,now);
+reserveSpeakingRequest(j,save,now+1);assert.equal(j.approvedGenerateRequests,2);assert.equal(j.providerRetry.phase,'IN_FLIGHT');assert.throws(()=>reserveSpeakingRequest(j,save,now+2),/SINGLE_PASS/);
+j.lastAttemptAt=new Date(now+1).toISOString();j.status='NEEDS_REVIEW';scheduleSpeakingRetry(j,save,now+10);assert.equal(j.nextAt,now+120010);assert.equal(j.providerRetry.failures.length,2);assert.equal(speakingRetryAllowed(j,now+120009),false);assert.equal(nextSpeakingRetry([{job:j}]),j.nextAt);
+const fresh=base();scheduleSpeakingRetry(fresh,save,now);assert.equal(fresh.nextAt,now+60000);assert.equal(automaticEligible(fresh),false);assert.equal(pendingSpeakingRetry(fresh),true);
+const directed=base();directed.apiFailure.retryMs=300000;scheduleSpeakingRetry(directed,save,now);assert.equal(directed.nextAt,now+300000);
+for(const field of ['rawId','gradeId','apiUsage','usage','resultHash']){const guarded=base();guarded.previousGradingAttempts=[{[field]:field.endsWith('Id')?'saved':{tokens:1}}];assert.equal(hasSpeakingResult(guarded),true);assert.equal(scheduleSpeakingRetry(guarded,save,now),false);assert.throws(()=>reserveSpeakingRequest(guarded,save,now),/SAVED_RESULT/);}
+for(const patch of [{status:'DONE'},{error:'SPEAKING_API_HTTP_503',apiFailure:{httpStatus:503}},{error:'SPEAKING_PREVIOUS_RUN_INTERRUPTED'},{error:'SPEAKING_RESPONSE_INCOMPLETE'},{source:{time:'31/08/2026 20:00'}},{technicalInputFailure:{}},{presentationResubmissionRequired:{}}])assert.equal(scheduleSpeakingRetry({...base(),...patch},save,now),false);
+const net=base();net.error='SPEAKING_API_OUTCOME_UNKNOWN';delete net.apiFailure;scheduleSpeakingRetry(net,save,now);assert.equal(net.status,'PENDING_RETRY');assert.equal(net.providerRetry.failures[0].outcomeUnknown,true);assert.equal(net.nextAt,now+60000);
+// A transient network failure before send gets a fresh backoff, rather than a tight loop.
+const before=base();before.approvedGenerateRequests=0;before.error='SPEAKING_INTERNAL_ERROR';before.internalDiagnostic='NETWORK_OUTCOME_UNKNOWN';scheduleSpeakingRetry(before,save,now);scheduleSpeakingRetry(before,save,now+60000);assert.equal(before.nextAt,now+180000);
+// Exercise the process adapter across rejected request -> saved result -> delivery.
+const recover=base();reconcileSpeakingRetries([{job:recover,row:2}],()=>{});let calls=0;
+const c={isgSave_:()=>{},isgProcess_:(table,item)=>{calls++;reserveSpeakingRequest(item.job,()=>{});item.job.rawId='saved-raw';item.job.apiUsage={tokens:4};item.job.gradeUsable=true;item.job.status='DONE';return item.job;}};
+installSpeakingRetryProcess(c);c.isgProcess_({}, {job:recover,row:2});assert.equal(calls,1);assert.equal(recover.status,'DONE');assert.equal(recover.providerRetry.phase,'RESULT_SAVED');assert.equal(recover.approvedGenerateRequests,2);assert.equal(speakingRetryAllowed(recover),false);
+const wait=base();scheduleSpeakingRetry(wait,()=>{},Date.now());c.isgProcess_({}, {job:wait,row:3});assert.equal(calls,1);assert.equal(wait.status,'PENDING_RETRY');
+const accepted=base();accepted.providerResponseReceived={httpStatus:200};accepted.error='SPEAKING_INTERNAL_ERROR';accepted.internalDiagnostic='NETWORK_OUTCOME_UNKNOWN';assert.equal(scheduleSpeakingRetry(accepted,save,now),false);
+const approved=base();scheduleSpeakingRetry(approved,save,now,true);approved.status='QUEUED';approved.error='';assert.equal(speakingRetryAllowed(approved,now),true);
+let writes=0;const writer={isgProcess_:()=>{},isgWrite_:()=>{writes++;return 'DONE';}};installSpeakingRetryProcess(writer);assert.throws(()=>writer.isgWrite_({}),/SUCCESSFUL_RESULT_REQUIRED/);assert.throws(()=>writer.isgWrite_({rawId:'saved',gradeUsable:false}),/SUCCESSFUL_RESULT_REQUIRED/);assert.equal(writer.isgWrite_({rawId:'saved',gradeUsable:true}),'DONE');assert.equal(writes,1);
+// Run the unchanged native queue catch path, not only a fake process adapter.
+const native=vm.createContext({Date,JSON,Error,isgSave_:()=>{},isgKey_:()=>{},isgScopeAllows_:()=>true,isgFresh_:()=>{},isgTarget_:()=>({spreadsheetId:'fixture',address:'A1',text:'receipt',note:'',range:{canEdit:()=>true}}),isgHasFeedback_:()=>false,isgAssert_:(ok,code)=>{if(!ok)throw Error(code);},isgGuideline_:()=>({}),isgMedia_:()=>[],isgBindCostModel_:()=>{},isgHash_:()=> 'fixture-hash',ISG:{version:'fixture'},isgArtifact_:()=> 'fixture-input',isgCallGemini_:(job)=>{reserveSpeakingRequest(job,()=>{});job.apiFailure={httpStatus:429};throw Error('SPEAKING_API_HTTP_429');},isgWrite_:()=>{throw Error('UNEXPECTED_WRITE');}});
+vm.runInContext(fs.readFileSync(new URL('./ielts-gas/SpeakingQueue.gs',import.meta.url),'utf8'),native);installSpeakingRetryProcess(native);
+const n=base();n.status='QUEUED';n.approvedGenerateRequests=0;n.attempts=0;delete n.apiFailure;n.error='';native.isgProcess_({}, {job:n,row:2});assert.equal(n.status,'PENDING_RETRY');assert.equal(n.approvedGenerateRequests,1);assert.equal(n.rawId,undefined);assert.equal(n.gradeId,undefined);assert.ok(n.nextAt>Date.now());
+console.log('PASS Speaking provider retry: 429/network backoff, restart recovery, counters retained, archive/raw protection, successful delivery, no early replay; 0 API calls.');
