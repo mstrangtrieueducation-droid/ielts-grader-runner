@@ -7,6 +7,7 @@ assert.equal(ieltsAddressText('Con chú ý con số 6, con người và con đư
 const quotes='“Con nói” và "con artist", \'con\', /kɒn/; con → /kɒn/. Ở 00:18, con sửa âm /n/. Band 6.5.';
 assert.equal(ieltsAddressText(quotes),'“Con nói” và "con artist", \'con\', /kɒn/; con → /kɒn/. Ở 00:18, em sửa âm /n/. Band 6.5.');
 assert.equal(ieltsAddressText('Học sinh nói rõ.\n - con giữ /s/.'),'Em nói rõ.\n - em giữ /s/.');
+assert.equal(ieltsAddressText('Để bài nói/bài đọc chuẩn xác hơn, con chú ý từ "child" /tʃaɪld/ nhé.'),'Để bài nói/bài đọc chuẩn xác hơn, em chú ý từ "child" /tʃaɪld/ nhé.');
 const segments=[{text:'Con nói rõ; con giữ /s/ ở 00:18. 85%.',tone:'correction'}],before=structuredClone(segments);
 for(const cls of ['IELTS 45','ielts51']){assert.equal(isIeltsClass(cls),true);assert.ok(ieltsAddressInstruction(cls).includes('em/Em'));assert.equal(ieltsAddressSegments(segments,cls)[0].text,'Em nói rõ; em giữ /s/ ở 00:18. 85%.');}
 for(const cls of ['KIDS 7','FIGHTER 8']){assert.equal(ieltsAddressInstruction(cls),'');assert.equal(ieltsAddressSegments(segments,cls),segments);}

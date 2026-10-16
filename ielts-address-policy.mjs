@@ -3,7 +3,7 @@ export const isIeltsClass=name=>/^IELTS(?=\s|\d|[-_]|$)/iu.test(String(name||'')
 export const ieltsAddressInstruction=name=>isIeltsClass(name)?'QUY ƯỚC XƯNG HÔ IELTS BẮT BUỘC: Viết trực tiếp cho người học bằng em/Em, tuyệt đối không gọi người nhận là con/Con trong lời khen, chuyển ý, sửa lỗi, nhận xét và lời khuyên. Quy tắc này áp dụng cả IELTS Speaking và Shadowing của lớp IELTS, ưu tiên hơn cách xưng hô của mẫu Kids. Giữ nguyên câu trích dẫn, từ tiếng Anh, IPA, mốc thời gian, điểm và nội dung lỗi.':'';
 const ordinaryNoun=/^\s+(?:số|người|đường|vật|trai|gái|cái|chim|mèo|chó|cá|voi|sông|thuyền|tôm|kiến|bọ|ngựa|vịt|gà)(?=$|[^\p{L}])/iu;
 export function ieltsAddressText(value){
- return String(value).replace(/Nghe:\s*[^\n]*?(?=\.\s+(?:Sửa|Cách sửa):|;\s*\[file|$|\n)|"[^"\n]*"|“[^”\n]*”|'[^'\n]*'|‘[^’\n]*’|\/[^/\n]+\/|(?<![\p{L}\p{N}_])(?:Con|CON|con)(?![\p{L}\p{N}_])|(^|[.!?\n]\s*)([ \t]*(?:-\s*)?)(?:Học sinh|HỌC SINH|học sinh)(?=\s|[:,])/gu,(match,boundary,prefix,offset,input)=>{
+ return String(value).replace(/Nghe:\s*[^\n]*?(?=\.\s+(?:Sửa|Cách sửa):|;\s*\[file|$|\n)|"[^"\n]*"|“[^”\n]*”|'[^'\n]*'|‘[^’\n]*’|\/[a-zA-Zɐ-ʯˈˌːˑθðŋæɑɒɔʊəɛɪʌɜɡɲɕɾr()\u0300-\u036f .-]+\/|(?<![\p{L}\p{N}_])(?:Con|CON|con)(?![\p{L}\p{N}_])|(^|[.!?\n]\s*)([ \t]*(?:-\s*)?)(?:Học sinh|HỌC SINH|học sinh)(?=\s|[:,])/gu,(match,boundary,prefix,offset,input)=>{
   if(boundary!==undefined)return boundary+prefix+'Em';
   if(!/^(?:Con|CON|con)$/u.test(match))return match;
   const rest=input.slice(offset+match.length);
