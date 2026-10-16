@@ -1,4 +1,5 @@
 name: Grade IELTS Pipeline
+run-name: Speaking grading enabled=${{ vars.SPEAKING_ENABLED }} mode=${{ inputs.mode || 'grade' }}
 on:
   workflow_dispatch:
     inputs:
@@ -7,8 +8,6 @@ on:
         type: choice
         options: [validate, audit, grade]
         default: grade
-  schedule:
-    - cron: '*/10 * * * *'
 permissions:
   contents: read
 concurrency:
@@ -16,7 +15,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   speaking:
-    if: github.event_name == 'workflow_dispatch' || vars.SPEAKING_ENABLED == 'true'
+    if: github.repository == 'mstrangtrieueducation-droid/ielts-grader-runner' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (inputs.mode == 'validate' || inputs.mode == 'audit' || vars.SPEAKING_ENABLED == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 55
     env:
@@ -35,6 +34,7 @@ jobs:
           node hosted-bootstrap.mjs
           node automatic-authorization-tests.mjs
           node speaking-provider-retry-tests.mjs
+          node continuous-dispatcher-tests.mjs
           node screen-grounding-tests.mjs
           node ielts-speaking-tests.mjs
           node master-cross-class-sweep-tests.mjs
