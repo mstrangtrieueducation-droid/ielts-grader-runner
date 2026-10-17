@@ -9,7 +9,7 @@ export function hasSpeakingResult(value,seen=new Set()){
  return Object.values(value).some(v=>v&&typeof v==='object'&&hasSpeakingResult(v,seen));
 }
 function failureKind(j){
- if(j.error==='SPEAKING_API_HTTP_429'&&Number(j.apiFailure?.httpStatus)===429)return 'HTTP_429';
+ const http=Number(j.apiFailure?.httpStatus);if([429,500,502,503,504].includes(http)&&j.error==='SPEAKING_API_HTTP_'+http)return 'HTTP_'+http;
  if(j.error==='SPEAKING_API_OUTCOME_UNKNOWN'||j.error==='SPEAKING_INTERNAL_ERROR'&&/NETWORK_OUTCOME_UNKNOWN/.test(j.internalDiagnostic||''))return 'NETWORK_NO_RESPONSE';
  return null;
 }
@@ -25,7 +25,7 @@ export function scheduleSpeakingRetry(j,save,now=Date.now(),recover=false){
  const prior=j.providerRetry||{},key=[j.lastAttemptAt||'',j.approvedGenerateRequests||0,j.error].join('|');
  if(recover&&prior.policy===SPEAKING_RETRY_POLICY&&prior.failureKey===key&&prior.phase==='WAITING'){j.status='PENDING_RETRY';j.nextAt=prior.nextAt;j.retryAt=new Date(prior.nextAt).toISOString();return true;}
  const failures=(prior.failures||[]).concat([{at:new Date(now).toISOString(),requestAt:j.lastAttemptAt||null,requestCount:Number(j.approvedGenerateRequests||0),error:j.error,kind,outcomeUnknown:kind==='NETWORK_NO_RESPONSE'}]);
- const delay=Math.max(failures.length===1?60000:120000,Number(j.apiFailure?.retryMs)||0);
+ const delay=Math.max(kind==='HTTP_429'?(failures.length===1?60000:120000):(failures.length%3===0?600000:5000),Number(j.apiFailure?.retryMs)||0);
  // Past, explicit rejections can resume immediately once their backoff already elapsed.
  const failedAt=recover?Date.parse(j.updatedAt||j.lastAttemptAt||''):now;const nextAt=Math.max(now,Number.isFinite(failedAt)?failedAt+delay:now+delay);
  j.providerRetry={policy:SPEAKING_RETRY_POLICY,phase:'WAITING',failureKey:key,failedRequestCount:Number(j.approvedGenerateRequests||0),nextAt,failures};

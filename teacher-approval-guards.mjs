@@ -29,11 +29,11 @@ export function acceptTeacherApprovals(jobs,session,controlId,tab,save){
 }
 export function auditPreparedPart({g,c,job,m,part,root,ffmpeg}){
  if(m.isReference||!part||m.localSilence)return;
- const cache=path.join(root,'private','cache'),tag=m.id+'-'+c.hash_(m.modified).slice(0,10);let file=['.mp3','.m4a','.flac'].map(ext=>path.join(cache,tag+ext)).find(p=>fs.existsSync(p));
+ const cache=path.join(root,'private','cache'),tag=m.id+'-'+c.hash_(m.modified).slice(0,10);let file=m.universalAudio?.fullFile||['.mp3','.m4a','.flac'].map(ext=>path.join(cache,tag+ext)).find(p=>fs.existsSync(p));
  const auditDir=path.join(root,'private','silence-audit');fs.mkdirSync(auditDir,{recursive:true});
  if(!file&&part.inlineData?.mimeType?.startsWith('audio/')){file=path.join(auditDir,m.id+'.audio');fs.writeFileSync(file,Buffer.from(part.inlineData.data,'base64'));}
  if(!file){const original=path.join(auditDir,m.id+'.original');if(!fs.existsSync(original)){const r=request({url:'https://www.googleapis.com/drive/v3/files/'+m.id+'?alt=media&supportsAllDrives=true',headers:{Authorization:'Bearer '+g.token()},outputFile:original+'.partial',timeoutMs:240000});if(r.getResponseCode()!==200)throw Error('AUDIO_AUDIT_DOWNLOAD_FAILED');fs.renameSync(original+'.partial',original);}file=extractStudentAudio({ffmpeg,input:original,audio:path.join(auditDir,m.id+'.m4a'),flac:path.join(auditDir,m.id+'.flac'),canonicalFormat:'mp3'}).file;}
- m.localSilence=inspectSilence(ffmpeg,file);m.runnerAudio={...m.runnerAudio,sha256:audioDigest(fs.readFileSync(file))};
+ m.localSilence=inspectSilence(ffmpeg,file);if(!m.universalAudio)m.runnerAudio={...m.runnerAudio,sha256:audioDigest(fs.readFileSync(file))};
 }
 export function installTeacherApprovalGuards(c,{g,root,ffmpeg,session,emit=()=>{}}){
  const originalStep=c.step_,originalGenerate=c.generate_,originalError=c.handleError_,originalSystem=c.kidsSystemInstruction_,hasFeedback=c.hasFeedback_,mediaPart=c.mediaPart_;

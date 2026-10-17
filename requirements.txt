@@ -1,3 +1,1 @@
-# IELTS Speaking uses Node.js 24 and its standard library.
-# The optional Python launcher uses only the Python standard library.
-# No Python third-party dependencies are required.
+yt-dlp[default]==2026.8.19

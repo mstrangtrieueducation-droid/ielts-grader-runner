@@ -35,6 +35,8 @@ jobs:
           node automatic-authorization-tests.mjs
           node speaking-provider-retry-tests.mjs
           node continuous-dispatcher-tests.mjs
+          node universal-media-tests.mjs
+          node speaking-media-preprocessing-tests.mjs
           node screen-grounding-tests.mjs
           node ielts-speaking-tests.mjs
           node master-cross-class-sweep-tests.mjs
@@ -51,6 +53,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg
+          python3 -m pip install --quiet -r requirements.txt
       - name: Audit or grade on the dedicated Speaking project
         if: env.MODE != 'validate'
         env:
