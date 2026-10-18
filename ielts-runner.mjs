@@ -1,4 +1,5 @@
 import {createMediaService,universalValidatedRequest,isTransient,retryPreparation} from './universal-media.mjs';
+import {installFeedbackAlignment} from './feedback-alignment.mjs';
 import {installSpeakingMedia} from './speaking-media-preprocessing.mjs';
 import {PEDAGOGY_INSTRUCTION} from './pedagogical-language.mjs';
 import {speakingRetryAllowed,reserveSpeakingRequest,reconcileSpeakingRetries,installSpeakingRetryProcess,nextSpeakingRetry} from './speaking-provider-retry.mjs';
@@ -22,6 +23,7 @@ import {assessmentInstruction} from './assessment-policy.mjs';
 const nativeResubmission=withIeltsNoticeAddress(nativeResubmissionBase,SILENT_NOTICE);
 
 export function runIelts({google,config,key,root,deadline,emit,audit=false,maxJobs=8,maxApiCalls=Infinity}){
+ installFeedbackAlignment(google);
  verifyCodeFreeze(root);
  if(!config.ielts)return {finished:0,paidCalls:0};
  const binding={...config.ielts,model:'gemini-3.8-flash'};
