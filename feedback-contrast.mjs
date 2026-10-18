@@ -1,0 +1,32 @@
+// Foreground-only contrast repair. Semantic green/pink colors remain unchanged.
+const rgb=hex=>({red:parseInt(hex.slice(1,3),16)/255,green:parseInt(hex.slice(3,5),16)/255,blue:parseInt(hex.slice(5,7),16)/255});
+export const FEEDBACK_BASE='#0D47A1';
+const luminance=c=>['red','green','blue'].map(k=>c[k]||0).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((n,v,i)=>n+v*[.2126,.7152,.0722][i],0);
+export function readableForeground(format={}){
+ const color=format.foregroundColorStyle?.rgbColor||format.foregroundColor;
+ if(!color)return format.foregroundColorStyle?.themeColor?rgb(FEEDBACK_BASE):null;
+ // Pale green and yellow tracker fills are darker than white; use the worse
+ // contrast of both representative fills, rather than testing white alone.
+ const contrast=bg=>(Math.max(luminance(bg),luminance(color))+.05)/(Math.min(luminance(bg),luminance(color))+.05);
+ if(Math.min(contrast(rgb('#D9EAD3')),contrast(rgb('#FFF2CC')))>=4.5)return color;
+ const r=color.red||0,g=color.green||0,b=color.blue||0;
+ return rgb(g>r*1.12&&g>b*1.08?'#1B5E20':r>b*1.12&&r>g*1.25?'#C2185B':b>g*1.15&&r>g*1.15?'#C2185B':FEEDBACK_BASE);
+}
+export function contrastCell(cell,{base=true}={}){
+ const out=structuredClone(cell);
+ for(const run of out.textFormatRuns||[]){const color=readableForeground(run.format);if(!color)continue;run.format={...run.format,foregroundColorStyle:{rgbColor:color}};delete run.format.foregroundColor;}
+ if(base){out.userEnteredFormat={...out.userEnteredFormat,textFormat:{...out.userEnteredFormat?.textFormat,foregroundColorStyle:{rgbColor:rgb(FEEDBACK_BASE)}}};delete out.userEnteredFormat.textFormat.foregroundColor;}
+ return out;
+}
+export function contrastingFeedbackBody(body){
+ if(!Array.isArray(body?.requests))return body;let changed=false;
+ const requests=body.requests.map(request=>{const u=request.updateCells;if(!u?.range)return request;let eligible=false;
+  const rows=(u.rows||[]).map(row=>({...row,values:(row.values||[]).map(cell=>{const text=cell.userEnteredValue?.stringValue||'';
+   if(text.trim().startsWith('{')||text.trim().startsWith('[')||cell.dataValidation||cell.userEnteredValue?.formulaValue)return cell;
+   const full=/NHẬN XÉT GV|Estimated Band:|Chất lượng:/i.test(text),repair=!cell.userEnteredValue&&cell.textFormatRuns?.length;
+   if(!full&&!repair)return cell;eligible=true;return contrastCell(cell,{base:full});
+  })}));
+  if(!eligible)return request;changed=true;
+  return {updateCells:{...u,rows,fields:u.fields==='*'?'*':[...new Set((u.fields||'').split(',').filter(Boolean).concat(rows.some(r=>r.values.some(c=>c.userEnteredValue?.stringValue))?['userEnteredFormat.textFormat.foregroundColorStyle']:[]))].join(',')}};
+ });return changed?{...body,requests}:body;
+}

@@ -1,4 +1,5 @@
-// Formatting only: preserve every value, score, text run, link and color.
+import {contrastingFeedbackBody} from './feedback-contrast.mjs';
+// Alignment preserves every value and run; the separate contrast policy repairs pale ink.
 export function leftAlignedFeedbackBody(body){
  if(!Array.isArray(body?.requests))return body;
  const requests=[];let added=false;
@@ -16,5 +17,5 @@ export function leftAlignedFeedbackBody(body){
 const installed=Symbol.for('teacher.feedbackAlignment.left');
 export function installFeedbackAlignment(google){
  if(google[installed])return;const api=google.api;
- google.api=function(url,method,...args){if(method==='POST'&&/sheets\.googleapis\.com\/v4\/spreadsheets\/[^/]+:batchUpdate$/.test(url))args[0]=leftAlignedFeedbackBody(args[0]);return api.call(this,url,method,...args);};google[installed]=true;
+ google.api=function(url,method,...args){if(method==='POST'&&/sheets\.googleapis\.com\/v4\/spreadsheets\/[^/]+:batchUpdate$/.test(url))args[0]=contrastingFeedbackBody(leftAlignedFeedbackBody(args[0]));return api.call(this,url,method,...args);};google[installed]=true;
 }
