@@ -20,13 +20,15 @@ export function contrastCell(cell,{base=true}={}){
 }
 export function contrastingFeedbackBody(body){
  if(!Array.isArray(body?.requests))return body;let changed=false;
- const requests=body.requests.map(request=>{const u=request.updateCells;if(!u?.range)return request;let eligible=false;
-  const rows=(u.rows||[]).map(row=>({...row,values:(row.values||[]).map(cell=>{const text=cell.userEnteredValue?.stringValue||'';
+ const requests=[];for(const request of body.requests){const u=request.updateCells;if(!u?.range){requests.push(request);continue;}let eligible=false;const baseRequests=[];
+  const rows=(u.rows||[]).map((row,i)=>({...row,values:(row.values||[]).map((cell,k)=>{const text=cell.userEnteredValue?.stringValue||'';
    if(text.trim().startsWith('{')||text.trim().startsWith('[')||cell.dataValidation||cell.userEnteredValue?.formulaValue)return cell;
    const full=/NHẬN XÉT GV|Estimated Band:|Chất lượng:/i.test(text),repair=!cell.userEnteredValue&&cell.textFormatRuns?.length;
-   if(!full&&!repair)return cell;eligible=true;return contrastCell(cell,{base:full});
+   if(!full&&!repair)return cell;eligible=true;
+   if(full){const r=(u.range.startRowIndex||0)+i,c=(u.range.startColumnIndex||0)+k;baseRequests.push({repeatCell:{range:{sheetId:u.range.sheetId,startRowIndex:r,endRowIndex:r+1,startColumnIndex:c,endColumnIndex:c+1},cell:{userEnteredFormat:{textFormat:{foregroundColorStyle:{rgbColor:rgb(FEEDBACK_BASE)}}}},fields:'userEnteredFormat.textFormat.foregroundColorStyle'}});}
+   return contrastCell(cell,{base:false});
   })}));
-  if(!eligible)return request;changed=true;
-  return {updateCells:{...u,rows,fields:u.fields==='*'?'*':[...new Set((u.fields||'').split(',').filter(Boolean).concat(rows.some(r=>r.values.some(c=>c.userEnteredValue?.stringValue))?['userEnteredFormat.textFormat.foregroundColorStyle']:[]))].join(',')}};
- });return changed?{...body,requests}:body;
+  if(!eligible){requests.push(request);continue;}changed=true;
+  requests.push({updateCells:{...u,rows}},...baseRequests.filter(x=>!body.requests.some(y=>JSON.stringify(x)===JSON.stringify(y))));
+ }return changed?{...body,requests}:body;
 }
