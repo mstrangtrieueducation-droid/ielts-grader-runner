@@ -12,11 +12,12 @@ export function compactSchema(labels,{speaking=false,foundation=false,visual=fal
 export function compactResponse(raw){
  const text=(raw?.candidates?.[0]?.content?.parts||[]).filter(p=>!p.thought&&typeof p.text==='string').map(p=>p.text).join('').replace(/^\s*```(?:json)?\s*|\s*```\s*$/g,'');
  let g;try{g=JSON.parse(text);}catch{return null;}if(g?.v!==COMPACT_VERSION)return null;
+ if(raw.candidates?.[0]?.finishReason&&raw.candidates[0].finishReason!=='STOP')throw Error('COMPACT_RESPONSE_INCOMPLETE');
  if(typeof g.ok!=='boolean'||!Array.isArray(g.sections)||g.ok&&!g.sections.length||g.sections.some(s=>!s.label||typeof s.praise!=='string'||typeof s.correction!=='string'||!(s.praise+s.correction).trim())||g.ok&&(!Number.isFinite(g.score)||g.score<0)||!g.ok&&!String(g.why||g.visualBasis||'').trim())throw Error('COMPACT_RESULT_INCOMPLETE');
  return g;
 }
 export function expandKidsCompact(raw){
- const g=compactResponse(raw);if(!g)return null;const score=g.ok&&g.score<=100?Math.round(g.score/5)*5:null;
+ const g=compactResponse(raw);if(!g)return null;if(g.ok&&g.score>100)throw Error('COMPACT_SCORE_INVALID');const score=g.ok&&g.score<=100?Math.round(g.score/5)*5:null;
  return {assessable:g.ok,band:score===null?'':score+'%',rubricBand:score===null?'':score+'%',reason:g.why||'',speechStatus:'UNCERTAIN',
   presentationVisualCheck:{confirmed:!!g.visualBasis&&['screen_only','filming_screen'].includes(g.capture),studentVisible:g.capture==='student',capture:g.capture||'unknown',basis:g.visualBasis||'',sourceFileIndex:g.fileIndex||0},
   roseSections:g.sections.map(s=>{const spans=[s.praise?{text:s.praise,tone:'praise'}:null,s.correction?{text:(s.praise?'\n':'')+s.correction,tone:'correction'}:null].filter(Boolean);return {label:s.label,text:spans.map(p=>p.text).join(''),spans};}),compactPolicy:COMPACT_VERSION};

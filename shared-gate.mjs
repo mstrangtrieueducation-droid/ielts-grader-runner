@@ -15,6 +15,6 @@ export function reserveRateSlot(state,kind,now,interval=1100){
 }
 export function sheetsGate(file,kind){
  let release;while(!(release=tryFileLock(file+'.lock')))sleep(30);
- let at;try{const saved=fs.existsSync(file)?JSON.parse(fs.readFileSync(file)):{};const reserved=reserveRateSlot(saved,kind,Date.now());at=reserved.at;fs.writeFileSync(file,JSON.stringify(reserved.next));}finally{release();}
+ let at;try{const saved=fs.existsSync(file)?JSON.parse(fs.readFileSync(file)):{};const reserved=reserveRateSlot(saved,kind,Date.now(),Number(process.env.GOOGLE_SHEETS_INTERVAL_MS)||1100);at=reserved.at;fs.writeFileSync(file,JSON.stringify(reserved.next));}finally{release();}
  sleep(Math.max(0,at-Date.now()));
 }

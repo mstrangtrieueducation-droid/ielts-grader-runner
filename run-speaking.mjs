@@ -25,7 +25,7 @@ async function main(){
  speakingCatalog(barem);const google=new Google(sa),release=localGuard(path.join(privateDir,'runner.lock'));
  let finished=0,requests=0;const deadline=Date.now()+40*60000;
  // Public logs contain only aggregate counters; names, source IDs and feedback stay in private Sheets.
- const emit=e=>{if(e.event==='IELTS_COMPLETE'||e.event==='IELTS_AUDIT')console.log(JSON.stringify({event:e.event,counts:e.counts}));};
+ const emit=e=>{if(e.event==='IELTS_COMPLETE'||e.event==='IELTS_AUDIT')console.log(JSON.stringify({event:e.event,counts:e.counts}));else if(e.event==='SPEAKING_SOURCE_DEFERRED')console.log(JSON.stringify({event:e.event,tab:e.tab,reason:e.reason}));};
  try{
   if(mode==='audit'){
    const metadata=request({url:'https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(config.ielts.model),headers:{'x-goog-api-key':key},timeoutMs:30000});if(metadata.getResponseCode()!==200)throw Error('MODEL_PREFLIGHT_FAILED');

@@ -1,3 +1,4 @@
+import {completedLeaseOwner} from './completed-lease-owner.mjs';
 import fs from 'node:fs';
 import {randomUUID} from 'node:crypto';
 
@@ -18,7 +19,7 @@ export function stateStore(google,controlId,sheetName='RunnerState'){
  const read=()=>{b.cache.clear();return s.getRange('A1:B1').getDisplayValues()[0];};
  const [raw]=read();let initial={};if(raw){try{initial=JSON.parse(raw);}catch{throw Error('RUNNER_STATE_INVALID');}}
  const token=randomUUID();
- return {initial,acquire(until){const [_,leaseRaw]=read();const previous=leaseRaw?JSON.parse(leaseRaw):{};if(previous.until>Date.now())throw Error('SHARED_RUNNER_BUSY');s.getRange('B1').setValue(JSON.stringify({token,until,...(process.env.GITHUB_RUN_ID?{runId:process.env.GITHUB_RUN_ID}:{})}));const [__,actual]=read();if(JSON.parse(actual||'{}').token!==token)throw Error('SHARED_RUNNER_BUSY');},
+ return {initial,acquire(until){const [_,leaseRaw]=read();const previous=leaseRaw?JSON.parse(leaseRaw):{};if(previous.until>Date.now()&&!completedLeaseOwner(previous))throw Error('SHARED_RUNNER_BUSY');s.getRange('B1').setValue(JSON.stringify({token,until,...(process.env.GITHUB_RUN_ID?{runId:process.env.GITHUB_RUN_ID}:{})}));const [__,actual]=read();if(JSON.parse(actual||'{}').token!==token)throw Error('SHARED_RUNNER_BUSY');},
   save(properties){const filtered=Object.fromEntries([...properties].filter(([k])=>/^(FLEET_SCAN_|FLEET_WORK_|FLEET_LAST_SCAN|LAST_GENERATE_AT|KIDS_GENERATE_)/.test(k)));s.getRange('A1').setValue(JSON.stringify(filtered));},
   release(){const [_,raw]=read();if(JSON.parse(raw||'{}').token===token)s.getRange('B1').clearContent();}
  };
