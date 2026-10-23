@@ -17,7 +17,8 @@ export function actionableCount(jobs,now=Date.now()){
   if(Math.max(asTime(j.nextAt),asTime(j.retryAt),asTime(j.providerRetry?.nextAt))>now)return false;
   // A truncated paid response must never create a new call or an immediate scan loop.
   if(/RESPONSE_INCOMPLETE|RAW_TRUNCATED|JSON_INVALID|MALFORMED|TRUNCATED/.test(j.error||''))return false;
-  if(!j.rawId&&!j.gradeId&&jobs.some(p=>p!==j&&taskKey(p)===taskKey(j)&&hasSpeakingResult(p)))return false;
+  const repair=j.masterRepairOrigin,parent=repair&&jobs.find(p=>p.id===repair.parentId),authorizedCorrection=repair?.authorization==='teacher-master-policy-correction-20261023'&&parent?.rawId===repair.parentRawId&&parent?.source?.signature===j.source?.signature&&j.id===createHash('sha256').update(repair.authorization+'|'+parent.id).digest('hex');
+  if(!authorizedCorrection&&!j.rawId&&!j.gradeId&&jobs.some(p=>p!==j&&taskKey(p)===taskKey(j)&&hasSpeakingResult(p)))return false;
   if(speakingRetryAllowed(j,now))return true;
   if(j.rawId||j.gradeId)return mayResumeSaved(j)&&!['DONE','COMPLETED_UNASSESSABLE'].includes(j.status);
   return !spent(j)&&automaticEligible(j,jobs);
