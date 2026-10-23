@@ -1,3 +1,4 @@
+import {isNativeYouTubePart,validateNativeYouTubePart} from './native-youtube.mjs';
 import {screenGroundingSchema,SCREEN_OUTPUT_INSTRUCTION,compactWebScope} from './screen-grounding.mjs';
 import fs from 'node:fs';import path from 'node:path';import {randomUUID} from 'node:crypto';
 import {MASTER_TERMINAL,MASTER_MODEL,generationSpent} from './master-policy.mjs';import {STUDENT_VOICE_INSTRUCTION,voiceOrigin,audioDigest} from './student-voice-origin.mjs';
@@ -30,6 +31,7 @@ export function acceptTeacherApprovals(jobs,session,controlId,tab,save){
 }
 export function auditPreparedPart({g,c,job,m,part,root,ffmpeg}){
  if(m.isReference||!part||m.localSilence)return;
+ if(isNativeYouTubePart(part)){validateNativeYouTubePart(m,part);return;}
  const cache=path.join(root,'private','cache'),tag=m.id+'-'+c.hash_(m.modified).slice(0,10);let file=m.universalAudio?.fullFile||['.mp3','.m4a','.flac'].map(ext=>path.join(cache,tag+ext)).find(p=>fs.existsSync(p));
  const auditDir=path.join(root,'private','silence-audit');fs.mkdirSync(auditDir,{recursive:true});
  if(!file&&part.inlineData?.mimeType?.startsWith('audio/')){file=path.join(auditDir,m.id+'.audio');fs.writeFileSync(file,Buffer.from(part.inlineData.data,'base64'));}

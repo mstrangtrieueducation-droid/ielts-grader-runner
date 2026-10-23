@@ -1,3 +1,4 @@
+import {assertNativeEvidence} from './native-youtube.mjs';
 // Receipt acknowledgement is independent of source availability and assessment.
 export const SOURCE_VERSION='submission-source-v1';
 export const SOURCE_LABELS=Object.freeze({missing:'ĐÃ NỘP — Chưa có link',access:'ĐÃ NỘP — Link cần mở quyền xem',invalid:'ĐÃ NỘP — Link không hợp lệ',valid:'ĐÃ NỘP — Link hợp lệ',pending:'ĐÃ NỘP — Chờ kiểm tra link'});
@@ -32,16 +33,16 @@ export function inspectSubmissionSource({text,ids,service,metadata}){
   const files=ids||service.ids(text);if(!files.length)return sourceResult('invalid','NO_EXTRACTABLE_FILE');
   const proofs=[];
   // Check every attachment before ANY Gemini upload or generation is allowed.
-  for(const id of files){const m=metadata(id);if(m.trashed||!Number(m.size))return sourceResult('invalid','EMPTY_OR_REMOVED_FILE');
+  for(const id of files){const m=metadata(id);if(m.nativeYouTube){if(m.trashed)throw Error('SOURCE_NOT_FOUND');const proof=assertNativeEvidence(m.nativeYouTube,{id});proofs.push({id,bytes:null,modified:m.modifiedTime||m.modified,nativeYouTube:proof});continue;}if(m.trashed||!Number(m.size))return sourceResult('invalid','EMPTY_OR_REMOVED_FILE');
    const mime=m.mimeType||m.mime;if(!/^(audio|video|image)\//.test(mime||'')&&mime!=='application/pdf'&&!/\.(?:mp4|mov|m4a|mp3|wav|aac|ogg|flac|webm)$/i.test(m.name||''))return sourceResult('invalid','UNSUPPORTED_FILE_FORMAT');
    const proof=service.verifyDownload({id,mime,size:Number(m.size),modified:m.modifiedTime||m.modified});
    if(!proof||proof.complete!==true||proof.bytes!==Number(m.size))return sourceResult('pending','DOWNLOAD_NOT_CONFIRMED');
    proofs.push({id,bytes:proof.bytes,modified:m.modifiedTime||m.modified});
   }
-  return sourceResult('valid','DOWNLOAD_CONFIRMED',{files:proofs});
+  return sourceResult('valid',proofs.some(f=>f.nativeYouTube)?'PROVIDER_NATIVE_MEDIA_CONFIRMED':'DOWNLOAD_CONFIRMED',{files:proofs});
  }catch(error){return sourceFailure(error);}
 }
-export function assertSourceReady(result){if(result?.schema!==1||result.state!=='valid'||result.aiEligible!==true||!result.files?.length||result.files.some(f=>!(f.bytes>0)))throw Error('SOURCE_NOT_READY_FOR_AI');}
+export function assertSourceReady(result){if(result?.schema!==1||result.state!=='valid'||result.aiEligible!==true||!result.files?.length||result.files.some(f=>f.nativeYouTube?!assertNativeEvidence(f.nativeYouTube,{id:f.id}):!(f.bytes>0)))throw Error('SOURCE_NOT_READY_FOR_AI');}
 export function sourceNotice(result,time){return (result?.label||SOURCE_LABELS.pending)+(time?' · '+time:'');}
 
 // A browser-playable YouTube video may fail on a hosted downloader IP. A 403,

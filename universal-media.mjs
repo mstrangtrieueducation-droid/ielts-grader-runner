@@ -1,3 +1,4 @@
+import {nativeYoutubeEnabled,checkNativeYouTube,assertNativeEvidence,nativeYouTubePart} from './native-youtube.mjs';
 import {classifyYouTubeFailure} from './submission-source-policy.mjs';
 import {sheetTruthEnabled} from './sheet-truth-state.mjs';
 import fs from 'node:fs';
@@ -127,9 +128,12 @@ export function universalValidatedRequest(payload,job){
  const expanded={...payload,contents},check={...job,media};const body=validatedAudioRequest(expanded,check);job.lastPayloadValidation=check.lastPayloadValidation;return body;
 }
 export function createMediaService({g,root,key=process.env.GEMINI_API_KEY,ffmpeg=process.env.FFMPEG_PATH||'ffmpeg',run=spawnSync,download=request}){
- installTransientGoogle(g);const dir=path.join(root,'private','universal-media');fs.mkdirSync(dir,{recursive:true});const urls=new Map(),prepared=new Map();
+ installTransientGoogle(g);const dir=path.join(root,'private','universal-media');fs.mkdirSync(dir,{recursive:true});const urls=new Map(),prepared=new Map(),nativeCache=new Map();
  const register=(id,url)=>urls.set(id,url),ids=text=>sourceIds(text,register);
+ function nativeMetadata(id){let proof=nativeCache.get(id);try{assertNativeEvidence(proof,{id});}catch{proof=checkNativeYouTube(id,{key,transport:download});nativeCache.set(id,proof);}return {id,name:id,mimeType:'video/mp4',size:null,modifiedTime:proof.identity,nativeYouTube:proof,trashed:false};}
+ function nativePart(m){const meta=nativeMetadata(m.id);if(m.modified&&m.modified!==meta.modifiedTime)throw Error('SOURCE_INPUT_CHANGED');m.nativeYouTube=meta.nativeYouTube;m.modified=meta.modifiedTime;return nativeYouTubePart(m);}
  function youtube(id){
+  if(nativeYoutubeEnabled()){try{return nativeMetadata(id);}catch(e){if(!/^TRANSIENT_MEDIA_YOUTUBE_NATIVE_/.test(e.message))throw e;/* Unsupported native input may still be downloadable as ordinary MP3. */}}
   if(!/^yt_[\w-]{11}$/.test(id))throw Error('INVALID_YOUTUBE_ID');const url=urls.get(id)||'https://www.youtube.com/watch?v='+id.slice(3),file=path.join(dir,id.slice(3)+'.mp3'),meta=path.join(dir,id+'.mp3.json');
   if(fs.existsSync(file)&&fs.existsSync(meta))return JSON.parse(fs.readFileSync(meta));
   const python=process.env.PYTHON_PATH||(process.platform==='win32'?'python':'python3');
@@ -169,5 +173,5 @@ export function createMediaService({g,root,key=process.env.GEMINI_API_KEY,ffmpeg
  }
  function prepare(m,{fileApi=false}={}){const tag=[m.id,m.modified,m.size].join('|');let result=prepared.get(tag);if(!result){const input=localFile(m),output=path.join(dir,m.id+'-'+sha(Buffer.from(tag)).slice(0,16)+'.mp3');result=transcodeUniversal({input,output,ffmpeg,run,sourceId:m.id,modified:m.modified,sourceSize:m.size});prepared.set(tag,result);}if(fileApi||result.segments.length>1)uploadSegments(result);return result;}
  function verifyDownload(m){const file=localFile(m),bytes=fs.statSync(file).size;return {complete:bytes===m.size&&bytes>0,bytes};}
- return {ids,register,youtube,localFile,verifyDownload,prepare,ffmpeg};
+ return {ids,register,youtube,nativePart,localFile,verifyDownload,prepare,ffmpeg};
 }

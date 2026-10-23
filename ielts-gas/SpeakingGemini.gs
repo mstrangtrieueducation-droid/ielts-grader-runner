@@ -256,6 +256,7 @@ function isgCallGemini_(job, media, guide, save) {
   const parts = [{text:isgPrompt_(guide, media.length)+'\nDùng đúng tiêu chí của mã bài trong hướng dẫn trên, S01 chỉ nhận xét nền tảng, không có điểm; S02+ theo band. Trả JSON gọn đầy đủ, không lời chào hay tự thuật suy nghĩ; IPA chỉ cho từ đơn.'}];
   if(job.evidenceRecovery)parts.push({text:'Đây là lượt nghe lại do nhận xét trước có mốc phát âm nằm ngoài độ dài clip. Hãy nghe toàn bộ file từ đầu, xác định độ dài từng FILE riêng, và chỉ trích mốc thực sự xuất hiện trong file tương ứng. Không dùng timeline cộng dồn giữa các FILE. Không đoán hoặc sửa mốc cũ. Nếu chỉ chắc chắn 1–2 lỗi, ghi fewerThanThreeReason rõ ràng, không bịa để đủ số lượng. Các bản ghi lần trước không được xem là bằng chứng.'});
   media.forEach((m, i) => {
+    if(m.nativeYouTube){parts.push({text:'FILE '+(i+1)});parts.push(isgNativeYouTubePart_(m));return;}
 
     const bytes = isgAudioBytes_(m);
 

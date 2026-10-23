@@ -1,3 +1,4 @@
+import {isNativeYouTubePart,validateNativeYouTubePart} from './native-youtube.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
@@ -8,7 +9,7 @@ export const MIN_AUDIO_BYTES=10*1024;
 export const AUDIO_GUARD_VERSION='disk-and-wire-audio-v1-20261014';
 const digest=b=>createHash('sha256').update(b).digest('hex');
 const fail=reason=>{throw Error('SYSTEM_AUDIO_INPUT_'+reason);};
-export const audioPart=p=>/^audio\//.test(p?.inlineData?.mimeType||p?.fileData?.mimeType||'');
+export const audioPart=p=>/^audio\//.test(p?.inlineData?.mimeType||p?.fileData?.mimeType||'')||isNativeYouTubePart(p);
 export function requireAudioFile(file){
  let stat;try{stat=fs.statSync(file);}catch{fail('FILE_MISSING');}
  if(!stat.isFile()||stat.size<=MIN_AUDIO_BYTES)fail('FILE_TOO_SMALL');
@@ -20,6 +21,7 @@ export function audioPaths(m,root){
  return {cache,tag,original:path.join(cache,tag+'.original'),files:['.mp3','.flac','.m4a','.shadow.mp3'].map(e=>path.join(cache,tag+e))};
 }
 export function validateAudioPart(m,part,{root,materialize=false}={}){
+ if(isNativeYouTubePart(part))return validateNativeYouTubePart(m,part);
  if(!audioPart(part))fail('PART_MISSING');
  const p=audioPaths(m,root);let bytes,proof;
  if(part.inlineData){
@@ -62,10 +64,11 @@ export function assertAudioPayload(payload,job){
  if(!media.length||audio.length!==media.length)fail('MISSING_STUDENT_AUDIO');
  const remaining=[...media];
  for(const part of audio){
+  if(isNativeYouTubePart(part)){const i=remaining.findIndex(m=>m.nativeYouTube?.url===part.fileData.fileUri);if(i<0)fail('UNBOUND_NATIVE_MEDIA');validateNativeYouTubePart(remaining.splice(i,1)[0],part);continue;}
   const bytes=part.inlineData?Buffer.from(part.inlineData.data||'','base64'):null;if(bytes&&bytes.length<=MIN_AUDIO_BYTES)fail('PAYLOAD_TOO_SMALL');
   const match=remaining.findIndex(m=>{const p=m.audioPayloadProof;return p?.sourceId===m.id&&p.version===AUDIO_GUARD_VERSION&&p.mime===(part.inlineData?.mimeType||part.fileData?.mimeType)&&(bytes?p.sha256===digest(bytes):p.uri===part.fileData.fileUri);});
   if(match<0)fail('UNBOUND_AUDIO_PART');const m=remaining.splice(match,1)[0],disk=requireAudioFile(m.audioPayloadProof.file);if(disk.sha256!==m.audioPayloadProof.sha256)fail('FILE_CHANGED_BEFORE_SEND');
  }
- return {version:AUDIO_GUARD_VERSION,files:media.map(m=>({sourceId:m.id,bytes:m.audioPayloadProof.bytes,sha256:m.audioPayloadProof.sha256})),validatedAt:new Date().toISOString()};
+ return {version:AUDIO_GUARD_VERSION,files:media.map(m=>m.nativeYouTube?{sourceId:m.id,sourceMode:'youtube_native',bytes:null,nativeYouTube:m.nativeYouTube}:{sourceId:m.id,bytes:m.audioPayloadProof.bytes,sha256:m.audioPayloadProof.sha256}),validatedAt:new Date().toISOString()};
 }
 export function validatedAudioRequest(payload,job){job.lastPayloadValidation=assertAudioPayload(payload,job);return JSON.stringify(payload);}

@@ -1,10 +1,12 @@
+import {assertNativeEvidence,refreshNativeIntake} from './native-youtube.mjs';
 import {sourceInMasterScope} from './master-submission-scope.mjs';
 import {hasSavedResult,hasRequest,preprocessingRecoverable,retryPreparation,isTransient,EMPTY_LINK_NOTICE,YOUTUBE_NOTICE,PREPROCESS_VERSION,universalValidatedRequest} from './universal-media.mjs';
 
 export function installKidsPreprocessing(c,{g,service,isLatest,emit=()=>{}}){
  const oldMeta=c.fileMeta_;c.driveIds_=text=>service.ids(text);
  c.fileMeta_=(id,isReference)=>{
-  if(isReference)return oldMeta(id,isReference);const m=g.fileMeta(id);
+  if(isReference===true)return oldMeta(id,isReference);const m=g.fileMeta(id);
+  if(m.nativeYouTube){assertNativeEvidence(m.nativeYouTube,{id});return {id,mime:m.mimeType,size:0,modified:m.modifiedTime,nativeYouTube:m.nativeYouTube};}
   if(m.trashed||!Number(m.size))throw Error('PREFLIGHT_FILE_MISSING_OR_INVALID');
   const mime=/^(audio|video)\//.test(m.mimeType)?m.mimeType:/\.(?:mp4|mov|m4a|mp3|wav|aac|ogg|flac|webm)$/i.test(m.name||'')?'audio/unknown':null;
   if(!mime)throw Error('UNSUPPORTED_MEDIA');return {id,mime,size:Number(m.size),modified:m.modifiedTime};
@@ -30,6 +32,7 @@ export function installKidsPreprocessing(c,{g,service,isLatest,emit=()=>{}}){
   if(!sourceInMasterScope(j.receipt)||!preprocessingRecoverable(j)||j.preprocessorRecovery===PREPROCESS_VERSION||!isLatest(j))continue;
   j.preprocessHistory=(j.preprocessHistory||[]).concat([{status:j.status,error:j.error,at:new Date().toISOString()}]);j.preprocessorRecovery=PREPROCESS_VERSION;j.status='WAITING_INPUT';j.error='';j.nextAt=0;c.persist_(j,row);recovered++;
  }return {recovered,providerCalls:0};};
+ const mediaPart=c.mediaPart_;if(mediaPart)c.mediaPart_=(j,m,save,deadline)=>{if(m.nativeYouTube){const part=service.nativePart(m);refreshNativeIntake(j,m);save();return part;}return mediaPart(j,m,save,deadline);};
  const fetch=c.UrlFetchApp.fetch;c.UrlFetchApp.fetch=(url,options={})=>{
   if(String(url).includes(':generateContent')&&c.activeAudioPayloadJob_)options={...options,payload:universalValidatedRequest(JSON.parse(options.payload),c.activeAudioPayloadJob_)};
   return fetch(url,options);
