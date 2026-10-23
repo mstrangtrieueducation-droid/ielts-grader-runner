@@ -8,7 +8,7 @@ const hash=t=>createHash('sha256').update(JSON.stringify(t)).digest('hex');
 export function truthNoticeText(source,before,body){
  const at=sourceTime(source);if(!Number.isFinite(at)||at<=0)throw Error('SUBMISSION_TIMESTAMP_REQUIRED');
  const date=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Bangkok',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).format(new Date(at)).replace(',','');
- let prefix=teacherFeedbackPrefix(before,'✅ ĐÃ NỘP '+date+'\n');if(/ĐÃ NỘP/u.test(prefix))prefix=prefix.replace(/\d{1,2}\/\d{1,2}\/\d{4}\s+\d{1,2}:\d{2}(?::\d{2})?/,date);return prefix+'— NHẬN XÉT GV —\n'+body;
+ let prefix=teacherFeedbackPrefix(before,'✅ ĐÃ NỘP '+date+'\n');if(/Lần đầu:|Lần mới:/u.test(prefix))prefix=prefix.replace(/(Lần mới:\s*)\d{1,2}\/\d{1,2}\/\d{4}\s+\d{1,2}:\d{2}(?::\d{2})?/,(_,label)=>label+date);else if(/ĐÃ NỘP/u.test(prefix))prefix=prefix.replace(/\d{1,2}\/\d{1,2}\/\d{4}\s+\d{1,2}:\d{2}(?::\d{2})?/,date);return prefix+'— NHẬN XÉT GV —\n'+body;
 }
 export const resubmissionBody=text=>{let body=String(text||'').split(/NHẬN XÉT GV\s*[—–-]*/u).pop().trim();return /^❌\s*CẦN NỘP LẠI/u.test(body)?body:'❌ CẦN NỘP LẠI: '+body;};
 export function truthRich(text){const b=new RichBuilder().setText(text),marker=text.indexOf('— NHẬN XÉT GV —'),end=marker<0?0:marker+'— NHẬN XÉT GV —'.length;b.setTextStyle(new Style().setForegroundColor('#0D47A1').build());if(end<text.length)b.setTextStyle(end,text.length,new Style().setForegroundColor(isWaitingFeedback(text)?'#0D47A1':'#C2185B').build());return b.build();}

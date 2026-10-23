@@ -5,7 +5,7 @@ export const PENDING_BODY='⏳ ĐANG CHỜ CHẤM — Hệ thống đã nhận b
 export const TECHNICAL_BODY='⏳ ĐANG CHỜ XỬ LÝ — Hệ thống đang kiểm tra hoặc khôi phục kết quả. Không cần nộp lại.';
 export const sheetTruthEnabled=()=>process.env.SHEET_TRUTH_SYNC==='true';
 export const isWaitingFeedback=text=>{const body=String(text||'').split(/NHẬN XÉT GV\s*[—–-]*/u).slice(1).join('').trim();return body===PENDING_BODY||body===TECHNICAL_BODY;};
-export const isResubmissionFeedback=text=>/(?:^|\n)\s*(?:❌\s*)?CẦN[ _]NỘP[ _]LẠI|^ĐÃ NỘP — Link (?:cần mở quyền xem|không hợp lệ)/u.test(String(text||''));
+export const isResubmissionFeedback=text=>/(?:^|\n)\s*(?:❌\s*)?CẦN[ _]NỘP[ _]LẠI|^ĐÃ NỘP — Link (?:cần mở quyền xem|không hợp lệ)|^⛔\s*BÀI CHƯA HỢP LỆ/u.test(String(text||''));
 export const sourceTime=s=>receiptDate(s?.at??s?.time,new Date(0)).getTime();
 export const sourceTask=s=>[s?.className,String(s?.name||s?.student||'').normalize('NFC').trim().toUpperCase(),s?.code].join('|');
 export function receiptTimeFromCell(text){const m=String(text||'').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/);return m?Date.parse(`${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}T${m[4].padStart(2,'0')}:${m[5]}:${m[6]||'00'}+07:00`):0;}

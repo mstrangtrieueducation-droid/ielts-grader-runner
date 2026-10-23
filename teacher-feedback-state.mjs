@@ -18,8 +18,8 @@ export function receiptOnlyCell(value){
  text=text.replace(/\[?\d{1,2}\/\d{1,2}\/\d{4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?\]?/g,'');
  text=text.replace(/(?:Lần đầu|Lần mới|Thời gian|Lần nộp\s*\d+|Lần\s*\d+|Lượt\s*\d+)\s*:?/giu,'');
  text=text.replace(/\d+\s+(?:lượt|lần)/giu,'');
- text=text.replace(/(?:ĐÃ NỘP(?:\s+MUỘN|\s+\d+\s+LẦN)?|ĐÃ GHI NHẬN|NỘP MUỘN|CHƯA GHI NHẬN|CHƯA NỘP|NHẬN XÉT GV)/giu,'');
- return text.replace(/[✅☑✔❌⚠🔁\uFE0F\[\]():·—–\-\s]/gu,'')==='';
+ text=text.replace(/(?:ĐÃ NỘP(?:\s+MUỘN|\s+\d+\s+LẦN)?|ĐÃ GHI NHẬN|NỘP MUỘN|CHƯA GHI NHẬN|CHƯA NỘP|NHẬN XÉT GV|QUÁ HẠN|MUỘN)/giu,'');
+ return text.replace(/[✅☑✔❌⚠🔁⛔\uFE0F\[\]():·—–\-\s]/gu,'')==='';
 }
 export function auxiliaryListeningOnly(value){const text=clean(value);return withoutListeningScores(text)!==text&&receiptOnlyCell(text);}
 export function teacherFeedbackPrefix(before,fallback=''){
