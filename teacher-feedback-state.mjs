@@ -27,3 +27,9 @@ export function teacherFeedbackPrefix(before,fallback=''){
  if(auxiliaryListeningOnly(text))return text+(text.endsWith('\n')?'':'\n')+(/ĐÃ NỘP/iu.test(text)?'':fallback);
  return fallback;
 }
+export function mergeTeacherMessage(before,after){
+ if(!auxiliaryListeningOnly(before))return after;
+ const text=String(after??''),marker=markerPattern.exec(text),body=marker?text.slice(marker.index+marker[0].length).replace(/^\s*\n/u,''):text;
+ if(marker&&text.startsWith(teacherFeedbackPrefix(before)))return after;
+ return teacherFeedbackPrefix(before,marker?text.slice(0,marker.index):'')+'— NHẬN XÉT GV —\n'+body;
+}

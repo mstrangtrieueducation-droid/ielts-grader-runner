@@ -1,3 +1,4 @@
+import {mergeTeacherMessage} from './teacher-feedback-state.mjs';
 export const IELTS_ADDRESS_VERSION='teacher-ielts-em-20261016';
 export const isIeltsClass=name=>/^IELTS(?=\s|\d|[-_]|$)/iu.test(String(name||'').trim());
 export const ieltsAddressInstruction=name=>isIeltsClass(name)?'QUY ƯỚC XƯNG HÔ IELTS BẮT BUỘC: Viết trực tiếp cho người học bằng em/Em, tuyệt đối không gọi người nhận là con/Con trong lời khen, chuyển ý, sửa lỗi, nhận xét và lời khuyên. Quy tắc này áp dụng cả IELTS Speaking và Shadowing của lớp IELTS, ưu tiên hơn cách xưng hô của mẫu Kids. Giữ nguyên câu trích dẫn, từ tiếng Anh, IPA, mốc thời gian, điểm và nội dung lỗi.':'';
@@ -24,4 +25,4 @@ export function installIeltsAddress(c){
  c.isgStudentAddress_=ieltsAddressText;const rich=c.isgRichText_;
  c.isgRichText_=(grade,...args)=>{const addressed=addressedSpeakingGrade(grade),normalize=c.isgStudentAddress_;c.isgStudentAddress_=value=>String(value);try{return rich(addressed,...args);}finally{c.isgStudentAddress_=normalize;}};
 }
-export const withIeltsNoticeAddress=(write,defaultText)=>(job,cell,save,session,text=defaultText,status)=>write(job,cell,save,session,isIeltsClass(job.source?.className)?ieltsAddressText(text):text,status);
+export const withIeltsNoticeAddress=(write,defaultText)=>(job,cell,save,session,text=defaultText,status)=>write(job,cell,save,session,mergeTeacherMessage(cell?.getDisplayValue?.()||'',isIeltsClass(job.source?.className)?ieltsAddressText(text):text),status);
