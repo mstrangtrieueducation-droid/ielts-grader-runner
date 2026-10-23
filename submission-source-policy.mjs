@@ -6,6 +6,7 @@ export function sourceResult(state,reason,extra={}){return {schema:1,version:SOU
 export function sourceFailure(error){
  const message=String(error?.message||error||''),code=Number(error?.httpCode||message.match(/(?:HTTP[_ ]|SOURCE_HTTP_)(\d{3})/)?.[1]||0);
  if(process.env.SHEET_TRUTH_SYNC==='true'&&/TRANSIENT_MEDIA_DOWNLOAD_TIMEOUT/.test(message))return sourceResult('pending','DOWNLOAD_IN_PROGRESS',{retryAfterMs:2000});
+ if(/^TRANSIENT_MEDIA_YOUTUBE_[A-Z_]+$/.test(message))return sourceResult('pending',message,{retryAfterMs:120000});
  if(/rateLimitExceeded|quota|dailyLimit|too many requests/i.test(message)||code===429||code>=500)return sourceResult('pending','SOURCE_CHECK_RETRY');
  if(message==='YOUTUBE_PRIVATE')return sourceResult('access','YOUTUBE_PRIVATE_CONFIRMED');
  if(code===401||code===403||/SOURCE_ACCESS_REQUIRED/.test(message))return sourceResult('access','ACCESS_DENIED');
