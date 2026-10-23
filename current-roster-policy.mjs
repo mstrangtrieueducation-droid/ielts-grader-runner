@@ -6,7 +6,7 @@ export function rosterContains(rows,source){
  const ielts=/^IELTS\s/i.test(source.className||'');
  return rows.some((r,i)=>i>=(ielts?6:3)&&(!ielts||/^\d+$/.test(String(r[0]))&&Number(r[0])>0)&&[r[1],r[2]].some(v=>normalizeName(v)===name));
 }
-export function createCurrentRosterCheck(google,classes,{now=Date.now,ttl=30000}={}){
+export function createCurrentRosterCheck(google,classes,{now=Date.now,ttl=Infinity}={}){
  const cache=new Map();
  return (source,{fresh=false}={})=>{
   const cls=classes.find(x=>normalizeName(x.className)===normalizeName(source.className));if(!cls)throw Error('CLASS_NOT_CONFIGURED');
@@ -22,8 +22,10 @@ export function createCurrentRosterCheck(google,classes,{now=Date.now,ttl=30000}
  };
 }
 export function markNotCurrent(job,save){
+ const preserve=hasRequest(job)||hasSavedResult(job);
+ if(job.rosterEligibility?.version===ROSTER_POLICY&&job.rosterEligibility.state==='NOT_IN_CURRENT_ROSTER'&&(preserve||job.status==='SKIPPED_NOT_IN_CURRENT_ROSTER'))return false;
  job.rosterEligibility={version:ROSTER_POLICY,state:'NOT_IN_CURRENT_ROSTER',checkedAt:new Date().toISOString()};
  // Preserve paid outcomes and uncertain reservations exactly; never reset/retry them.
- if(!hasRequest(job)&&!hasSavedResult(job)){job.status='SKIPPED_NOT_IN_CURRENT_ROSTER';job.error='';job.nextAt=0;}
+ if(!preserve){job.status='SKIPPED_NOT_IN_CURRENT_ROSTER';job.error='';job.nextAt=0;}
  save();return false;
 }
