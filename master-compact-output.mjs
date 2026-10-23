@@ -5,7 +5,7 @@ export const COMPACT_INSTRUCTION=`QUY CHUẨN MỚI ƯU TIÊN: Nghe đủ mọi 
 const obj=properties=>({type:'object',properties,required:Object.keys(properties),additionalProperties:false});
 const str={type:'string'};
 export function compactSchema(labels,{speaking=false,foundation=false,visual=false}={}){
- return obj({v:{type:'string',enum:[COMPACT_VERSION]},ok:{type:'boolean'},score:{type:['number','null'],minimum:0,maximum:speaking&&!foundation?9:100},why:str,
+ return obj({v:{type:'string',enum:[COMPACT_VERSION]},ok:{type:'boolean'},...(foundation?{scale:{type:'string',enum:['feedback_only']}}:{}),score:foundation?{type:['number','null'],enum:[null]}:{type:['number','null'],minimum:0,maximum:speaking?9:100},why:str,
   ...(visual?{capture:{type:'string',enum:['student','screen_only','filming_screen','unknown']},visualBasis:str,fileIndex:{type:'integer',minimum:0}}:{}),
   sections:{type:'array',minItems:0,maxItems:labels.length,items:obj({label:{type:'string',enum:labels},praise:str,correction:str,...(speaking&&!foundation?{band:{type:['number','null'],minimum:0,maximum:9}}:{})})}});
 }
@@ -13,17 +13,17 @@ export function compactResponse(raw){
  const text=(raw?.candidates?.[0]?.content?.parts||[]).filter(p=>!p.thought&&typeof p.text==='string').map(p=>p.text).join('').replace(/^\s*```(?:json)?\s*|\s*```\s*$/g,'');
  let g;try{g=JSON.parse(text);}catch{return null;}if(g?.v!==COMPACT_VERSION)return null;
  if(raw.candidates?.[0]?.finishReason&&raw.candidates[0].finishReason!=='STOP')throw Error('COMPACT_RESPONSE_INCOMPLETE');
- if(typeof g.ok!=='boolean'||!Array.isArray(g.sections)||g.ok&&!g.sections.length||g.sections.some(s=>!s.label||typeof s.praise!=='string'||typeof s.correction!=='string'||!(s.praise+s.correction).trim())||g.ok&&(!Number.isFinite(g.score)||g.score<0)||!g.ok&&!String(g.why||g.visualBasis||'').trim())throw Error('COMPACT_RESULT_INCOMPLETE');
+ if(typeof g.ok!=='boolean'||!Array.isArray(g.sections)||g.ok&&!g.sections.length||g.sections.some(s=>!s.label||typeof s.praise!=='string'||typeof s.correction!=='string'||!(s.praise+s.correction).trim())||g.ok&&!(g.scale==='feedback_only'&&g.score===null)&&(!Number.isFinite(g.score)||g.score<0)||!g.ok&&!String(g.why||g.visualBasis||'').trim())throw Error('COMPACT_RESULT_INCOMPLETE');
  return g;
 }
 export function expandKidsCompact(raw){
- const g=compactResponse(raw);if(!g)return null;if(g.ok&&g.score>100)throw Error('COMPACT_SCORE_INVALID');const score=g.ok&&g.score<=100?Math.round(g.score/5)*5:null;
+ const g=compactResponse(raw);if(!g)return null;if(g.ok&&(!Number.isFinite(g.score)||g.score>100))throw Error('COMPACT_SCORE_INVALID');const score=g.ok&&g.score<=100?Math.round(g.score/5)*5:null;
  return {assessable:g.ok,band:score===null?'':score+'%',rubricBand:score===null?'':score+'%',reason:g.why||'',speechStatus:'UNCERTAIN',
   presentationVisualCheck:{confirmed:!!g.visualBasis&&['screen_only','filming_screen'].includes(g.capture),studentVisible:g.capture==='student',capture:g.capture||'unknown',basis:g.visualBasis||'',sourceFileIndex:g.fileIndex||0},
   roseSections:g.sections.map(s=>{const spans=[s.praise?{text:s.praise,tone:'praise'}:null,s.correction?{text:(s.praise?'\n':'')+s.correction,tone:'correction'}:null].filter(Boolean);return {label:s.label,text:spans.map(p=>p.text).join(''),spans};}),compactPolicy:COMPACT_VERSION};
 }
 export function expandShadowCompact(raw){
- const g=compactResponse(raw);if(!g)return null;if(g.score!==null&&g.score>100)throw Error('COMPACT_SCORE_INVALID');
+ const g=compactResponse(raw);if(!g)return null;if(g.ok&&!Number.isFinite(g.score)||g.score!==null&&g.score>100)throw Error('COMPACT_SCORE_INVALID');
  return {assessable:g.ok,overallPercent:g.ok?Math.round(g.score/5)*5:null,reason:g.why||'',sections:g.sections.map(s=>({...s,score:null})),evidence:[],uncertainty:[],compactPolicy:COMPACT_VERSION};
 }
 export function compactGeneration(config,model){
