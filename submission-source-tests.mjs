@@ -30,4 +30,7 @@ speaking.isgProcess_({}, {job:sj,row:2});assert.equal(sj.sourceIntake.state,'mis
 sj.source.fileIds=['file'];access=false;speaking.isgProcess_({}, {job:sj,row:2});assert.equal(sj.sourceIntake.state,'access');assert.equal(speakingCalls,0);passed++;
 access=true;speaking.isgProcess_({}, {job:sj,row:2});assert.equal(sj.sourceIntake.state,'valid');assert.equal(speakingCalls,1);passed++;
 assert.throws(()=>speaking.isgCallGemini_({sourceIntake:{schema:1,state:'access',aiEligible:false}}),/SOURCE_NOT_READY/);assert.equal(speakingCalls,1);passed++;
+let inspected='';const mixedSpeaking={isgProcess_:()=>{throw Error('MUST_NOT_GENERATE');},isgCallGemini_:()=>{throw Error('MUST_NOT_GENERATE');},isgFresh_:()=>{},isgSave_:()=>{},isgSourceInput_:()=>'https://drive.google.com/file/d/file/view https://unsupported.test/video'};
+installSpeakingSourceGate(mixedSpeaking,{g:{fileMeta:()=>ok},service:{...service,ids:text=>{inspected=text;throw Error('UNSUPPORTED_LINK');}},sourceId:'fixture',publish:()=>{}});
+const mixedJob={source:{fileIds:['file'],at:'2026-10-22T14:57:42Z'},status:'QUEUED'};mixedSpeaking.isgProcess_({}, {job:mixedJob,row:2});assert(inspected.includes('unsupported.test'));assert.equal(mixedJob.sourceIntake.state,'pending');passed++;
 console.log(JSON.stringify({passed,cases:'four states, all attachments, corrected link, repaired permissions, partial download, timeout, note isolation',realProviderCalls:0,fixturePaidCalls:paid,invalidSourceFixtureCalls:0}));
