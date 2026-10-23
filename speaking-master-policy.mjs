@@ -1,6 +1,7 @@
 import {COMPACT_VERSION,COMPACT_INSTRUCTION,compactSchema,compactResponse,compactGeneration} from './master-compact-output.mjs';
 import {teacherFeedbackPrefix} from './teacher-feedback-state.mjs';
 import {createHash} from 'node:crypto';
+import {ieltsAddressText} from './ielts-address-policy.mjs';
 export const FOUNDATION_LABELS=['Phát âm từ vựng','Âm đuôi & trọng âm','Độ trôi chảy khi nói câu mẫu'];
 export const IELTS_LABELS=['Fluency & Coherence','Lexical Resource','Grammatical Range & Accuracy','Pronunciation'];
 export const isFoundation=code=>/^S0?1$/i.test(String(code||''));
@@ -17,7 +18,7 @@ export function renderSpeakingCompact(c,g,source){
  const prefix=teacherFeedbackPrefix(before,'✅ ĐÃ NỘP '+date+'\n'),spans=[{text:prefix+'— NHẬN XÉT GV —\n',color:'#0D47A1'}];
  if(g.usable&&!g.foundation)spans.push({text:'IELTS Speaking: Band ước tính '+g.estimatedBand+'.\n',color:'#0D47A1'});
  if(!g.usable&&g.why)spans.push({text:g.why+'\n',color:'#C2185B'});
- let bridge=false;for(const s of g.sections){spans.push({text:'\n• '+s.label+(!g.foundation&&Number.isFinite(s.band)?' ('+s.band+')':'')+':\n',color:'#0D47A1'});if(s.praise)spans.push({text:s.praise+'\n',color:'#1B5E20'});if(s.correction){if(!bridge){spans.push({text:'Tuy nhiên, để bài nói được hoàn thiện và chuẩn xác hơn, em chú ý một số điểm sau đây nhé:\n',color:'#0D47A1'});bridge=true;}spans.push({text:s.correction+'\n',color:'#C2185B'});}}
+ let bridge=false;for(const s of g.sections){const correction=ieltsAddressText(s.correction).replace(/^Tuy nhiên, để bài nói\/bài đọc được hoàn thiện và chuẩn xác hơn, em chú ý một số điểm sau đây nhé:\s*/,'');spans.push({text:'\n• '+s.label+(!g.foundation&&Number.isFinite(s.band)?' ('+s.band+')':'')+':\n',color:'#0D47A1'});if(s.praise)spans.push({text:ieltsAddressText(s.praise)+'\n',color:'#1B5E20'});if(correction){if(!bridge){spans.push({text:'Tuy nhiên, để bài nói được hoàn thiện và chuẩn xác hơn, em chú ý một số điểm sau đây nhé:\n',color:'#0D47A1'});bridge=true;}spans.push({text:correction+'\n',color:'#C2185B'});}}
  const b=c.SpreadsheetApp.newRichTextValue().setText(spans.map(s=>s.text).join(''));let at=0;for(const s of spans){b.setTextStyle(at,at+s.text.length,c.SpreadsheetApp.newTextStyle().setForegroundColor(s.color).build());at+=s.text.length;}return b.build();
 }
 export function installSpeakingMaster(c){
@@ -32,10 +33,10 @@ export function installSpeakingMaster(c){
 // Format-only reconciliation for this compact policy's managed S01 results.
 // Remove the superseded % heading using the SAME raw, never another AI call.
 export function reconcileFoundationFeedback(c,items,save){
- let changed=0;for(const {job:j,row}of items){if(!isFoundation(j.source?.code)||!j.rawId||!j.resultHash)continue;
-  try{const dst=c.isgTarget_(j.source);if(dst.range.getFormula()||dst.range.getDataValidation?.()||createHash('sha256').update(JSON.stringify(dst.text)).digest('hex')!==j.resultHash||!/(?:Chất lượng:|Estimated Band:|Band ước tính)/.test(dst.text))continue;
-   const g=decodeSpeakingCompact(c.isgReadArtifact_(j.rawId));if(!g?.foundation||!g.usable)continue;const rich=renderSpeakingCompact(c,g,j.source),text=rich.getText();if(text===dst.text)continue;
-   dst.range.setRichTextValue(rich);j.resultHash=createHash('sha256').update(JSON.stringify(text)).digest('hex');j.foundationFeedbackOnlyAt=new Date().toISOString();save(j,row);changed++;
+ let changed=0;for(const {job:j,row}of items){if(!j.rawId||!j.resultHash||!/^S\d+$/i.test(j.source?.code||''))continue;
+  try{const dst=c.isgTarget_(j.source);if(dst.range.getFormula()||dst.range.getDataValidation?.()||createHash('sha256').update(JSON.stringify(dst.text)).digest('hex')!==j.resultHash||!/(?:Chất lượng:|Estimated Band:|Band ước tính|\bcon\b)/i.test(dst.text))continue;
+   const g=decodeSpeakingCompact(c.isgReadArtifact_(j.rawId));if(!g?.usable)continue;const rich=renderSpeakingCompact(c,g,j.source),text=rich.getText();if(text===dst.text)continue;
+   dst.range.setRichTextValue(rich);j.resultHash=createHash('sha256').update(JSON.stringify(text)).digest('hex');j[g.foundation?'foundationFeedbackOnlyAt':'compactFeedbackAddressReconciledAt']=new Date().toISOString();save(j,row);changed++;
   }catch{/* A protected/unmatched result stays untouched. */}
  }return {changed,providerCalls:0};
 }
