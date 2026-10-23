@@ -53,8 +53,11 @@ jobs:
       - name: Install audio validation tools
         if: env.MODE != 'validate'
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            timeout 180s sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update -qq || echo 'Package refresh deferred; using available indexes'
+            timeout 240s sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y -qq --no-install-recommends ffmpeg
+          fi
+          ffmpeg -version >/dev/null
           python3 -m pip install --quiet -r requirements.txt
       - name: Audit or grade on the dedicated Speaking project
         if: env.MODE != 'validate'
