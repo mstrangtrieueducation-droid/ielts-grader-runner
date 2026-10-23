@@ -43,7 +43,7 @@ export function installSpeakingMedia(c,{g,service,nativeResubmission,approval:se
   if(!hasSavedResult(j)&&j.inputHash&&j.preprocessInputVersion!==PREPROCESS_VERSION&&(!hasRequest(j)||speakingRetryAllowed(j))){j.preprocessHistory=(j.preprocessHistory||[]).concat([{inputHash:j.inputHash,inputId:j.inputId,at:new Date().toISOString(),reason:PREPROCESS_VERSION}]);delete j.inputHash;delete j.inputId;j.preprocessInputVersion=PREPROCESS_VERSION;save();}
   const result=process(table,item);
   if(!hasSavedResult(j)&&!hasRequest(j)&&/YOUTUBE_UNAVAILABLE/.test(j.internalDiagnostic||j.error||'')){
-   c.isgFresh_(j.source);const dst=c.isgTarget_(j.source);if(!c.isgHasFeedback_(dst.text)&&!dst.range.getFormula()&&!dst.range.getDataValidation())nativeResubmission(j,dst.range,save,approval,YOUTUBE_NOTICE,'COMPLETED_NEEDS_RESUBMISSION');
+   j.error='TRANSIENT_MEDIA_YOUTUBE_OUTPUT_MISSING';retryPreparation(j,save);
   }else if(!hasSavedResult(j)&&!hasRequest(j)&&isTransient(j.internalDiagnostic||j.error||''))retryPreparation(j,save);
   return result;
  };
