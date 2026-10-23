@@ -15,6 +15,7 @@ export function truthRich(text){const b=new RichBuilder().setText(text),marker=t
 const protectedCell=cell=>cell.getFormula?.()||cell.getDataValidation?.();
 const missingSource=s=>Array.isArray(s?.fileIds)?s.fileIds.length===0:!String(s?.links??s?.link??'').trim();
 const spent=j=>!!(j.rawId||j.gradeId||j.apiUsage||j.usage||j.generateRequests||j.approvedGenerateRequests||j.physicalGenerateRequests||j.masterGenerationReserved||j.generationAttempt?.calls||j.providerResponseReceived?.httpStatus===200);
+const waitingBody=j=>j.sourceIntake?.reason==='DOWNLOAD_IN_PROGRESS'?PENDING_BODY:spent(j)&&!j.rawId&&!j.gradeId||j.error||j.technicalInputFailure||j.sourceIntake?.state==='pending'?TECHNICAL_BODY:PENDING_BODY;
 export function seedSheetTruth({source,cell,job,save,jobs=[],approved=false}){
  if(!sheetTruthEnabled()||!sourceInMasterScope(source)||protectedCell(cell))return {writable:false};
  const before=cell.getDisplayValue(),reopen=mayReopenNotice(source,before,jobs,approved);
@@ -24,7 +25,7 @@ export function seedSheetTruth({source,cell,job,save,jobs=[],approved=false}){
  if(job.sheetTruth?.reopenedFor&&job.sheetTruth.reopenedFor===sourceTime(source)&&!spent(job)){job.presentationResubmissionRequired=false;job.technicalInputFailure=false;}
  let reason=sourceInputReason(job);if(!spent(job)&&missingSource(source))reason='Bài nộp chưa đính kèm link video/file. Vui lòng kiểm tra và nộp lại link.';
  const held=!reopen&&isResubmissionFeedback(job.autoNotice||'')&&/COMPLETED|CẦN_NỘP_LẠI/.test(job.status||'');
- const body=held?resubmissionBody(job.autoNotice):reason&&!spent(job)?'❌ CẦN NỘP LẠI: '+reason:spent(job)&&!job.rawId&&!job.gradeId?TECHNICAL_BODY:PENDING_BODY;
+ const body=held?resubmissionBody(job.autoNotice):reason&&!spent(job)?'❌ CẦN NỘP LẠI: '+reason:waitingBody(job);
  const text=truthNoticeText(source,before,body),finalNotice=held||!!reason&&!spent(job);
  if(before!==text)cell.setRichTextValue(truthRich(text));
  job.sheetTruth={...job.sheetTruth,version:SHEET_TRUTH_VERSION,state:finalNotice?'RESUBMISSION':'PENDING',submissionAt:sourceTime(source),pendingHash:finalNotice?null:hash(text),actualCellCheckedAt:new Date().toISOString()};
@@ -41,7 +42,7 @@ export function recoverArchivedRaw(job){
 export function settleSheetTruth({job,resolve,save,emit=()=>{}}){
  if(!sheetTruthEnabled())return;const source=job.source||job.receipt;if(!sourceInMasterScope(source))return;
  try{const cell=resolve(),text=cell.getDisplayValue();if(protectedCell(cell))return;if(hasTeacherReview(text)){if(job.autoNotice===text&&/COMPLETED|CẦN_NỘP_LẠI/.test(job.status||'')){const value=truthNoticeText(source,text,resubmissionBody(text));if(value!==text){cell.setRichTextValue(truthRich(value));job.autoNotice=value;job.resultHash=hash(value);save();}}return;}if(!receiptOnlyCell(text)&&!isWaitingFeedback(text))return;
-  const reason=sourceInputReason(job),body=reason&&!spent(job)?'❌ CẦN NỘP LẠI: '+reason:(job.rawId||job.gradeId)&&!job.error?PENDING_BODY:TECHNICAL_BODY,value=truthNoticeText(source,text,body);if(value!==text)cell.setRichTextValue(truthRich(value));
+  const reason=sourceInputReason(job),body=reason&&!spent(job)?'❌ CẦN NỘP LẠI: '+reason:waitingBody(job),value=truthNoticeText(source,text,body);if(value!==text)cell.setRichTextValue(truthRich(value));
   if(reason&&!spent(job)){job.autoNotice=value;job.resultHash=hash(value);job.status='COMPLETED_NEEDS_RESUBMISSION';job.error='';job.nextAt=0;}
   job.sheetTruth={...job.sheetTruth,version:SHEET_TRUTH_VERSION,state:reason&&!spent(job)?'RESUBMISSION':'PENDING',submissionAt:sourceTime(source),pendingHash:reason&&!spent(job)?null:hash(value)};save();
  }catch(e){emit({event:'SHEET_TRUTH_DELIVERY_DEFERRED',reason:/^[A-Z0-9_]+$/.test(e.message||'')?e.message:'SHEET_UNAVAILABLE',providerCalls:0});}
