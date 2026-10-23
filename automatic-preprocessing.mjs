@@ -22,7 +22,7 @@ export function installKidsPreprocessing(c,{g,service,isLatest,emit=()=>{}}){
   return step(j,row,...args);
  };
  const handle=c.handleError_;c.handleError_=(j,row,e)=>{
-  if(e.message==='YOUTUBE_UNAVAILABLE'&&notice(j,row,YOUTUBE_NOTICE))return;
+  if(e.message==='YOUTUBE_UNAVAILABLE')e=Error('TRANSIENT_MEDIA_YOUTUBE_OUTPUT_MISSING');
   if(isTransient(e)&&!hasRequest(j)&&!hasSavedResult(j)){j.error=e.message;retryPreparation(j,()=>c.persist_(j,row));return;}
   return handle(j,row,e);
  };

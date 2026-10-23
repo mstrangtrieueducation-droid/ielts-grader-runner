@@ -1,5 +1,5 @@
 import {isResubmissionFeedback} from './sheet-truth-state.mjs';
-import {seedSheetTruth,recoverArchivedRaw,sheetTruthEnabled,mayReopenNotice} from './sheet-truth-sync.mjs';
+import {cleanupClassWaiting,seedSheetTruth,recoverArchivedRaw,sheetTruthEnabled,mayReopenNotice} from './sheet-truth-sync.mjs';
 import {sourceInMasterScope,MASTER_SUBMISSIONS_SINCE} from './master-submission-scope.mjs';
 import {createHash} from 'node:crypto';
 import {generationSpent} from './master-policy.mjs';
@@ -34,7 +34,7 @@ export function createMasterSweep({google,lane,controlId,classes,entries,resolve
    return 'pending';
   }catch(e){if(issueError(e)){if(mutate){const bucket=issues.get(cls?.spreadsheetId)||{cls,items:new Map()};bucket.items.set(item.key,{...item,reason:e.message,jobId:j?.id||''});issues.set(cls?.spreadsheetId,bucket);}return 'assignment';}item.error=e.message;return 'pending';}
  }
- function scan(){for(const entry of entries){if(!sourceInMasterScope(entry.source))continue;const item=itemState(entry.source,entry.cls);item.outcome=inspect(item,true);}for(const b of batches)try{b.flush();}catch(e){emit({event:'SHEET_TRUTH_FLUSH_DEFERRED',providerCalls:0});}emit({event:'MASTER_SWEEP_SCANNED',lane,classes:summary.size,submissions:states.size,blankBefore:blankBefore.size,visibleWrites,providerCalls:0});return states.size;}
+ function scan(){for(const entry of entries){if(!sourceInMasterScope(entry.source))continue;const item=itemState(entry.source,entry.cls);item.outcome=inspect(item,true);}if(sheetTruthEnabled())cleanupClassWaiting({google,classes,emit});for(const b of batches)try{b.flush();}catch(e){emit({event:'SHEET_TRUTH_FLUSH_DEFERRED',providerCalls:0});}emit({event:'MASTER_SWEEP_SCANNED',lane,classes:summary.size,submissions:states.size,blankBefore:blankBefore.size,visibleWrites,providerCalls:0});return states.size;}
  function refresh(){for(const r of summary.values())Object.assign(r,{newReturned:0,existing:0,assignment:0,pending:0});const unique=new Map(),rank={newReturned:0,existing:1,pending:2,assignment:3};for(const item of states.values()){item.outcome=inspect(item,false);const key=item.targetKey||item.key,prior=unique.get(key);if(!prior||rank[item.outcome]<rank[prior.outcome])unique.set(key,item);}for(const item of unique.values())summary.get(item.source.className)[item.outcome]++;return [...summary.values()];}
  function publish(){const rows=refresh(),issueResult=flushClassIssues(google,issues,lane),title='MASTER SWEEP '+lane.toUpperCase(),book=google.book(controlId),tab=book.getSheetByName(title),sheetId=tab?.getSheetId()||stableSheetId(controlId,title,book),requests=[];
   if(!tab)requests.push({addSheet:{properties:{sheetId,title,gridProperties:{rowCount:Math.max(100,rows.length+5),columnCount:7,frozenRowCount:1}}}});

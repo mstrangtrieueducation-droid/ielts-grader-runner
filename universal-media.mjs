@@ -1,3 +1,4 @@
+import {classifyYouTubeFailure} from './submission-source-policy.mjs';
 import {sheetTruthEnabled} from './sheet-truth-state.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -129,12 +130,12 @@ export function createMediaService({g,root,key=process.env.GEMINI_API_KEY,ffmpeg
  installTransientGoogle(g);const dir=path.join(root,'private','universal-media');fs.mkdirSync(dir,{recursive:true});const urls=new Map(),prepared=new Map();
  const register=(id,url)=>urls.set(id,url),ids=text=>sourceIds(text,register);
  function youtube(id){
-  if(!/^yt_[\w-]{11}$/.test(id))throw Error('INVALID_YOUTUBE_ID');const url=urls.get(id)||'https://www.youtube.com/watch?v='+id.slice(3),file=path.join(dir,id+'.original'),meta=file+'.json';
+  if(!/^yt_[\w-]{11}$/.test(id))throw Error('INVALID_YOUTUBE_ID');const url=urls.get(id)||'https://www.youtube.com/watch?v='+id.slice(3),file=path.join(dir,id.slice(3)+'.mp3'),meta=path.join(dir,id+'.mp3.json');
   if(fs.existsSync(file)&&fs.existsSync(meta))return JSON.parse(fs.readFileSync(meta));
   const python=process.env.PYTHON_PATH||(process.platform==='win32'?'python':'python3');
-  retryTransient(()=>{const r=run(python,['-m','yt_dlp','--js-runtimes','node:'+process.execPath,'--no-playlist','--no-progress','--no-warnings','--socket-timeout','30','--retries','0','-f','bestaudio/best','--print','after_move:%(filepath)s','-o',file,url],{encoding:'utf8',windowsHide:true,timeout:sheetTruthEnabled()?30000:20*60000});if(r.status!==0){if(r.error?.code==='ETIMEDOUT')throw Error('TRANSIENT_MEDIA_DOWNLOAD_TIMEOUT');if(/No module named|command not found|ENOENT/.test(String(r.stderr||'')+String(r.error||'')))throw Error('TRANSIENT_MEDIA_YTDLP_UNAVAILABLE');if(/timed?\s*out|HTTP Error (500|502|503|504)|connection (?:reset|aborted)|Temporary failure/i.test(r.stderr||''))throw Error('TRANSIENT_MEDIA_YOUTUBE_NETWORK');if(/private video|sign in.*(?:access|private)|members.only|HTTP Error (401|403)/i.test(r.stderr||''))throw Error('SOURCE_ACCESS_REQUIRED');if(/video unavailable|removed|deleted|not exist|HTTP Error (404|410)/i.test(r.stderr||''))throw Error('SOURCE_NOT_FOUND');throw Error('TRANSIENT_MEDIA_YOUTUBE_UNCLASSIFIED');}},{retries:sheetTruthEnabled()?0:2});
-  if(!fs.existsSync(file)||!fs.statSync(file).size)throw Error('YOUTUBE_UNAVAILABLE');
-  const result={id,name:id+'.audio',mimeType:'audio/webm',size:String(fs.statSync(file).size),modifiedTime:fs.statSync(file).mtime.toISOString(),localFile:file,originalUrl:url,trashed:false};fs.writeFileSync(meta,JSON.stringify(result));return result;
+  retryTransient(()=>{const r=run(python,['-m','yt_dlp','--js-runtimes','node:'+process.execPath,'--no-playlist','--no-progress','--no-warnings','--socket-timeout','30','--retries','0','-f','bestaudio/best','-x','--audio-format','mp3','--audio-quality','64K','--print','after_move:%(filepath)s','-o',path.join(dir,'%(id)s.%(ext)s'),url],{encoding:'utf8',windowsHide:true,timeout:sheetTruthEnabled()?30000:20*60000});if(r.status!==0){throw Error(classifyYouTubeFailure(r));}},{retries:sheetTruthEnabled()?0:2});
+  if(!fs.existsSync(file)||!fs.statSync(file).size)throw Error('TRANSIENT_MEDIA_YOUTUBE_OUTPUT_MISSING');
+  const result={id,name:id+'.mp3',mimeType:'audio/mpeg',size:String(fs.statSync(file).size),modifiedTime:fs.statSync(file).mtime.toISOString(),localFile:file,originalUrl:url,trashed:false};fs.writeFileSync(meta,JSON.stringify(result));return result;
  }
  const originalMeta=g.fileMeta.bind(g);g.fileMeta=id=>id.startsWith('yt_')?youtube(id):originalMeta(id);
  function localFile(m){
