@@ -1,3 +1,6 @@
+import {enqueueSpeakingMasterRepairs} from './speaking-master-recovery.mjs';
+import {installSpeakingMaster,isFoundation} from './speaking-master-policy.mjs';
+import {installSpeakingSourceHeaders} from './speaking-source-headers.mjs';
 import {installSpeakingSourceGate} from './submission-source-speaking.mjs';
 import {createMediaService,universalValidatedRequest,isTransient,retryPreparation} from './universal-media.mjs';
 import {installFeedbackAlignment} from './feedback-alignment.mjs';
@@ -33,7 +36,7 @@ export function runIelts({google,config,key,root,deadline,emit,audit=false,maxJo
  const properties=new Map(Object.entries({...binding.properties,IELTS_SPEAKING_CONTROL_ID:binding.controlId,IELTS_SPEAKING_ARTIFACT_FOLDER:binding.artifactFolder,IELTS_SPEAKING_GEMINI_API_KEY:key}));
  const props={getProperty:k=>properties.get(k)||null,setProperty:(k,v)=>{properties.set(k,String(v));return props;},deleteProperty:k=>{properties.delete(k);return props;},getProperties:()=>Object.fromEntries(properties)};
  let activeAudioJob;
- const c=vm.createContext({Date,PropertiesService:{getScriptProperties:()=>props},Utilities:utilities(),SpreadsheetApp:{openById:id=>google.book(id),flush:()=>{},newRichTextValue:()=>new RichBuilder(),newTextStyle:()=>new Style()},DriveApp:{getFileById:id=>google.file(id)},ScriptApp:{getOAuthToken:()=>google.token()},UrlFetchApp:{fetch:(url,o={})=>{let body=o.payload;if(url.includes(':generateContent')){const data=JSON.parse(body);data.systemInstruction={parts:[{text:'BƯỚC 0: Đây là bài audio của lớp IELTS. Chỉ chấm ngôn ngữ nghe được theo bốn tiêu chí IELTS Speaking: Fluency & Coherence, Lexical Resource, Grammatical Range & Accuracy, Pronunciation. Không có hình nên tuyệt đối không nhận xét ánh mắt, tư thế hay ngôn ngữ cơ thể. Lời khen và sửa lỗi tách đúng nhóm; không xã giao.'}]};data.systemInstruction.parts.push({text:PEDAGOGY_INSTRUCTION});data.systemInstruction.parts.push({text:ieltsAddressInstruction('IELTS')});body=universalValidatedRequest(data,activeAudioJob);}const response=request({url,method:(o.method||'GET').toUpperCase(),headers:{...(o.headers||{}),...(o.contentType?{'Content-Type':o.contentType}:{})},body});if(url.includes(':generateContent')&&response.getResponseCode()===200&&activeAudioJob)activeAudioJob.providerResponseReceived={httpStatus:200,at:new Date().toISOString()};return response;}}});
+ const c=vm.createContext({Date,PropertiesService:{getScriptProperties:()=>props},Utilities:utilities(),SpreadsheetApp:{openById:id=>google.book(id),flush:()=>{},newRichTextValue:()=>new RichBuilder(),newTextStyle:()=>new Style()},DriveApp:{getFileById:id=>google.file(id)},ScriptApp:{getOAuthToken:()=>google.token()},UrlFetchApp:{fetch:(url,o={})=>{let body=o.payload;if(url.includes(':generateContent')){const data=JSON.parse(body);data.systemInstruction={parts:[{text:(isFoundation(activeAudioJob?.source?.code)?'S01 là luyện nói nền tảng: chấm % phát âm từ, âm đuôi/trọng âm và độ trôi chảy câu mẫu; KHÔNG chấm band, không yêu cầu câu trả lời Part 1 tự phát.':'S02–S31: chấm bốn tiêu chí FC/LR/GRA/PR, band 0–9 bước 0.5.')+' Chỉ chấm âm thanh thực nghe, không nhận xét mắt/tư thế. Khen và sửa tách đúng nhóm; dùng em/Em.'}]};data.systemInstruction.parts.push({text:PEDAGOGY_INSTRUCTION});data.systemInstruction.parts.push({text:ieltsAddressInstruction('IELTS')});body=universalValidatedRequest(data,activeAudioJob);}const response=request({url,method:(o.method||'GET').toUpperCase(),headers:{...(o.headers||{}),...(o.contentType?{'Content-Type':o.contentType}:{})},body});if(url.includes(':generateContent')&&response.getResponseCode()===200&&activeAudioJob)activeAudioJob.providerResponseReceived={httpStatus:200,at:new Date().toISOString()};return response;}}});
  for(const file of fs.readdirSync(path.join(root,'ielts-gas')).filter(f=>f.endsWith('.gs')))vm.runInContext(fs.readFileSync(path.join(root,'ielts-gas',file),'utf8'),c,{filename:file});
  installReturnedSpeakingPolicy(c);
  installIeltsAddress(c);
@@ -43,6 +46,8 @@ export function runIelts({google,config,key,root,deadline,emit,audit=false,maxJo
  c.isgLock_=fn=>fn();c.isgLease_=fn=>fn();
  c.isgArtifact_=(label,value)=>{const b=google.book(binding.controlId),s=b.getSheetByName('RunnerArtifacts')||b.insertSheet('RunnerArtifacts');const id='runner:'+randomUUID(),text=JSON.stringify(value),rows=[];for(let i=0;i<text.length;i+=40000)rows.push([id,i/40000,text.slice(i,i+40000)]);s.appendRows(rows);return id;};
  c.isgReadArtifact_=id=>readSpeakingArtifact(google,binding.controlId,id);
+ installSpeakingSourceHeaders(c,{emit});
+ installSpeakingMaster(c);
  let speakingApproval;const preprocessing=installSpeakingMedia(c,{g:google,service:universalMedia,nativeResubmission,approval:()=>speakingApproval});
  installSpeakingSourceGate(c,{g:google,service:universalMedia,sourceId:vm.runInContext('ISG.source',c)});
  let finished=0,paidCalls=0;
@@ -57,11 +62,12 @@ export function runIelts({google,config,key,root,deadline,emit,audit=false,maxJo
   const rawRows=c.isgSourceRows_().filter(s=>!masterSweepEnabled()||sourceInMasterScope(s)),latest=c.isgLatest_(rawRows),newest=new Map(latest.map(s=>[s.className+'|'+c.isgName_(s.name)+'|'+s.code,s]));
   const getKey=s=>s.className+'|'+c.isgName_(s.name)+'|'+s.code;
   let old=0;
-  for(const item of c.isgJobs_(table))if(newest.get(getKey(item.job.source))?.signature!==item.job.source.signature&&!['DONE','SKIPPED_EXISTING_FEEDBACK','SKIPPED_OLD_SUBMISSION'].includes(item.job.status)){item.job.status='SKIPPED_OLD_SUBMISSION';delete item.job.retryAt;c.isgSave_(table,item.row,item.job);old++;}
+  for(const item of c.isgJobs_(table))if(!c.speakingSourceScanIncomplete_&&newest.get(getKey(item.job.source))?.signature!==item.job.source.signature&&!['DONE','SKIPPED_EXISTING_FEEDBACK','SKIPPED_OLD_SUBMISSION'].includes(item.job.status)){item.job.status='SKIPPED_OLD_SUBMISSION';delete item.job.retryAt;c.isgSave_(table,item.row,item.job);old++;}
   // Enqueue every valid lesson independently; a new lesson does not supersede another.
   const known=new Set(c.isgJobs_(table).map(x=>x.job.source.signature));
   const scanUntil=masterSweepEnabled()?Infinity:Math.min(deadline-90000,Date.now()+25000);let enqueued=0;
   for(const source of latest){if(Date.now()>scanUntil)break;if(known.has(source.signature)||!c.isgScopeAllows_(source))continue;c.isgEnqueue_(table,source,'live');known.add(source.signature);enqueued++;}
+  if(masterSweepEnabled())emit({event:'SPEAKING_MASTER_REPAIRS',...enqueueSpeakingMasterRepairs(c,table,{inScope:masterScopeAllowsJob,isLatest:s=>newest.get(getKey(s))?.signature===s.signature,emit})});
   if(masterSweepEnabled())masterSweep=prepareNativeSweep({google,lane:'ielts',controlId:binding.controlId,classes:sweepClasses,sources:latest,jobs:c.isgJobs_(table),save:(j,row)=>c.isgSave_(table,row,j),readyStatus:'GENERATED',freshStatus:'QUEUED',hasFeedback:text=>c.isgHasFeedback_(text),emit,resolve:s=>{const dst=c.isgTarget_(s);return {...dst,cell:dst.range};}});
   queueBuffer?.flush();
   emit({event:'SPEAKING_EXISTING_DELIVERY_RECONCILED',...reconcileDeliveredSpeaking(c,c.isgJobs_(table),(j,row)=>c.isgSave_(table,row,j),sourceInMasterScope)});

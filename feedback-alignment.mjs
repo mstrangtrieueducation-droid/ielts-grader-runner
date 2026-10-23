@@ -7,9 +7,9 @@ export function leftAlignedFeedbackBody(body){
   for(const [i,row]of (u.rows||[]).entries())for(const [k,cell]of (row.values||[]).entries()){
    const text=cell.userEnteredValue?.stringValue||'';
    if(text.trim().startsWith('{')||text.trim().startsWith('['))continue;
-   if(!(/NHẬN XÉT GV|Estimated Band:|Chất lượng:/i.test(text)||cell.textFormatRuns?.length)||cell.userEnteredFormat?.horizontalAlignment==='LEFT')continue;
+   if(!(/NHẬN XÉT GV|Estimated Band:|Chất lượng:/i.test(text)||cell.textFormatRuns?.length)||cell.userEnteredFormat?.horizontalAlignment==='LEFT'&&cell.userEnteredFormat?.verticalAlignment==='TOP')continue;
    const r=(u.range.startRowIndex||0)+i,c=(u.range.startColumnIndex||0)+k;
-   requests.push({repeatCell:{range:{sheetId:u.range.sheetId,startRowIndex:r,endRowIndex:r+1,startColumnIndex:c,endColumnIndex:c+1},cell:{userEnteredFormat:{horizontalAlignment:'LEFT'}},fields:'userEnteredFormat.horizontalAlignment'}});added=true;
+   requests.push({repeatCell:{range:{sheetId:u.range.sheetId,startRowIndex:r,endRowIndex:r+1,startColumnIndex:c,endColumnIndex:c+1},cell:{userEnteredFormat:{horizontalAlignment:'LEFT',verticalAlignment:'TOP'}},fields:'userEnteredFormat.horizontalAlignment,userEnteredFormat.verticalAlignment'}});added=true;
   }
  }
  return added?{...body,requests}:body;

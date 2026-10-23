@@ -54,15 +54,24 @@ jobs:
         run: |
           python3 -m pip install --quiet 'cryptography>=45,<47'
           python3 test-python-google.py
+      - name: Validate teacher master policy without provider calls
+        run: |
+          node master-compact-output-tests.mjs
+          node master-runtime-tests.mjs
       - name: Install audio validation tools
         if: env.MODE != 'validate'
         run: |
-          if ! command -v ffmpeg >/dev/null 2>&1; then
-            timeout 180s sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update -qq || echo 'Package refresh deferred; using available indexes'
-            timeout 240s sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y -qq --no-install-recommends ffmpeg
+          python3 -m pip install --quiet --timeout 30 --retries 2 -r requirements.txt
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! ffmpeg -version >/dev/null 2>&1; then
+            python3 -m pip install --quiet --timeout 30 --retries 2 'imageio-ffmpeg==0.6.0'
+            media_bin="$RUNNER_TEMP/teacher-media-tools"
+            mkdir -p "$media_bin"
+            ffmpeg_exe=$(python3 -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')
+            ln -sf "$ffmpeg_exe" "$media_bin/ffmpeg"
+            "$media_bin/ffmpeg" -version >/dev/null
+            echo "$media_bin" >> "$GITHUB_PATH"
+            echo "FFMPEG_PATH=$media_bin/ffmpeg" >> "$GITHUB_ENV"
           fi
-          ffmpeg -version >/dev/null
-          python3 -m pip install --quiet -r requirements.txt
       - name: Audit or grade on the dedicated Speaking project
         if: env.MODE != 'validate'
         env:

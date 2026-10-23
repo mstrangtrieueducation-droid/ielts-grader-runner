@@ -19,10 +19,11 @@ export function acceptTeacherApprovals(jobs,session,controlId,tab,save){
  for(const {job:j,row}of jobs){const a=session.approved.get(j.id);if(!a||!String(a.sourceLink).includes('/'+controlId+'/')||!String(a.sourceLink).includes('A'+row+':F'+row)){if(j.teacherApproval?.approved)j.teacherApproval.approved=false;continue;}
   if(j.teacherApproval?.approved)continue;
   if(a.automatic&&j.rawId){j.teacherApproval={...a,approved:true,acceptedAt:new Date().toISOString(),resumingSavedResult:true};j.nextAt=0;save(j,row);continue;}
-  if(MASTER_TERMINAL.has(j.status)||j.status==='DONE'||generationSpent(j)){
-   j.teacherApprovedHistory ||= [];j.teacherApprovedHistory.push({at:new Date().toISOString(),rawId:j.rawId,gradeId:j.gradeId,status:j.status,generateRequests:j.generateRequests,usage:j.apiUsage||j.usage,autoNotice:j.autoNotice});
-   for(const k of ['rawId','gradeId','pendingFeedback','pendingFeedbackRender','pendingMasterFeedback','pendingMasterReading','generateRequests','approvedGenerateRequests','attempts','attemptsToday','verificationRawId','verificationStarted','masterGenerationReserved','runnerGenerationStarted','generationReservation','previousGradingAttempts','failedAttempts','retryGenerationAuthorized','apiUsage','usage'])delete j[k];
-   j.teacherApprovalOverwrite=true;
+  // A checkbox never erases a paid attempt or reuses its reservation.
+  if(j.rawId||j.gradeId||generationSpent(j)||j.approvedGenerateRequests||j.apiUsage||j.usage){
+   j.teacherApproval={...a,approved:true,acceptedAt:new Date().toISOString(),resumingSavedResult:!!j.rawId};
+   if(j.rawId&&!['RETURNED','DONE','SKIPPED_ALREADY_GRADED','SKIPPED_EXISTING_FEEDBACK'].includes(j.status)){j.status='READY';j.nextAt=0;}else session.finish(j);
+   save(j,row);continue;
   }
   j.teacherApproval={...a,approved:true,cycle:randomUUID(),acceptedAt:new Date().toISOString(),before:null};j.status='READY';j.error='';j.nextAt=0;save(j,row);
  }
