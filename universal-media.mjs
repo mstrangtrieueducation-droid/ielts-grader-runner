@@ -27,7 +27,7 @@ export function installTransientGoogle(g,{transport=request,sleep=pause}={}){
   if(!safe)return api(url,method,data);
   return retryTransient(()=>{
    if(url.startsWith('https://sheets.googleapis.com/')){if(process.env.GOOGLE_RATE_GATE_FILE)sheetsGate(process.env.GOOGLE_RATE_GATE_FILE,verb==='GET'?'read':'write');else{pause(Math.max(0,(g.nextSheetAt||0)-Date.now()));g.nextSheetAt=Date.now()+1800;}if(g.metrics)g.metrics.sheetCalls++;}
-   const response=transport({url,method:verb,headers:{Authorization:'Bearer '+g.token(),'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)}),status=response.getResponseCode();
+   let response;for(let quotaAttempt=0;quotaAttempt<6;quotaAttempt++){if(quotaAttempt&&url.startsWith('https://sheets.googleapis.com/')&&process.env.GOOGLE_RATE_GATE_FILE)sheetsGate(process.env.GOOGLE_RATE_GATE_FILE,verb==='GET'?'read':'write');response=transport({url,method:verb,headers:{Authorization:'Bearer '+g.token(),'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data),timeoutMs:30000});if(response.getResponseCode()!==429||quotaAttempt===5)break;const retryAfter=Number(response.getAllHeaders?.()['retry-after']||0)*1000;sleep(Math.max([5000,10000,20000,40000,60000][quotaAttempt],Math.min(120000,retryAfter||0)));}const status=response.getResponseCode();
    if(status<200||status>299){const e=Error('GOOGLE_HTTP_'+status);e.httpCode=status;throw e;}
    return JSON.parse(response.getContentText()||'{}');
   },{sleep});

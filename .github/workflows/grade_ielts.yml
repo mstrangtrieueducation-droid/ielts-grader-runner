@@ -24,7 +24,7 @@ jobs:
       SPEAKING_ENABLED: ${{ vars.SPEAKING_ENABLED }}
       RUNNER_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       RUNNER_GITHUB_TOKEN: ${{ github.token }}
-      GOOGLE_SHEETS_INTERVAL_MS: '3500'
+      GOOGLE_SHEETS_INTERVAL_MS: '6000'
       SHEET_TRUTH_SYNC: 'true'
       GOOGLE_RATE_GATE_FILE: .runtime/google-rate.json
     steps:
@@ -69,6 +69,7 @@ jobs:
           node master-runtime-tests.mjs
           node completed-lease-owner-tests.mjs
           node sheet-truth-tests.mjs
+          node sheet-truth-quota-tests.mjs
           node sheet-truth-download-tests.mjs
           node sheet-truth-reconcile-tests.mjs
       - name: Install audio validation tools
