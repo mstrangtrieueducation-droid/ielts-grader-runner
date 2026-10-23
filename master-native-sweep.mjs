@@ -1,9 +1,10 @@
+import {createCurrentRosterCheck} from './current-roster-policy.mjs';
 import {normalizeSavedSpeaking} from './saved-speaking-consistency.mjs';
 import {masterScopeAllowsJob} from './master-submission-scope.mjs';
 import {createMasterSweep} from './master-cross-class-sweep.mjs';
 export function prepareNativeSweep({google,lane,controlId,classes,sources,jobs,resolve,hasFeedback,save,readyStatus,freshStatus,isApproved=()=>false,emit}){
- const bySignature=new Map(jobs.map(x=>[x.job.source.signature,x]));
- const sweep=createMasterSweep({google,lane,controlId,classes,entries:sources.map(source=>({source,cls:classes.find(c=>c.className===source.className)})),findJob:s=>bySignature.get(s.signature),resolve,hasFeedback,save,readyStatus,freshStatus,allJobs:jobs,isApproved,enqueue:()=>{throw Error('MASTER_SOURCE_NOT_ENQUEUED');},emit});sweep.scan();return sweep;
+ const bySignature=new Map(jobs.map(x=>[x.job.source.signature,x])),isCurrentStudent=createCurrentRosterCheck(google,classes);
+ const sweep=createMasterSweep({google,lane,controlId,classes,entries:sources.map(source=>({source,cls:classes.find(c=>c.className===source.className)})),findJob:s=>bySignature.get(s.signature),resolve,hasFeedback,save,readyStatus,freshStatus,allJobs:jobs,isApproved,isCurrentStudent,enqueue:()=>{throw Error('MASTER_SOURCE_NOT_ENQUEUED');},emit});sweep.scan();return sweep;
 }
 export function bufferSpeakingQueue(c,table,g,controlId){
  const originalJobs=c.isgJobs_,originalSave=c.isgSave_,originalLast=table.getLastRow,items=originalJobs(table),changes=new Map();let last=originalLast.call(table),closed=false;
