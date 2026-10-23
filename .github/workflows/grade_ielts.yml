@@ -69,6 +69,7 @@ jobs:
           node master-runtime-tests.mjs
           node completed-lease-owner-tests.mjs
           node sheet-truth-tests.mjs
+          node sheet-truth-download-tests.mjs
           node sheet-truth-reconcile-tests.mjs
       - name: Install audio validation tools
         if: env.MODE != 'validate'

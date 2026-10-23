@@ -5,6 +5,7 @@ export const normalizeInput=value=>String(value||'').replace(/\s+/g,' ').trim();
 export function sourceResult(state,reason,extra={}){return {schema:1,version:SOURCE_VERSION,state,label:SOURCE_LABELS[state],aiEligible:state==='valid',reason,...extra};}
 export function sourceFailure(error){
  const message=String(error?.message||error||''),code=Number(error?.httpCode||message.match(/(?:HTTP[_ ]|SOURCE_HTTP_)(\d{3})/)?.[1]||0);
+ if(process.env.SHEET_TRUTH_SYNC==='true'&&/TRANSIENT_MEDIA_DOWNLOAD_TIMEOUT/.test(message))return sourceResult('pending','DOWNLOAD_IN_PROGRESS',{retryAfterMs:2000});
  if(/rateLimitExceeded|quota|dailyLimit|too many requests/i.test(message)||code===429||code>=500)return sourceResult('pending','SOURCE_CHECK_RETRY');
  if(code===401||code===403||/SOURCE_ACCESS_REQUIRED|YOUTUBE_PRIVATE/.test(message))return sourceResult('access','ACCESS_DENIED');
  if(code===404||code===410||/SOURCE_INVALID|INVALID_DRIVE_LINK|INVALID_YOUTUBE|SOURCE_NOT_FOUND|PREFLIGHT_FILE_MISSING_OR_INVALID|UNSUPPORTED_MEDIA|SPEAKING_AUDIO_EMPTY/.test(message))return sourceResult('invalid','MISSING_OR_INVALID_FILE');

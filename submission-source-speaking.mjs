@@ -12,7 +12,7 @@ export function installSpeakingSourceGate(c,{g,service,sourceId,publish=publishS
    const result=sourceText!==undefined?inspectSubmissionSource({text:sourceText,service,metadata:id=>g.fileMeta(id)}):s.fileIds.length?inspectSubmissionSource({ids:s.fileIds,service,metadata:id=>g.fileMeta(id)}):sourceInput('');
    j.sourceIntake={...result,receivedAt:s.at};c.isgSave_(table,item.row,j);
    try{publish(g,sourceId,{sourceTab:s.sheetName,row:s.row,links:sourceText!==undefined?sourceText:s.fileIds.map(id=>'https://drive.google.com/file/d/'+id+'/view').join(' '),code:s.code,student:s.name,className:s.className,time:s.at},result);delete j.sourceStatusWriteError;}catch{j.sourceStatusWriteError=true;}
-   if(result.state!=='valid'){j.status='RETRY';j.error='SOURCE_INPUT_'+result.state.toUpperCase();j.nextAt=Date.now()+300000;j.retryAt=new Date(j.nextAt).toISOString();c.isgSave_(table,item.row,j);return j;}
+   if(result.state!=='valid'){j.status='RETRY';j.error='SOURCE_INPUT_'+result.state.toUpperCase();j.nextAt=Date.now()+(result.retryAfterMs||300000);j.retryAt=new Date(j.nextAt).toISOString();c.isgSave_(table,item.row,j);return j;}
   }
   return process(table,item);
  };

@@ -57,6 +57,6 @@ export function installSpeakingRetryProcess(c){
  };
 }
 export function nextSpeakingRetry(items){
- const times=items.map(x=>x.job||x).filter(pendingSpeakingRetry).map(j=>j.providerRetry.nextAt);
+ const times=items.map(x=>x.job||x).flatMap(j=>pendingSpeakingRetry(j)?[j.providerRetry.nextAt]:process.env.SHEET_TRUTH_SYNC==='true'&&jobInMasterScope(j)&&j.sourceIntake?.reason==='DOWNLOAD_IN_PROGRESS'&&!hasSpeakingResult(j)&&Number(j.nextAt)>Date.now()?[Number(j.nextAt)]:[]);
  return times.length?Math.min(...times):null;
 }
