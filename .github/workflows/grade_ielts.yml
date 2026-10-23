@@ -25,6 +25,7 @@ jobs:
       RUNNER_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       RUNNER_GITHUB_TOKEN: ${{ github.token }}
       GOOGLE_SHEETS_INTERVAL_MS: '3500'
+      SHEET_TRUTH_SYNC: 'true'
       GOOGLE_RATE_GATE_FILE: .runtime/google-rate.json
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -34,6 +35,8 @@ jobs:
         with:
           node-version: '24'
       - name: Validate grading safeguards without provider calls
+        env:
+          SHEET_TRUTH_SYNC: 'false'
         run: |
           node hosted-bootstrap.mjs
           node automatic-authorization-tests.mjs
@@ -59,10 +62,13 @@ jobs:
           python3 -m pip install --quiet 'cryptography>=45,<47'
           python3 test-python-google.py
       - name: Validate teacher master policy without provider calls
+        env:
+          SHEET_TRUTH_SYNC: 'false'
         run: |
           node master-compact-output-tests.mjs
           node master-runtime-tests.mjs
           node completed-lease-owner-tests.mjs
+          node sheet-truth-tests.mjs
       - name: Install audio validation tools
         if: env.MODE != 'validate'
         run: |

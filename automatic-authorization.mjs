@@ -6,7 +6,7 @@ export function automaticEligible(j,all=[]){
  if(j.preprocessRetry&&Number(j.nextAt)>Date.now())return false;
  if(!speakingRetryAllowed(j)&&(!masterScopeAllowsJob(j)||!pending.has(j.status)||j.rawId||j.gradeId||generationSpent(j)||j.approvedGenerateRequests||j.generationAttempt?.calls||j.apiUsage||j.usage||j.technicalInputFailure||j.presentationResubmissionRequired))return false;
  const key=x=>[x.cls?.spreadsheetId||x.source?.className,x.receipt?.student||x.source?.name,x.route?.code||x.source?.code].join('|');
- const freshResubmission=p=>{const a=j.source||j.receipt||{},b=p.source||p.receipt||{};const changed=a.signature&&b.signature?a.signature!==b.signature:String(a.links||a.link||'')!==String(b.links||b.link||'');return changed&&receiptDate(a.at||a.time,new Date(0))>receiptDate(b.at||b.time,new Date(0));};
+ const freshResubmission=p=>{const a=j.source||j.receipt||{},b=p.source||p.receipt||{};const changed=a.signature&&b.signature?a.signature!==b.signature:String(a.links||a.link||'')!==String(b.links||b.link||'');return receiptDate(a.at||a.time,new Date(0))>receiptDate(b.at||b.time,new Date(0));};
  return !all.some(p=>key(p)===key(j)&&(p.presentationResubmissionRequired||/RESUBMISSION|UNASSESSABLE|CẦN_NỘP_LẠI|NEEDS_RESUBMISSION/.test(p.status))&&!freshResubmission(p));
 }
 export function mayResumeSaved(j){return masterScopeAllowsJob(j)&&!!j.rawId&&['RETRY','PROCESSING','GRADED','GENERATED','WAITING_MEDIA','WAITING_TEACHER_APPROVAL'].includes(j.status)&&!j.technicalInputFailure;}

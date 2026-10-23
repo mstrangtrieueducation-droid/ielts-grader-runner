@@ -1,3 +1,5 @@
+import {settleSheetTruth} from './sheet-truth-sync.mjs';
+import {approvalSession} from './teacher-approval-guards.mjs';
 import {enqueueSpeakingMasterRepairs} from './speaking-master-recovery.mjs';
 import {installSpeakingMaster,isFoundation,reconcileFoundationFeedback} from './speaking-master-policy.mjs';
 import {installSpeakingSourceHeaders} from './speaking-source-headers.mjs';
@@ -53,9 +55,10 @@ export function runIelts({google,config,key,root,deadline,emit,audit=false,maxJo
  let finished=0,paidCalls=0;
  const table=c.isgTable_();
  if(audit){emit({event:'IELTS_AUDIT',counts:c.isgJobs_(table).reduce((a,x)=>(a[x.job.status]=(a[x.job.status]||0)+1,a),{})});return {finished,paidCalls};}
- const state=stateStore(google,binding.controlId);state.acquire(deadline+60000);
+ const state=stateStore(google,binding.controlId);
  let destinationBatch,masterSweep,queueBuffer;
  try{
+  state.acquire(deadline+60000);const manualApproval=approvalSession(google,process.env.TEACHER_APPROVAL_CONTROL_ID||config.masterApprovalControlId||config.clusters?.[0]?.controlId||binding.controlId);
   const nativeConfig=vm.runInContext('ISG',c),sweepClasses=Object.entries(nativeConfig.classes).map(([className,spreadsheetId])=>({className,spreadsheetId,sheetName:nativeConfig.tab}));
   if(masterSweepEnabled()){destinationBatch=beginMasterDestinationBatch(google,sweepClasses,root,{emit});c.isgScopeAllows_=sourceInMasterScope;queueBuffer=bufferSpeakingQueue(c,table,google,binding.controlId);}
   const sourceId=vm.runInContext('ISG.source',c),sourceTabs=vm.runInContext('ISG.sourceTabs',c);google.preloadSource(sourceId,12,sourceTabs);
@@ -68,7 +71,7 @@ export function runIelts({google,config,key,root,deadline,emit,audit=false,maxJo
   const scanUntil=masterSweepEnabled()?Infinity:Math.min(deadline-90000,Date.now()+25000);let enqueued=0;
   for(const source of latest){if(Date.now()>scanUntil)break;if(known.has(source.signature)||!c.isgScopeAllows_(source))continue;c.isgEnqueue_(table,source,'live');known.add(source.signature);enqueued++;}
   if(masterSweepEnabled())emit({event:'SPEAKING_MASTER_REPAIRS',...enqueueSpeakingMasterRepairs(c,table,{inScope:masterScopeAllowsJob,isLatest:s=>newest.get(getKey(s))?.signature===s.signature,emit})});
-  if(masterSweepEnabled())masterSweep=prepareNativeSweep({google,lane:'ielts',controlId:binding.controlId,classes:sweepClasses,sources:latest,jobs:c.isgJobs_(table),save:(j,row)=>c.isgSave_(table,row,j),readyStatus:'GENERATED',freshStatus:'QUEUED',hasFeedback:text=>c.isgHasFeedback_(text),emit,resolve:s=>{const dst=c.isgTarget_(s);return {...dst,cell:dst.range};}});
+  if(masterSweepEnabled())masterSweep=prepareNativeSweep({google,lane:'ielts',controlId:binding.controlId,classes:sweepClasses,sources:latest,jobs:c.isgJobs_(table),save:(j,row)=>c.isgSave_(table,row,j),readyStatus:'GENERATED',freshStatus:'QUEUED',isApproved:j=>{const a=manualApproval.approved.get(j.id);return !!a&&!a.automatic;},hasFeedback:text=>c.isgHasFeedback_(text),emit,resolve:s=>{const dst=c.isgTarget_(s);return {...dst,cell:dst.range};}});
   queueBuffer?.flush();
   emit({event:'S01_FEEDBACK_FORMAT_RECONCILED',...reconcileFoundationFeedback(c,c.isgJobs_(table),(j,row)=>c.isgSave_(table,row,j))});
   emit({event:'SPEAKING_EXISTING_DELIVERY_RECONCILED',...reconcileDeliveredSpeaking(c,c.isgJobs_(table),(j,row)=>c.isgSave_(table,row,j),sourceInMasterScope)});
@@ -90,11 +93,11 @@ export function runIelts({google,config,key,root,deadline,emit,audit=false,maxJo
    try{
    if(item.job.status==='NEEDS_REVIEW'&&item.job.error==='SPEAKING_MODEL_UNAVAILABLE'&&!item.job.rawId&&binding.modelAvailable!==false){item.job.status='QUEUED';item.job.error='';delete item.job.retryAt;c.isgSave_(table,item.row,item.job);}
    if(Date.now()>deadline-90000||finished>=maxJobs||paidCalls>=maxApiCalls)break;if(item.job.mode!=='live'||!['QUEUED','RETRY','PENDING_RETRY','GENERATED','PROCESSING','GENERATING'].includes(item.job.status))continue;
-   if(masterSweepEnabled()&&item.job.rawId&&restoreSpeakingCache(c,item,table,approval)){if(item.job.status==='DONE')finished++;continue;}
+   if(masterSweepEnabled()&&(item.job.rawId||item.job.gradeId)&&restoreSpeakingCache(c,item,table,approval)){if(item.job.status==='DONE')finished++;continue;}
    const originalHasFeedback=c.isgHasFeedback_,before=c.isgTarget_(item.job.source).text;c.isgHasFeedback_=text=>masterSweepEnabled()||item.job.teacherApproval?.automatic?originalHasFeedback(text):text===before?false:originalHasFeedback(text);
    try{if(nativeOldFile(item.job,c.isgJobs_(table),google)){nativeResubmission(item.job,c.isgTarget_(item.job.source).range,()=>c.isgSave_(table,item.row,item.job),approval,OLD_FILE_NOTICE,'COMPLETED_NEEDS_RESUBMISSION');continue;}c.isgProcess_(table,item);if(item.job.error==='LOCAL_SILENT_AUDIO'||item.job.rawId&&noSpeech(decodeSavedDraft(c.isgReadArtifact_(item.job.rawId))))nativeResubmission(item.job,c.isgTarget_(item.job.source).range,()=>c.isgSave_(table,item.row,item.job),approval);if(item.job.status==='DONE'){approval.finish(item.job);c.isgSave_(table,item.row,item.job);}}finally{c.isgHasFeedback_=originalHasFeedback;}
    emit({event:'IELTS_JOB',id:item.job.id,status:item.job.status,error:item.job.error||'',className:item.job.source.className,code:item.job.source.code,cell:item.job.target?.address||''});if(item.job.status==='DONE')finished++;
-   }catch(e){if(isTransient(e)){item.job.error=e.message;retryPreparation(item.job,()=>c.isgSave_(table,item.row,item.job));continue;}item.job.error=e.message;item.job.status=e.message.startsWith('SYSTEM_AUDIO_INPUT_')?'SYSTEM_AUDIO_ERROR':'RETRY';item.job.nextAt=Date.now()+60000;c.isgSave_(table,item.row,item.job);emit({event:'IELTS_JOB_ERROR',id:item.job.id,error:e.message});}
+   }catch(e){if(isTransient(e)){item.job.error=e.message;retryPreparation(item.job,()=>c.isgSave_(table,item.row,item.job));continue;}item.job.error=e.message;item.job.status=e.message.startsWith('SYSTEM_AUDIO_INPUT_')?'SYSTEM_AUDIO_ERROR':'RETRY';item.job.nextAt=Date.now()+60000;c.isgSave_(table,item.row,item.job);emit({event:'IELTS_JOB_ERROR',id:item.job.id,error:e.message});}finally{settleSheetTruth({job:item.job,resolve:()=>c.isgTarget_(item.job.source).range,save:()=>c.isgSave_(table,item.row,item.job),emit});if(finished&&finished%10===0)destinationBatch?.flush();}
   }
   approval.flush();emit({event:'IELTS_COMPLETE',finished,paidCalls,counts:c.isgJobs_(table).reduce((a,x)=>(a[x.job.status]=(a[x.job.status]||0)+1,a),{})});return {finished,paidCalls,nextRetryAt:nextSpeakingRetry(c.isgJobs_(table))};
  }finally{try{queueBuffer?.flush();try{destinationBatch?.flush();try{masterSweep?.publish();}catch(e){emit({event:'MASTER_SWEEP_REPORT_ERROR',error:e.message});}}finally{destinationBatch?.close();}}finally{state.release();}}

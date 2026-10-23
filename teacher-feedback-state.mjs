@@ -1,16 +1,17 @@
+import {isWaitingFeedback} from './sheet-truth-state.mjs';
 // A listening result is not the teacher's video assessment. Classify without
 // changing the original text, then merge the listening prefix verbatim.
 const markerPattern=/[—–-]*[\t ]*NHẬN XÉT GV[\t ]*[—–-]*/iu;
 const clean=value=>String(value??'').normalize('NFC').replace(/[\u200B-\u200D\uFEFF]/g,'');
 export function emptyTeacherBody(value){const text=clean(value),marker=markerPattern.exec(text);return !!marker&&!text.slice(marker.index+marker[0].length).trim();}
-export function hasTeacherReview(value){const text=clean(value),marker=markerPattern.exec(text);return !!marker&&!!text.slice(marker.index+marker[0].length).trim();}
+export function hasTeacherReview(value){const text=clean(value),marker=markerPattern.exec(text);return !!marker&&!isWaitingFeedback(text)&&!!text.slice(marker.index+marker[0].length).trim();}
 function withoutListeningScores(text){
  return text.replace(/(?:^|\n)[\t ]*🎧[\t ]*ĐIỂM NGHE[^\r\n]*\r?\n(?:[\t ]*(?:Lần[\t ]+\d+[\t ]*:[\t ]*)?Điểm[\t ]+\d+[\t ]*\/[\t ]*\d+[\t ]*\([\t ]*\d+(?:[.,]\d+)?[\t ]*%[\t ]*\)[\t ]*(?:\r?\n|$))+/giu,'\n')
   .replace(/(?:^|\n)[\t ]*(?:🎧[\t ]*)?(?:Điểm nghe\s*:\s*|Điểm\s+)?\d+\s*\/\s*\d+(?:\s*\(\s*\d+(?:[.,]\d+)?\s*%\s*\))?[\t ]*(?=\r?\n|$)/giu,'')
   .replace(/(?:^|\n)[\t ]*(?:Điểm nghe\s*:\s*)?\d+(?:[.,]\d+)?\s*%[\t ]*(?=\r?\n|$)/giu,'');
 }
 export function receiptOnlyCell(value){
- let text=clean(value).trim();if(!text)return true;if(hasTeacherReview(text))return false;
+ let text=clean(value).trim();if(!text||isWaitingFeedback(text))return true;if(hasTeacherReview(text))return false;
  text=withoutListeningScores(text);
  if(/\d+(?:[.,]\d+)?\s*%/.test(text))return false; // reconcile unknown legacy teacher marks; never blind regeneration
  text=text.replace(markerPattern,'');

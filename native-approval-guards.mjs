@@ -1,3 +1,4 @@
+import {sheetTruthEnabled,truthNoticeText,truthRich,resubmissionBody} from './sheet-truth-sync.mjs';
 import {approvalSession,acceptTeacherApprovals,auditPreparedPart} from './teacher-approval-guards.mjs';import {SILENT_NOTICE,OLD_FILE_NOTICE,oldGradedSubmission,hasExistingFeedback} from './zero-cost-gates.mjs';import {voiceOrigin} from './student-voice-origin.mjs';import {RichBuilder,Style} from './google-adapter.mjs';import {createHash} from 'node:crypto';
 import {addAutomaticAuthorizations} from './automatic-authorization.mjs';
 import fs from 'node:fs';import {validateAudioPart,repairAudioLocally} from './audio-payload-guard.mjs';
@@ -8,5 +9,5 @@ export function nativeOldFile(job,jobs,g){return oldGradedSubmission(job,jobs,p=
 export function nativeApprovalSession(g,config,binding,tab,jobs,save){const session=approvalSession(g,process.env.TEACHER_APPROVAL_CONTROL_ID||config.masterApprovalControlId||config.clusters?.[0]?.controlId||binding.controlId);if(process.env.AUTOMATIC_GRADING_AUTHORIZED==='true')addAutomaticAuthorizations(session,jobs,binding.controlId,tab,g.book(binding.controlId).getSheetByName(tab).getSheetId());acceptTeacherApprovals(jobs,session,binding.controlId,tab,(j,row)=>{if(tab==='IELTS SPEAKING AI')j.status='QUEUED';save(j,row);});return session;}
 export function nativeSilentGate(job,parts){return voiceOrigin(parts,job.media||[]).allConfirmedPracticeOnly||!!job.media?.length&&job.media.every(m=>m.localSilence?.silent);}
 export function nativeResubmission(job,cell,save,session,text=SILENT_NOTICE,status='COMPLETED_UNASSESSABLE'){
- if(cell.getFormula()||cell.getDataValidation())throw Error('PROTECTED_TARGET');cell.setRichTextValue(new RichBuilder().setText(text).setTextStyle(new Style().setForegroundColor('#C2185B').build()).build());job.autoNotice=text;job.status=status;job.error='';job.nextAt=0;session.finish(job);save();
+ if(cell.getFormula()||cell.getDataValidation())throw Error('PROTECTED_TARGET');if(sheetTruthEnabled()){text=truthNoticeText(job.source||job.receipt,cell.getDisplayValue(),resubmissionBody(text));cell.setRichTextValue(truthRich(text));}else cell.setRichTextValue(new RichBuilder().setText(text).setTextStyle(new Style().setForegroundColor('#C2185B').build()).build());job.autoNotice=text;job.status=status;job.error='';job.nextAt=0;session.finish(job);save();
 }

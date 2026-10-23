@@ -1,3 +1,4 @@
+import {sheetTruthEnabled} from './sheet-truth-state.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
@@ -17,6 +18,7 @@ export class Response {
  getAllHeaders(){return this.r.headers;}getBlob(){return new Blob(this.bytes,this.r.headers?.['content-type']);}
 }
 export function request(q){
+ if(sheetTruthEnabled()&&/^https:\/\/(?:www\.)?googleapis\.com\/drive\//.test(q.url))q={...q,timeoutMs:Math.min(Number(q.timeoutMs)||30000,30000)};
  if(process.env.SHADOW_DOWNLOAD_TIMEOUT_MS&&(!q.method||q.method==='GET'))q={...q,timeoutMs:Math.min(Number(process.env.SHADOW_DOWNLOAD_TIMEOUT_MS),q.timeoutMs||240000)};
  const p=spawnSync(process.execPath,[path.join(root,'http-bridge.mjs')],{input:JSON.stringify(q),encoding:'utf8',maxBuffer:350*1024*1024,timeout:(q.timeoutMs||240000)+15000,windowsHide:true});
  let r;try{r=JSON.parse(p.stdout||'{}');}catch{throw Error('NETWORK_OUTCOME_UNKNOWN');}

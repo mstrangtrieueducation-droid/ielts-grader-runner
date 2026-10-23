@@ -4,6 +4,7 @@ import {receiptDate} from './master-policy.mjs';
 export const MASTER_SUBMISSIONS_SINCE='2026-09-01T00:00:00+07:00';
 const minimum=Date.parse(MASTER_SUBMISSIONS_SINCE);
 export function sourceInMasterScope(source){
+ if(/^IELTS\s*4[0-4]$/i.test(source?.className||''))return false;
  const value=source?.time??source?.at;
  if(value===undefined||value===null||value==='')return false;
  return receiptDate(value,new Date(0)).getTime()>=minimum;
