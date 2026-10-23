@@ -1,3 +1,4 @@
+import {installSpeakingSourceGate} from './submission-source-speaking.mjs';
 import {createMediaService,universalValidatedRequest,isTransient,retryPreparation} from './universal-media.mjs';
 import {installFeedbackAlignment} from './feedback-alignment.mjs';
 import {installSpeakingMedia} from './speaking-media-preprocessing.mjs';
@@ -43,6 +44,7 @@ export function runIelts({google,config,key,root,deadline,emit,audit=false,maxJo
  c.isgArtifact_=(label,value)=>{const b=google.book(binding.controlId),s=b.getSheetByName('RunnerArtifacts')||b.insertSheet('RunnerArtifacts');const id='runner:'+randomUUID(),text=JSON.stringify(value),rows=[];for(let i=0;i<text.length;i+=40000)rows.push([id,i/40000,text.slice(i,i+40000)]);s.appendRows(rows);return id;};
  c.isgReadArtifact_=id=>readSpeakingArtifact(google,binding.controlId,id);
  let speakingApproval;const preprocessing=installSpeakingMedia(c,{g:google,service:universalMedia,nativeResubmission,approval:()=>speakingApproval});
+ installSpeakingSourceGate(c,{g:google,service:universalMedia,sourceId:vm.runInContext('ISG.source',c)});
  let finished=0,paidCalls=0;
  const table=c.isgTable_();
  if(audit){emit({event:'IELTS_AUDIT',counts:c.isgJobs_(table).reduce((a,x)=>(a[x.job.status]=(a[x.job.status]||0)+1,a),{})});return {finished,paidCalls};}

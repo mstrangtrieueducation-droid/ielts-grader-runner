@@ -1,3 +1,4 @@
+import {execFileSync} from 'node:child_process';
 import './hosted-bootstrap.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -7,6 +8,7 @@ const root=path.dirname(fileURLToPath(import.meta.url));
 const required=name=>{const value=process.env[name]?.trim();if(!value)throw Error('MISSING_'+name);return value;};
 const unpack=name=>JSON.parse(gunzipSync(Buffer.from(required(name),'base64')).toString('utf8'));
 async function main(){
+ execFileSync(process.execPath,['submission-source-tests.mjs'],{cwd:root,stdio:'inherit',windowsHide:true});
  const mode=process.env.MODE||'audit';if(!['audit','grade'].includes(mode))throw Error('MODE_INVALID');
  const config=unpack('IELTS_RUNNER_CONFIG_GZIP_B64'),barem=unpack('IELTS_SPEAKING_BAREM_GZIP_B64'),key=required('GEMINI_KEY_IELTS_SPEAKING'),sa=JSON.parse(required('GOOGLE_SERVICE_ACCOUNT_JSON'));
  if(!config.ielts?.controlId||sa.client_email!==config.serviceAccount)throw Error('PRIVATE_CONFIGURATION_MISMATCH');

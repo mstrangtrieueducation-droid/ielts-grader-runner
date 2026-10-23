@@ -131,7 +131,7 @@ export function createMediaService({g,root,key=process.env.GEMINI_API_KEY,ffmpeg
   if(!/^yt_[\w-]{11}$/.test(id))throw Error('INVALID_YOUTUBE_ID');const url=urls.get(id)||'https://www.youtube.com/watch?v='+id.slice(3),file=path.join(dir,id+'.original'),meta=file+'.json';
   if(fs.existsSync(file)&&fs.existsSync(meta))return JSON.parse(fs.readFileSync(meta));
   const python=process.env.PYTHON_PATH||(process.platform==='win32'?'python':'python3');
-  retryTransient(()=>{const r=run(python,['-m','yt_dlp','--js-runtimes','node:'+process.execPath,'--no-playlist','--no-progress','--no-warnings','--socket-timeout','30','--retries','0','-f','bestaudio/best','--print','after_move:%(filepath)s','-o',file,url],{encoding:'utf8',windowsHide:true,timeout:20*60000});if(r.status!==0){if(/No module named|command not found|ENOENT/.test(String(r.stderr||'')+String(r.error||'')))throw Error('TRANSIENT_MEDIA_YTDLP_UNAVAILABLE');if(/timed?\s*out|HTTP Error (500|502|503|504)|connection (?:reset|aborted)|Temporary failure/i.test(r.stderr||''))throw Error('TRANSIENT_MEDIA_YOUTUBE_NETWORK');throw Error('YOUTUBE_UNAVAILABLE');}});
+  retryTransient(()=>{const r=run(python,['-m','yt_dlp','--js-runtimes','node:'+process.execPath,'--no-playlist','--no-progress','--no-warnings','--socket-timeout','30','--retries','0','-f','bestaudio/best','--print','after_move:%(filepath)s','-o',file,url],{encoding:'utf8',windowsHide:true,timeout:20*60000});if(r.status!==0){if(/No module named|command not found|ENOENT/.test(String(r.stderr||'')+String(r.error||'')))throw Error('TRANSIENT_MEDIA_YTDLP_UNAVAILABLE');if(/timed?\s*out|HTTP Error (500|502|503|504)|connection (?:reset|aborted)|Temporary failure/i.test(r.stderr||''))throw Error('TRANSIENT_MEDIA_YOUTUBE_NETWORK');if(/private video|sign in.*(?:access|private)|members.only|HTTP Error (401|403)/i.test(r.stderr||''))throw Error('SOURCE_ACCESS_REQUIRED');if(/video unavailable|removed|deleted|not exist|HTTP Error (404|410)/i.test(r.stderr||''))throw Error('SOURCE_NOT_FOUND');throw Error('TRANSIENT_MEDIA_YOUTUBE_UNCLASSIFIED');}});
   if(!fs.existsSync(file)||!fs.statSync(file).size)throw Error('YOUTUBE_UNAVAILABLE');
   const result={id,name:id+'.audio',mimeType:'audio/webm',size:String(fs.statSync(file).size),modifiedTime:fs.statSync(file).mtime.toISOString(),localFile:file,originalUrl:url,trashed:false};fs.writeFileSync(meta,JSON.stringify(result));return result;
  }
@@ -143,7 +143,7 @@ export function createMediaService({g,root,key=process.env.GEMINI_API_KEY,ffmpeg
   const out=path.join(dir,tag+'.original');if(fs.existsSync(out)&&fs.statSync(out).size===m.size)return out;
   const partial=out+'.part';let offset=fs.existsSync(partial)?fs.statSync(partial).size:0;if(offset>m.size){fs.unlinkSync(partial);offset=0;}
   while(offset<m.size){const end=Math.min(m.size-1,offset+8*1024*1024-1),range='bytes '+offset+'-'+end+'/'+m.size;
-   const response=downloadWithRetry({url:'https://www.googleapis.com/drive/v3/files/'+m.id+'?alt=media&supportsAllDrives=true',headers:{Authorization:'Bearer '+g.token(),Range:'bytes='+offset+'-'+end,'Accept-Encoding':'identity'},outputFile:partial,append:offset>0,expectedContentRange:range,timeoutMs:120000},download);if(response.getResponseCode()!==206||response.getAllHeaders()['content-range']!==range)throw Error('MEDIA_SOURCE_DOWNLOAD_FAILED');
+   const response=downloadWithRetry({url:'https://www.googleapis.com/drive/v3/files/'+m.id+'?alt=media&supportsAllDrives=true',headers:{Authorization:'Bearer '+g.token(),Range:'bytes='+offset+'-'+end,'Accept-Encoding':'identity'},outputFile:partial,append:offset>0,expectedContentRange:range,timeoutMs:120000},download);if([401,403,404,410].includes(response.getResponseCode())){const e=Error('SOURCE_HTTP_'+response.getResponseCode());e.httpCode=response.getResponseCode();throw e;}if(response.getResponseCode()!==206||response.getAllHeaders()['content-range']!==range)throw Error('TRANSIENT_MEDIA_SOURCE_DOWNLOAD_FAILED');
    offset=fs.statSync(partial).size;if(offset!==end+1)throw Error('TRANSIENT_MEDIA_DOWNLOAD_SIZE');
   }fs.renameSync(partial,out);return out;
  }
@@ -165,5 +165,6 @@ export function createMediaService({g,root,key=process.env.GEMINI_API_KEY,ffmpeg
   }
  }
  function prepare(m,{fileApi=false}={}){const tag=[m.id,m.modified,m.size].join('|');let result=prepared.get(tag);if(!result){const input=localFile(m),output=path.join(dir,m.id+'-'+sha(Buffer.from(tag)).slice(0,16)+'.mp3');result=transcodeUniversal({input,output,ffmpeg,run,sourceId:m.id,modified:m.modified,sourceSize:m.size});prepared.set(tag,result);}if(fileApi||result.segments.length>1)uploadSegments(result);return result;}
- return {ids,register,youtube,localFile,prepare,ffmpeg};
+ function verifyDownload(m){const file=localFile(m),bytes=fs.statSync(file).size;return {complete:bytes===m.size&&bytes>0,bytes};}
+ return {ids,register,youtube,localFile,verifyDownload,prepare,ffmpeg};
 }

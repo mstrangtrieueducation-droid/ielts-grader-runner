@@ -32,5 +32,5 @@ installKidsPreprocessing(c,{g:{},service:{ids:sourceIds},isLatest:()=>true});con
 c.step_({...empty,id:'protected',autoNotice:undefined},2);assert.equal(writes,1,'teacher feedback not overwritten');
 text='';const historical={id:'old',receipt:{time:'2026-08-31T16:59:59Z',links:''}};c.step_(historical,3);assert.equal(writes,1,'September submission scope remains');
 const paid={id:'paid',receipt:{time:src.time,links:''},previousGradingAttempts:[{rawId:'saved'}]};c.step_(paid,4);assert.equal(writes,1,'archived response prevents new input notice');
-const service=createMediaService({g:{fileMeta:()=>{},api:()=>{}},root:dir,run:()=>({status:1,stderr:'Private video. Sign in if you have been granted access'})});assert.throws(()=>service.youtube('yt_2jP_ksLd8eE'),/YOUTUBE_UNAVAILABLE/);assert(YOUTUBE_NOTICE.includes('riêng tư'));
+const service=createMediaService({g:{fileMeta:()=>{},api:()=>{}},root:dir,run:()=>({status:1,stderr:'Private video. Sign in if you have been granted access'})});assert.throws(()=>service.youtube('yt_2jP_ksLd8eE'),/SOURCE_ACCESS_REQUIRED/);assert(YOUTUBE_NOTICE.includes('riêng tư'));
 console.log(JSON.stringify({universalPreprocessing:true,transientRetries:2,waitSeconds:5,longFileSegments:2,allAudioPreserved:true,emptyNotice:true,privateYoutubeNotice:true,archiveProtection:true,providerCalls:0}));
