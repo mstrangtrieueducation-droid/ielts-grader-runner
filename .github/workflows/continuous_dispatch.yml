@@ -23,6 +23,8 @@ jobs:
           node-version: '24'
       - name: Check scheduler safeguards
         run: node continuous-dispatcher-tests.mjs
+      - name: Install Python Google transport
+        run: python3 -m pip install --quiet 'cryptography>=45,<47'
       - name: Keep one Speaking writer moving and poll for new submissions
         env:
           GRADING_LANE: ielts

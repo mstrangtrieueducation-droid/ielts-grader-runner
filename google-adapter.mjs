@@ -33,10 +33,11 @@ export class Google {
   const j=JSON.parse(r.getContentText());if(!j.access_token)throw Error('SERVICE_ACCOUNT_AUTH_FAILED');this.access=j.access_token;this.until=Date.now()+3300000;return this.access;
  }
  api(url,method='GET',data){
+  if(process.env.IELTS_SHEETS_TRANSPORT&&process.env.IELTS_SHEETS_TRANSPORT!=='python')throw Error('IELTS_PYTHON_TRANSPORT_REQUIRED');
   const measuredAt=Date.now(),isSheet=url.startsWith('https://sheets.googleapis.com/');if(isSheet)this.metrics.sheetCalls++;
   let r;for(let attempt=0;attempt<6;attempt++){
    if(url.startsWith('https://sheets.googleapis.com/')){if(process.env.GOOGLE_RATE_GATE_FILE)sheetsGate(process.env.GOOGLE_RATE_GATE_FILE,method==='GET'?'read':'write');else{pause(Math.max(0,(this.nextSheetAt||0)-Date.now()));this.nextSheetAt=Date.now()+1800;}}
-   try{r=request({url,method,headers:{Authorization:'Bearer '+this.token(),'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});}
+   try{const p=spawnSync(process.env.IELTS_PYTHON||'python3',[path.join(root,'google-sheets-python.py')],{input:JSON.stringify({account:this.sa,url,method,data}),encoding:'utf8',maxBuffer:350*1024*1024,timeout:220000,windowsHide:true});let reply;try{reply=JSON.parse(p.stdout||'{}');}catch{throw Error('PYTHON_GOOGLE_RESPONSE_INVALID');}if(p.error||p.status!==0)throw Error('PYTHON_GOOGLE_TRANSPORT_FAILED');if(!reply.ok){if(reply.httpCode)r=new Response({status:reply.httpCode,bodyBase64:Buffer.from('{}').toString('base64')});else throw Error(reply.code||'NETWORK_OUTCOME_UNKNOWN');}else r=new Response({status:200,bodyBase64:Buffer.from(JSON.stringify(reply.result)).toString('base64')});}
    catch(e){if(e.message==='NETWORK_OUTCOME_UNKNOWN'&&['GET','PUT'].includes(method)&&attempt<2){pause(2000*(attempt+1));continue;}throw e;}
    if(r.getResponseCode()!==429||attempt===5)break;pause([5000,10000,20000,40000,60000][attempt]);
   }

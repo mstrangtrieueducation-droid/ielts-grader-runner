@@ -50,6 +50,10 @@ jobs:
           node feedback-contrast-tests.mjs
           node --check run-speaking.mjs
           node --check ielts-runner.mjs
+      - name: Verify Python transport without network or AI calls
+        run: |
+          python3 -m pip install --quiet 'cryptography>=45,<47'
+          python3 test-python-google.py
       - name: Install audio validation tools
         if: env.MODE != 'validate'
         run: |
@@ -66,5 +70,5 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           IELTS_RUNNER_CONFIG_GZIP_B64: ${{ secrets.IELTS_RUNNER_CONFIG_GZIP_B64 }}
           IELTS_SPEAKING_BAREM_GZIP_B64: ${{ secrets.IELTS_SPEAKING_BAREM_GZIP_B64 }}
-        run: node run-speaking.mjs
+        run: python3 run.py
 
