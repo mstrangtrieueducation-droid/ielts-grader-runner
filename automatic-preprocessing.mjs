@@ -29,7 +29,7 @@ export function installKidsPreprocessing(c,{g,service,isLatest,emit=()=>{}}){
   return handle(j,row,e);
  };
  c.recoverUniversalPreprocessing_=()=>{let recovered=0;for(const {job:j,row}of c.loadJobs_()){
-  if(!sourceInMasterScope(j.receipt)||!preprocessingRecoverable(j)||j.preprocessorRecovery===PREPROCESS_VERSION||!isLatest(j))continue;
+  if(!sourceInMasterScope(j.receipt)||!preprocessingRecoverable(j)||j.preprocessorRecovery===PREPROCESS_VERSION&&j.error!=='GOOGLE_HTTP_429'||!isLatest(j)||Number(j.nextAt)>Date.now())continue;
   j.preprocessHistory=(j.preprocessHistory||[]).concat([{status:j.status,error:j.error,at:new Date().toISOString()}]);j.preprocessorRecovery=PREPROCESS_VERSION;j.status='WAITING_INPUT';j.error='';j.nextAt=0;c.persist_(j,row);recovered++;
  }return {recovered,providerCalls:0};};
  const mediaPart=c.mediaPart_;if(mediaPart)c.mediaPart_=(j,m,save,deadline)=>{if(m.nativeYouTube){const part=service.nativePart(m);refreshNativeIntake(j,m);save();return part;}return mediaPart(j,m,save,deadline);};
@@ -42,7 +42,7 @@ export function installKidsPreprocessing(c,{g,service,isLatest,emit=()=>{}}){
 
 export function resumeUncalledPreprocessing(items,{scope=sourceInMasterScope,isLatest,save,readyStatus='READY'}){
  let recovered=0;for(const {job:j,row}of items){
-  if(/^IELTS\s*4[0-4]$/i.test(j.source?.className||j.cls?.className||'')||!scope(j.source||j.receipt)||!preprocessingRecoverable(j)||j.preprocessorRecovery===PREPROCESS_VERSION||!isLatest(j))continue;
+  if(/^IELTS\s*4[0-4]$/i.test(j.source?.className||j.cls?.className||'')||!scope(j.source||j.receipt)||!preprocessingRecoverable(j)||j.preprocessorRecovery===PREPROCESS_VERSION&&j.error!=='GOOGLE_HTTP_429'||!isLatest(j)||Number(j.nextAt)>Date.now())continue;
   j.preprocessHistory=(j.preprocessHistory||[]).concat([{status:j.status,error:j.error,inputId:j.inputId,inputHash:j.inputHash,at:new Date().toISOString()}]);
   j.preprocessorRecovery=PREPROCESS_VERSION;j.status=readyStatus;j.error='';j.nextAt=0;delete j.retryAt;delete j.inputId;delete j.inputHash;save(j,row);recovered++;
  }return {recovered,providerCalls:0};

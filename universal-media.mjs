@@ -15,7 +15,7 @@ export const MAX_PART_BYTES=5*1024*1024;
 export const EMPTY_LINK_NOTICE='❌ CẦN NỘP LẠI — Bài nộp chưa đính kèm link video/file. Con kiểm tra và nộp lại link nhé!';
 export const YOUTUBE_NOTICE='❌ CẦN NỘP LẠI — Link YouTube của con ở chế độ riêng tư hoặc chưa mở quyền xem. Con mở công khai/bất kỳ ai có link đều xem được để cô nhận xét nhé!';
 const sha=b=>createHash('sha256').update(b).digest('hex');
-const transient=/HTTP[_ ](?:500|502|503|504)|NETWORK_OUTCOME_UNKNOWN|CONNECTION_TIMEOUT|ETIMEDOUT|ECONNRESET|TRANSIENT_MEDIA/;
+const transient=/GOOGLE_HTTP_429|HTTP[_ ](?:500|502|503|504)|NETWORK_OUTCOME_UNKNOWN|CONNECTION_TIMEOUT|ETIMEDOUT|ECONNRESET|TRANSIENT_MEDIA/;
 export const isTransient=e=>transient.test(String(e?.message||e));
 export function retryTransient(fn,{sleep=pause,retries=2}={}){
  for(let n=0;;n++)try{return fn();}catch(e){if(!isTransient(e)||n>=retries)throw e;sleep(5000);}
@@ -59,7 +59,7 @@ export function retryPreparation(job,save,now=Date.now()){
 }
 export function preprocessingRecoverable(j){
  return !hasSavedResult(j)&&!hasRequest(j)&&!j.presentationResubmissionRequired&&
-  /SYSTEM_AUDIO_INPUT_(?:SOURCE_UNAVAILABLE|UNSUPPORTED_EXTERNAL_SOURCE|LOCAL_REPAIR_FAILED)|SPEAKING_AUDIO_(?:REQUIRED|TOTAL_OVER_12_MIB|FORMAT_UNSUPPORTED)|GOOGLE_HTTP_(?:500|503)|TRANSIENT_MEDIA/.test(j.error||j.preprocessRetry?.lastError||'');
+  /SYSTEM_AUDIO_INPUT_(?:SOURCE_UNAVAILABLE|UNSUPPORTED_EXTERNAL_SOURCE|LOCAL_REPAIR_FAILED)|SPEAKING_AUDIO_(?:REQUIRED|TOTAL_OVER_12_MIB|FORMAT_UNSUPPORTED)|GOOGLE_HTTP_(?:429|500|503)|TRANSIENT_MEDIA/.test(j.error||j.preprocessRetry?.lastError||'');
 }
 export function youtubeId(url){
  let u;try{u=new URL(url);}catch{return null;}
