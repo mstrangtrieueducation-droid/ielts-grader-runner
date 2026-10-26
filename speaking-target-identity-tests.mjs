@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';import fs from 'node:fs';import vm from 'node:vm';import {installSpeakingTargetIdentity} from './speaking-target-identity.mjs';
+function fixture(rows,{formula='',merged=false,validation=null}={}){
+ const cell={getFormula:()=>formula,isPartOfMerge:()=>merged,getDataValidation:()=>validation,getA1Notation:()=> 'J8',getDisplayValue:()=> 'native existing text',getNote:()=> 'native note'},sheet={getLastRow:()=>rows.length+6,getRange:(row,col,count,width)=>width===2?{getDisplayValues:()=>rows}:cell},google={book:id=>{assert.equal(id,'synthetic-class');return{getSheetByName:title=>{assert.equal(title,'native-tracker');return sheet;}};}},c=vm.createContext({ISG:{classes:{'IELTS 1':'synthetic-class'},tab:'native-tracker'},SpreadsheetApp:{openById:id=>google.book(id)},isgAssert_:(ok,code)=>{if(!ok)throw Error(code);},isgName_:v=>String(v||'').normalize('NFC').trim().replace(/\s+/g,' ').toUpperCase(),isgHeaders_:()=>[],isgFindColumn_:()=>10});
+ vm.runInContext(fs.readFileSync(new URL('./ielts-gas/SpeakingSources.gs',import.meta.url),'utf8'),c);c.isgHeaders_=()=>[];c.isgFindColumn_=()=>10;const original=c.isgTarget_;installSpeakingTargetIdentity(c,{classes:{'IELTS 1':'synthetic-class'},tab:'native-tracker'},google);return {c,original,cell};
+}
+const source={className:'IELTS 1',name:'anh mau a',code:'S12',signature:'immutable-receipt',fileIds:['synthetic-media'],at:'2026-10-01T00:00:00Z'},before=JSON.stringify(source);
+const f=fixture([['1','ÁNH MẪU A\nNative annotation']]);assert.throws(()=>f.original(source),/SPEAKING_STUDENT_AMBIGUOUS/);const result=f.c.isgTarget_(source);assert.equal(result.range,f.cell);assert.equal(result.text,'native existing text');assert.equal(result.note,'native note');assert.equal(JSON.stringify(source),before);
+assert.equal(f.c.isgTarget_({...source,name:'ÁNH MẪU A'}).range,f.cell);
+for(const rows of [[['1','ÁNH MẪU A'],['2','ÀNH MẪU A']],[['1','ÁNH MẪU A'],['2','ÁNH MẪU A']],[['','ÁNH MẪU A']],[['0','ÁNH MẪU A']],[['1','OTHER SYNTHETIC NAME']]])assert.throws(()=>fixture(rows).c.isgTarget_(source),/SPEAKING_STUDENT_AMBIGUOUS/);
+assert.throws(()=>fixture([['1','ÁNH MẪU A'],['2','ÁNH MẪU A']]).c.isgTarget_({...source,name:'ÁNH MẪU A'}),/SPEAKING_STUDENT_AMBIGUOUS/);
+assert.equal(fixture([['1','ÁNH MẪU A'],['2','ANH MAU A']]).c.isgTarget_(source).text,'native existing text');
+for(const options of [{formula:'=1'},{merged:true},{validation:{checkbox:true}}])assert.throws(()=>fixture([['1','ÁNH MẪU A']],options).c.isgTarget_(source),/SPEAKING_TARGET_NOT_PLAIN_CELL/);
+assert.throws(()=>f.c.isgTarget_({...source,className:'IELTS 2'}),/SPEAKING_CLASS_UNCONFIGURED/);
+console.log('PASS native Speaking target: unique canonical roster spelling, exact ambiguity/missing/deleted/class scope and formula/merge/checkbox guards; immutable source/signature/comments; 0 API/0 Sheet writes.');

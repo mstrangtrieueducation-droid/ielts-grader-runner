@@ -5,6 +5,7 @@ import {approvalSession} from './teacher-approval-guards.mjs';
 import {enqueueSpeakingMasterRepairs} from './speaking-master-recovery.mjs';
 import {installSpeakingMaster,isFoundation,reconcileFoundationFeedback} from './speaking-master-policy.mjs';
 import {installSpeakingSourceHeaders} from './speaking-source-headers.mjs';
+import {installSpeakingTargetIdentity} from './speaking-target-identity.mjs';
 import {installSpeakingSourceGate} from './submission-source-speaking.mjs';
 import {createMediaService,universalValidatedRequest,isTransient,retryPreparation} from './universal-media.mjs';
 import {installFeedbackAlignment} from './feedback-alignment.mjs';
@@ -51,6 +52,7 @@ export function runIelts({google,config,key,root,deadline,emit,audit=false,maxJo
  c.isgArtifact_=(label,value)=>{const b=google.book(binding.controlId),s=b.getSheetByName('RunnerArtifacts')||b.insertSheet('RunnerArtifacts');const id='runner:'+randomUUID(),text=JSON.stringify(value),rows=[];for(let i=0;i<text.length;i+=40000)rows.push([id,i/40000,text.slice(i,i+40000)]);s.appendRows(rows);return id;};
  c.isgReadArtifact_=id=>readSpeakingArtifact(google,binding.controlId,id);
  installSpeakingSourceHeaders(c,{emit});
+ installSpeakingTargetIdentity(c,vm.runInContext('ISG',c),google);
  installSpeakingMaster(c);
  let speakingApproval;const preprocessing=installSpeakingMedia(c,{g:google,service:universalMedia,nativeResubmission,approval:()=>speakingApproval});
  installSpeakingSourceGate(c,{g:google,service:universalMedia,sourceId:vm.runInContext('ISG.source',c)});
