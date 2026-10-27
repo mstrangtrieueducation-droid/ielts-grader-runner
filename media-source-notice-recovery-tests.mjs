@@ -22,3 +22,8 @@ r=rig();const newJob={id:'new-native-job',receipt:source,status:'READY'};r.optio
 
 r=rig({job:{id:'uncalled-input',receipt:source,autoNotice:before,resultHash:'notice-only',inputId:'old-prepared-input',inputHash:'old-hash',snapshotId:'old-guide',media:[{id:'synthetic_folder',mime:'application/vnd.google-apps.folder',size:0}]}});
 assert(repairMediaSourceNotice(r.options).recovered);assert(!r.j.inputHash&&!r.j.snapshotId&&!r.j.media);assert.equal(r.j.mediaResolverRecovery.previousPrepared.inputId,'old-prepared-input');
+
+// Speaking retains original native signatures (which may contain expanded child
+// IDs); original Form text is a transport argument, never a source mutation.
+r=rig();r.options.inputText='https://drive.google.com/drive/folders/synthetic_folder_123456789';r.options.source={...source,links:undefined,fileIds:['synthetic_single_child_123']};
+r.options.service.ids=text=>{assert.equal(text,r.options.inputText);return ['synthetic_single_child_123'];};r.options.service.resolutionInfo=()=>({hasFolder:true});assert(repairMediaSourceNotice(r.options).recovered);assert.equal(r.options.source.fileIds.length,1);

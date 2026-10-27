@@ -23,14 +23,14 @@ function evidence(x,seen=new Set()){
  for(const value of Object.values(x))if(value&&typeof value==='object'){const e=evidence(value,seen);paid ||= e.paid;saved ||= e.saved;}
  return {paid,saved};
 }
-export function repairMediaSourceNotice({source,existing,cell,service,metadata,create,save,readyStatus='READY',freshStatus='READY'}){
+export function repairMediaSourceNotice({source,inputText,existing,cell,service,metadata,create,save,readyStatus='READY',freshStatus='READY'}){
  if(!service||!cell||!sourceInMasterScope(source)||cell.getFormula?.()||cell.getDataValidation?.())return {recovered:false};
  const before=cell.getDisplayValue(),notice=sourceNoticeBody(before);if(!notice)return {recovered:false};
  if(receiptTimeFromCell(before)>sourceTime(source)+1000)return {recovered:false,held:'NEWER_RECEIPT_ON_SHEET'};
  const original=existing?.job;
  if(original?.presentationResubmissionRequired||original?.sourceIntake?.reason==='YOUTUBE_PRIVATE_CONFIRMED')return {recovered:false};
  if(original){const e=evidence(original);if(e.paid&&!e.saved)return {recovered:false,held:'UNCERTAIN_PAID_HISTORY'};}
- const text=mediaSourceText(source),urls=submissionUrls(text);
+ const text=inputText??mediaSourceText(source),urls=submissionUrls(text);
  try{
   const ids=service.ids(text);if(!ids.length)return {recovered:false};
   const metas=ids.map(id=>metadata(id));

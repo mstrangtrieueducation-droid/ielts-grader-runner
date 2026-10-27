@@ -22,7 +22,7 @@ export function createMasterSweep({google,lane,controlId,classes,entries,resolve
  function inspect(item,mutate){
   const s=item.source,cls=item.cls,row=summary.get(s.className)||{className:s.className,newReturned:0,existing:0,assignment:0,pending:0};summary.set(s.className,row);let existing=findJob(s),j=existing?.job;item.jobId=j?.id;
   try{if(!isCurrentStudent(s)){if(mutate&&j)markNotCurrent(j,()=>save(j,existing.row));return 'inactive';}const dst=resolve(s,j);let text=dst.cell?dst.cell.getDisplayValue():dst.text;
-   if(mutate&&sheetTruthEnabled()&&dst.cell){const recovery=repairMediaSourceNotice({source:s,existing,cell:dst.cell,service:google.mediaResolverService,metadata:id=>google.fileMeta(id),create:()=>enqueue(s,cls),save,readyStatus,freshStatus});
+    if(mutate&&sheetTruthEnabled()&&dst.cell){const recovery=repairMediaSourceNotice({source:s,inputText:dst.mediaSourceText,existing,cell:dst.cell,service:google.mediaResolverService,metadata:id=>google.fileMeta(id),create:()=>enqueue(s,cls),save,readyStatus,freshStatus});
     if(recovery.deferred){item.error=recovery.error;return 'pending';}
     if(recovery.recovered){existing=recovery.entry;j=existing.job;item.jobId=j.id;text=dst.cell.getDisplayValue();emit({event:'SOURCE_RESOLVER_NOTICE_REOPENED',lane,providerCalls:0});}
    }
