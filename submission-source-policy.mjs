@@ -21,7 +21,7 @@ export function sourceFailure(error){
 export function sourceInput(text){
  const input=normalizeInput(text);if(!input)return sourceResult('missing','NO_LINK');
  const raw=submissionUrls(input);
- if(!raw.length)return sourceResult('invalid','MALFORMED_URL');
+ if(!raw.length){if(/^[-\w]{15,}(?:[\s,;]+[-\w]{15,})*$/.test(input))return {input,urls:[],driveIds:input.split(/[\s,;]+/)};return sourceResult('invalid','MALFORMED_URL');}
  const urls=[];
  for(const value of raw){let u;try{u=new URL(value.replace(/[),.;\]}]+$/,''));}catch{return sourceResult('invalid','MALFORMED_URL');}
   if(u.protocol!=='https:'||u.username||u.password)return sourceResult('invalid','UNSAFE_URL');

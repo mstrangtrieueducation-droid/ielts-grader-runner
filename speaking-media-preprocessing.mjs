@@ -12,7 +12,7 @@ export function installSpeakingMedia(c,{g,service,nativeResubmission,approval:se
   if(value&&value.guide&&Array.isArray(value.media))return hash({...value,media:value.media.map(m=>m.nativeYouTube?nativeInputIdentity(m):m.preprocessVersion===PREPROCESS_VERSION?{id:m.originalSourceId||m.id,modified:m.modified,originalSize:m.universalAudio?.sourceSize,mime:'audio/mpeg',preprocessing:PREPROCESS_VERSION}:m)});
   return hash(value);
  };
- const oldIds=c.isgDriveIds_;c.isgDriveIds_=text=>{try{return service.ids(text);}catch{return oldIds(text);}};
+ const oldIds=c.isgDriveIds_;c.isgDriveIds_=text=>{try{return service.legacySourceIds?service.legacySourceIds(text):service.ids(text);}catch{return oldIds(text);}};
  // Preserve existing Drive-only source objects/signatures exactly. The old
  // scanner omitted empty attachments completely, so append only those rows.
  const sourceInputs=new Map();c.isgSourceInput_=s=>sourceInputs.get(s.sheetName+'|'+s.row);
@@ -25,8 +25,9 @@ export function installSpeakingMedia(c,{g,service,nativeResubmission,approval:se
  };
  const mediaCache=new Map();
  c.isgMedia_=source=>{
-  const out=[];for(const id of source.fileIds){const meta=g.fileMeta(id);if(meta.nativeYouTube){assertNativeEvidence(meta.nativeYouTube,{id});out.push({id,mime:'video/mp4',size:0,modified:meta.modifiedTime,nativeYouTube:meta.nativeYouTube,preprocessVersion:NATIVE_YOUTUBE_VERSION});continue;}if(meta.trashed||!Number(meta.size))throw Error('SPEAKING_AUDIO_EMPTY');const key=[id,meta.modifiedTime,meta.size].join('|');if(!mediaCache.has(key)){
-   const m={id,mime:meta.mimeType,size:Number(meta.size),modified:meta.modifiedTime},audio=service.prepare(m,{fileApi:source.fileIds.length>2});
+  const text=c.isgSourceInput_(source)??source.inputLinks??source.fileIds.map(id=>id.startsWith('yt_')?'https://www.youtube.com/watch?v='+id.slice(3):'https://drive.google.com/file/d/'+id+'/view').join(' '),resolvedIds=service.ids(text);if(!resolvedIds.length)throw Error('SPEAKING_AUDIO_EMPTY');
+  const out=[];for(const id of resolvedIds){const meta=g.fileMeta(id);if(meta.nativeYouTube){assertNativeEvidence(meta.nativeYouTube,{id});out.push({id,mime:'video/mp4',size:0,modified:meta.modifiedTime,nativeYouTube:meta.nativeYouTube,preprocessVersion:NATIVE_YOUTUBE_VERSION});continue;}if(meta.trashed||!Number(meta.size))throw Error('SPEAKING_AUDIO_EMPTY');const key=[id,meta.modifiedTime,meta.size].join('|');if(!mediaCache.has(key)){
+   const m={id,mime:meta.mimeType,size:Number(meta.size),modified:meta.modifiedTime},audio=service.prepare(m,{fileApi:resolvedIds.length>2});
    const prepared={id,size:audio.segments[0].bytes,modified:meta.modifiedTime,mime:'audio/mpeg',universalFile:audio.segments[0].file,originalSourceId:id,preprocessVersion:PREPROCESS_VERSION};firstUniversalPart(prepared,audio);mediaCache.set(key,[prepared]);
   }out.push(...mediaCache.get(key).map(m=>({...m})));}return out;
  };
@@ -36,7 +37,7 @@ export function installSpeakingMedia(c,{g,service,nativeResubmission,approval:se
  let approval;const process=c.isgProcess_;c.isgProcess_=(table,item)=>{
   const j=item.job,save=()=>c.isgSave_(table,item.row,j);approval=session();
   if(j.source.fileIds.some(id=>id.startsWith('yt_'))&&!hasSavedResult(j)&&!hasRequest(j)&&j.inputHash&&j.nativeInputVersion!==NATIVE_YOUTUBE_VERSION){j.preprocessHistory=(j.preprocessHistory||[]).concat([{inputHash:j.inputHash,inputId:j.inputId,at:new Date().toISOString(),reason:NATIVE_YOUTUBE_VERSION}]);delete j.inputHash;delete j.inputId;j.nativeInputVersion=NATIVE_YOUTUBE_VERSION;save();}
-  if(sourceInMasterScope(j.source)&&!hasSavedResult(j)&&!hasRequest(j)&&!j.source.fileIds.length){
+  if(sourceInMasterScope(j.source)&&!hasSavedResult(j)&&!hasRequest(j)&&!j.source.fileIds.length&&!String(c.isgSourceInput_(j.source)??j.source.inputLinks??'').trim()){
    c.isgFresh_(j.source);const dst=c.isgTarget_(j.source);if(c.isgHasFeedback_(dst.text)||dst.range.getFormula()||dst.range.getDataValidation())return process(table,item);
    nativeResubmission(j,dst.range,save,approval,EMPTY_LINK_NOTICE,'COMPLETED_NEEDS_RESUBMISSION');return j;
   }

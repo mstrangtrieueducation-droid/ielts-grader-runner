@@ -1,6 +1,6 @@
 // Media transport only. Does not classify homework, identity or submission state.
 export function submissionUrls(text){
- return (String(text||'').replace(/\\n/g,'\n').match(/https?:\/\/[^\s,<>"']+/gi)||[]).map(s=>s.replace(/[).;\]}]+$/,''));
+ return (String(text||'').replace(/\\n/g,'\n').match(/https?:\/\/[^\s,;<>"']+/gi)||[]).map(s=>s.replace(/[).;\]}]+$/,''));
 }
 export function youtubeDownloadArgs({url,node,output,client='android,web'}){
  return ['-m','yt_dlp','--js-runtimes','node:'+node,'--no-playlist','--no-progress','--no-warnings','--socket-timeout','10','--retries','0','--fragment-retries','0',...(client?['--extractor-args','youtube:player_client='+client]:[]),'-f','bestaudio/best','-x','--audio-format','mp3','--audio-quality','64K','--print','after_move:%(filepath)s','-o',output,url];

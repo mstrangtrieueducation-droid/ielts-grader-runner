@@ -14,3 +14,16 @@ const fingerprint=c.isgHash_({guide:{topic:'fixture'},media,model:'fixture',vers
 const job={id:'large',mode:'live',status:'QUEUED',source:src};c.isgProcess_({}, {job,row:2});assert.equal(job.status,'DONE');assert.equal(calls,1,'video/large input reaches exactly one model call');assert.equal(job.rawId,'saved');
 const empty={id:'empty',mode:'live',status:'QUEUED',source:sources.find(s=>s.name==='Empty')};c.isgProcess_({}, {job:empty,row:3});assert.equal(empty.status,'COMPLETED_NEEDS_RESUBMISSION');assert(text.includes('chưa đính kèm'));assert.equal(calls,1);assert(!text.includes('%'));
 console.log(JSON.stringify({speakingVideoAccepted:true,original400MiBAccepted:true,canonicalAudioBeforeNativePreflight:true,existingSignaturesPreserved:true,emptyLinkCompleted:true,modelCallsFixture:1,providerCalls:0}));
+
+// A transport-only MIME folder expands to all audio without changing its native
+// Form signature, including rows whose original scanner had no file IDs.
+const priorIds=service.ids;service.legacySourceIds=text=>String(text).includes('synthetic_folder_123456789')?['synthetic_folder_123456789']:priorIds(text);
+service.ids=text=>String(text).includes('synthetic_folder_123456789')?['synthetic_child_one_12345','synthetic_child_two_12345']:priorIds(text);
+data.push([new Date('2026-10-18T00:00:00Z'),'Folder Fixture','IELTS 49','S06','https://drive.google.com/open?id=synthetic_folder_123456789']);
+const folderSource=c.isgSourceRows_().find(s=>s.name==='Folder Fixture'),nativeSignature=folderSource.signature;
+assert.deepEqual(Array.from(folderSource.fileIds),['synthetic_folder_123456789']);
+assert.equal(c.isgMedia_(folderSource).length,2);
+text='';const folderJob={id:'folder-fixture',mode:'live',status:'QUEUED',source:folderSource};c.isgProcess_({}, {job:folderJob,row:4});
+assert.equal(folderJob.status,'DONE');assert.equal(calls,2,'two folder children reach one generation for the whole submission');
+assert.equal(c.isgSourceRows_().find(s=>s.name==='Folder Fixture').signature,nativeSignature);
+console.log('PASS Speaking folder expansion keeps native source signature and makes one whole-submission call (mock only).');
