@@ -1,14 +1,10 @@
-// Foreground-only contrast repair. Semantic green/pink colors remain unchanged.
+// Foreground-only palette repair. Preserve semantic tones and exact text.
 const rgb=hex=>({red:parseInt(hex.slice(1,3),16)/255,green:parseInt(hex.slice(3,5),16)/255,blue:parseInt(hex.slice(5,7),16)/255});
 export const FEEDBACK_BASE='#0D47A1';
-const luminance=c=>['red','green','blue'].map(k=>c[k]||0).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((n,v,i)=>n+v*[.2126,.7152,.0722][i],0);
 export function readableForeground(format={}){
  const color=format.foregroundColorStyle?.rgbColor||format.foregroundColor;
  if(!color)return format.foregroundColorStyle?.themeColor?rgb(FEEDBACK_BASE):null;
- // Pale green and yellow tracker fills are darker than white; use the worse
- // contrast of both representative fills, rather than testing white alone.
- const contrast=bg=>(Math.max(luminance(bg),luminance(color))+.05)/(Math.min(luminance(bg),luminance(color))+.05);
- if(Math.min(contrast(rgb('#D9EAD3')),contrast(rgb('#FFF2CC')))>=4.5)return color;
+ // Normalize even readable legacy shades to the teacher's three exact colors.
  const r=color.red||0,g=color.green||0,b=color.blue||0;
  return rgb(g>r*1.12&&g>b*1.08?'#1B5E20':r>b*1.12&&r>g*1.25?'#C2185B':b>g*1.15&&r>g*1.15?'#C2185B':FEEDBACK_BASE);
 }
