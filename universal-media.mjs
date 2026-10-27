@@ -185,7 +185,7 @@ export function createMediaService({g,root,key=process.env.GEMINI_API_KEY,ffmpeg
     const bytes=fs.existsSync(partial)?fs.statSync(partial).size:offset;
     if(sheetTruthEnabled()&&error.message==='NETWORK_OUTCOME_UNKNOWN'&&bytes>offset&&bytes<=end+1)throw Error('TRANSIENT_MEDIA_DOWNLOAD_TIMEOUT');
     throw error;
-   }if([401,403,404,410].includes(response.getResponseCode())){const e=Error('SOURCE_HTTP_'+response.getResponseCode());e.httpCode=response.getResponseCode();throw e;}if(response.getResponseCode()!==206||response.getAllHeaders()['content-range']!==range)throw Error('TRANSIENT_MEDIA_SOURCE_DOWNLOAD_FAILED');
+   }if([401,403,404,410].includes(response.getResponseCode())){const e=Error('SOURCE_HTTP_'+response.getResponseCode());e.httpCode=response.getResponseCode();let body={};try{body=JSON.parse(response.getContentText()||'{}');}catch{}e.driveEvidence=driveErrorEvidence(e.httpCode,body);throw e;}if(response.getResponseCode()!==206||response.getAllHeaders()['content-range']!==range)throw Error('TRANSIENT_MEDIA_SOURCE_DOWNLOAD_FAILED');
    offset=fs.statSync(partial).size;if(offset!==end+1)throw Error('TRANSIENT_MEDIA_DOWNLOAD_SIZE');
   }fs.renameSync(partial,out);return out;
  }
@@ -214,5 +214,6 @@ export function createMediaService({g,root,key=process.env.GEMINI_API_KEY,ffmpeg
   return {version:'decoded-source-audio-proof-20261027',sourceId:m.id,modified:m.modified,size:Number(m.size),sha256:sha(fs.readFileSync(file)),audioStreams:streams.length,durationSeconds:Number.isFinite(seconds)?seconds:null,confirmedAbsent:streams.length===0&&seconds>0&&/Stream #0:\d+[^\n]*Video:/.test(text),at:new Date().toISOString()};
  }
  function verifyDownload(m){const file=localFile(m),bytes=fs.statSync(file).size;return {complete:bytes===m.size&&bytes>0,bytes};}
- return {ids,register,youtube,nativePart,localFile,verifyDownload,verifyAudio,prepare,ffmpeg};
+ const downloadProgress=()=>fs.readdirSync(dir).filter(n=>n.endsWith('.part')).sort().map(n=>[n,fs.statSync(path.join(dir,n)).size]);
+ return {ids,register,youtube,nativePart,localFile,verifyDownload,verifyAudio,prepare,ffmpeg,downloadProgress};
 }

@@ -6,7 +6,7 @@ export const SOURCE_LABELS=Object.freeze({missing:'ĐÃ NỘP — Chưa có link
 export const normalizeInput=value=>String(value||'').replace(/\s+/g,' ').trim();
 export function sourceResult(state,reason,extra={}){return {schema:1,version:SOURCE_VERSION,state,label:SOURCE_LABELS[state],aiEligible:state==='valid',reason,...extra};}
 export function sourceFailure(error){
- if(error?.driveEvidence?.technical||Number(error?.httpCode)===401)return sourceResult('pending','SOURCE_CHECK_RETRY');
+ if(error?.driveEvidence&&(error.driveEvidence.technical||!error.driveEvidence.permissionConfirmed&&!error.driveEvidence.missingConfirmed)||Number(error?.httpCode)===401)return sourceResult('pending','SOURCE_CHECK_RETRY');
  const message=String(error?.message||error||''),code=Number(error?.httpCode||message.match(/(?:HTTP[_ ]|SOURCE_HTTP_)(\d{3})/)?.[1]||0);
  if(process.env.SHEET_TRUTH_SYNC==='true'&&/TRANSIENT_MEDIA_DOWNLOAD_TIMEOUT/.test(message))return sourceResult('pending','DOWNLOAD_IN_PROGRESS',{retryAfterMs:2000});
  if(/^TRANSIENT_MEDIA_YOUTUBE_[A-Z_]+$/.test(message))return sourceResult('pending',message,{retryAfterMs:120000});

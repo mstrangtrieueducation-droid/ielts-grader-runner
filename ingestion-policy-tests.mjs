@@ -13,3 +13,9 @@ assert(driveErrorEvidence(404,{error:{errors:[{reason:'notFound'}]}}).missingCon
 const root=fs.mkdtempSync(path.join(os.tmpdir(),'ingestion-fixture-'));const service=createMediaService({g:{universalTransientInstalled:true,api:()=>({files:[{id:'child-video',mimeType:'video/mp4'}]}),fileMeta:()=>({mimeType:'application/vnd.google-apps.folder'})},root,nativeYouTube:false});assert.deepEqual(service.ids('https://drive.google.com/drive/folders/12345678901234567890'),['child-video']);
 for(const file of fs.readdirSync(root))assert.equal(file,'private');
 console.log('PASS multi-link delimiters, YouTube variants/clients, bot-vs-private evidence, Drive quota/auth-vs-permission and folder children; 0 AI/0 live Sheet writes.');
+
+assert.equal(sourceFailure({httpCode:403,driveEvidence:driveErrorEvidence(403,{error:{message:'Request had insufficient authentication scopes.'}})}).state,'pending');
+assert.equal(sourceFailure({httpCode:403,driveEvidence:driveErrorEvidence(403,{error:{message:'Unclassified service refusal'}})}).state,'pending');
+assert.equal(sourceFailure({httpCode:403,driveEvidence:driveErrorEvidence(403,{error:{message:'The caller does not have permission'}})}).state,'access');
+const quotaService=createMediaService({root,g:{universalTransientInstalled:true,token:()=> 'synthetic-token',fileMeta:()=>({})},nativeYouTube:false,download:()=>({getResponseCode:()=>403,getContentText:()=>JSON.stringify({error:{errors:[{reason:'downloadQuotaExceeded'}]}})})});
+assert.throws(()=>quotaService.verifyDownload({id:'synthetic-drive-source',modified:'one',size:30000}),e=>sourceFailure(e).state==='pending');

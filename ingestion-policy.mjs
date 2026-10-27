@@ -7,6 +7,6 @@ export function youtubeDownloadArgs({url,node,output,client='android,web'}){
 }
 export function driveErrorEvidence(status,body={}){
  const e=body.error||{},reasons=[e.status,...(e.errors||[]).map(x=>x.reason)].filter(Boolean),message=String(e.message||'');
- const technical=status===401||status===429||status>=500||/rateLimit|quota|dailyLimit|accessNotConfigured|serviceDisabled|insufficientAuthenticationScopes|authError|backendError/i.test(reasons.join('|')+' '+message);
- return {provider:'drive',http:status,reasons,technical,permissionConfirmed:!technical&&status===403&&/forbidden|insufficientFilePermissions|permission denied|does not have sufficient permissions/i.test(reasons.join('|')+' '+message),missingConfirmed:!technical&&status===404&&/notFound|not found/i.test(reasons.join('|')+' '+message)};
+ const technical=status===401||status===429||status>=500||/rateLimit|quota|dailyLimit|accessNotConfigured|serviceDisabled|insufficientAuthenticationScopes|authError|backendError|insufficient authentication scopes|invalid credentials|invalid_grant/i.test(reasons.join('|')+' '+message);
+ return {provider:'drive',http:status,reasons,technical,permissionConfirmed:!technical&&status===403&&/forbidden|insufficientFilePermissions|permission denied|does not have sufficient permissions|caller does not have permission/i.test(reasons.join('|')+' '+message),missingConfirmed:!technical&&status===404&&/notFound|not found/i.test(reasons.join('|')+' '+message)};
 }
