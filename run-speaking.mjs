@@ -8,9 +8,8 @@ const root=path.dirname(fileURLToPath(import.meta.url));
 const required=name=>{const value=process.env[name]?.trim();if(!value)throw Error('MISSING_'+name);return value;};
 const unpack=name=>JSON.parse(gunzipSync(Buffer.from(required(name),'base64')).toString('utf8'));
 async function main(){
- runTest('sheet-truth-merge-chunk-tests.mjs');
  process.env.IELTS_SHEETS_TRANSPORT='python';
- for(const test of ['speaking-target-identity-tests.mjs','speaking-queue-capacity-tests.mjs','unpaid-google-retry-tests.mjs','receipt-body-tests.mjs','submission-source-tests.mjs','native-youtube-tests.mjs','current-roster-policy-tests.mjs'])execFileSync(process.execPath,[test],{cwd:root,stdio:'inherit',windowsHide:true,env:{...process.env,NATIVE_YOUTUBE_INPUT:'false'}});
+ for(const test of ['sheet-truth-merge-chunk-tests.mjs','speaking-target-identity-tests.mjs','speaking-queue-capacity-tests.mjs','unpaid-google-retry-tests.mjs','receipt-body-tests.mjs','submission-source-tests.mjs','native-youtube-tests.mjs','current-roster-policy-tests.mjs'])execFileSync(process.execPath,[test],{cwd:root,stdio:'inherit',windowsHide:true,env:{...process.env,NATIVE_YOUTUBE_INPUT:'false'}});
  const mode=process.env.MODE||'audit';if(!['audit','grade'].includes(mode))throw Error('MODE_INVALID');
  const config=unpack('IELTS_RUNNER_CONFIG_GZIP_B64'),barem=unpack('IELTS_SPEAKING_BAREM_GZIP_B64'),key=required('GEMINI_KEY_IELTS_SPEAKING'),sa=JSON.parse(required('GOOGLE_SERVICE_ACCOUNT_JSON'));
  if(!config.ielts?.controlId||sa.client_email!==config.serviceAccount)throw Error('PRIVATE_CONFIGURATION_MISMATCH');

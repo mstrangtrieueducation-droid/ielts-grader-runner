@@ -40,6 +40,7 @@ jobs:
           SHEET_TRUTH_SYNC: 'false'
         run: |
           node hosted-bootstrap.mjs
+          node entrypoint-preflight-tests.mjs
           node automatic-authorization-tests.mjs
           node speaking-provider-retry-tests.mjs
           node continuous-dispatcher-tests.mjs
