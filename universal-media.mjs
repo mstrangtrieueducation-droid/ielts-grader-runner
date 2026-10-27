@@ -1,3 +1,4 @@
+import {submissionUrls,youtubeDownloadArgs,driveErrorEvidence} from './ingestion-policy.mjs';
 import {nativeYoutubeEnabled,checkNativeYouTube,assertNativeEvidence,nativeYouTubePart} from './native-youtube.mjs';
 import {classifyYouTubeFailure} from './submission-source-policy.mjs';
 import {sheetTruthEnabled} from './sheet-truth-state.mjs';
@@ -13,6 +14,12 @@ import {validatedAudioRequest,validateAudioPart} from './audio-payload-guard.mjs
 export const PREPROCESS_VERSION='teacher-universal-preprocess-20261017';
 export const MAX_PART_BYTES=5*1024*1024;
 export const EMPTY_LINK_NOTICE='❌ CẦN NỘP LẠI — Bài nộp chưa đính kèm link video/file. Con kiểm tra và nộp lại link nhé!';
+export function reusePreparedDownload(service,media,destination,{link=fs.linkSync,copy=fs.copyFileSync}={}){
+ if(fs.existsSync(destination)&&fs.statSync(destination).size===Number(media.size))return destination;
+ const source=service.localFile(media);if(!fs.existsSync(source)||fs.statSync(source).size!==Number(media.size))throw Error('TRANSIENT_MEDIA_DOWNLOAD_SIZE');
+ try{link(source,destination);}catch(error){if(!['EXDEV','EPERM','EOPNOTSUPP','ENOSYS'].includes(error.code))throw error;copy(source,destination);}
+ if(fs.statSync(destination).size!==Number(media.size))throw Error('TRANSIENT_MEDIA_DOWNLOAD_SIZE');return destination;
+}
 export const YOUTUBE_NOTICE='❌ CẦN NỘP LẠI — Link YouTube của con ở chế độ riêng tư hoặc chưa mở quyền xem. Con mở công khai/bất kỳ ai có link đều xem được để cô nhận xét nhé!';
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const transient=/GOOGLE_HTTP_429|HTTP[_ ](?:500|502|503|504)|NETWORK_OUTCOME_UNKNOWN|CONNECTION_TIMEOUT|ETIMEDOUT|ECONNRESET|TRANSIENT_MEDIA/;
@@ -30,7 +37,7 @@ export function installTransientGoogle(g,{transport=request,sleep=pause}={}){
   return retryTransient(()=>{
    if(url.startsWith('https://sheets.googleapis.com/')){if(process.env.GOOGLE_RATE_GATE_FILE)sheetsGate(process.env.GOOGLE_RATE_GATE_FILE,verb==='GET'?'read':'write');else{pause(Math.max(0,(g.nextSheetAt||0)-Date.now()));g.nextSheetAt=Date.now()+1800;}if(g.metrics)g.metrics.sheetCalls++;}
    let response;for(let quotaAttempt=0;quotaAttempt<6;quotaAttempt++){if(quotaAttempt&&url.startsWith('https://sheets.googleapis.com/')&&process.env.GOOGLE_RATE_GATE_FILE)sheetsGate(process.env.GOOGLE_RATE_GATE_FILE,verb==='GET'?'read':'write');response=transport({url,method:verb,headers:{Authorization:'Bearer '+g.token(),'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data),timeoutMs:30000});if(response.getResponseCode()!==429||quotaAttempt===5)break;const retryAfter=Number(response.getAllHeaders?.()['retry-after']||0)*1000;sleep(Math.max([5000,10000,20000,40000,60000][quotaAttempt],Math.min(120000,retryAfter||0)));}const status=response.getResponseCode();
-   if(status<200||status>299){const e=Error('GOOGLE_HTTP_'+status);e.httpCode=status;throw e;}
+   if(status<200||status>299){let details={};try{details=JSON.parse(response.getContentText()||'{}');}catch{}const e=Error('GOOGLE_HTTP_'+status);e.httpCode=status;e.driveEvidence=driveErrorEvidence(status,details);throw e;}
    return JSON.parse(response.getContentText()||'{}');
   },{sleep});
  };
@@ -70,10 +77,10 @@ export function youtubeId(url){
  return /^[A-Za-z0-9_-]{11}$/.test(id||'')?id:null;
 }
 export function sourceIds(text,register=()=>{}){
- const urls=String(text||'').match(/https?:\/\/[^\s,<>"']+/g)||[],ids=[];
+ const urls=submissionUrls(text),ids=[];
  for(const raw of urls){const url=raw.replace(/[).;]+$/,'');const yt=youtubeId(url);if(yt){const id='yt_'+yt;register(id,'https://www.youtube.com/watch?v='+yt);ids.push(id);continue;}
   const u=new URL(url);if(u.protocol!=='https:'||!['drive.google.com','docs.google.com'].includes(u.hostname.toLowerCase()))throw Error('UNSUPPORTED_LINK');
-  const id=url.match(/(?:\/d\/|[?&]id=)([-\w]{15,})/)?.[1];if(!id)throw Error('INVALID_DRIVE_LINK');ids.push(id);
+  const id=url.match(/(?:\/(?:d|folders)\/|[?&]id=)([-\w]{15,})/)?.[1];if(!id)throw Error('INVALID_DRIVE_LINK');ids.push(id);
  }return [...new Set(ids)];
 }
 function duration(stderr){const m=String(stderr).match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);return m?+m[1]*3600 + +m[2]*60 + +m[3]:NaN;}
@@ -127,30 +134,58 @@ export function universalValidatedRequest(payload,job){
  })}));
  const expanded={...payload,contents},check={...job,media};const body=validatedAudioRequest(expanded,check);job.lastPayloadValidation=check.lastPayloadValidation;return body;
 }
-export function createMediaService({g,root,key=process.env.GEMINI_API_KEY,ffmpeg=process.env.FFMPEG_PATH||'ffmpeg',run=spawnSync,download=request}){
+export function createMediaService({g,root,key=process.env.GEMINI_API_KEY,ffmpeg=process.env.FFMPEG_PATH||'ffmpeg',run=spawnSync,download=request,nativeYouTube=true}){
  installTransientGoogle(g);const dir=path.join(root,'private','universal-media');fs.mkdirSync(dir,{recursive:true});const urls=new Map(),prepared=new Map(),nativeCache=new Map();
- const register=(id,url)=>urls.set(id,url),ids=text=>sourceIds(text,register);
+ const register=(id,url)=>urls.set(id,url);
+ const ids=text=>{const list=sourceIds(text,register),out=[];const folders=new Set(submissionUrls(text).filter(u=>/drive\.google\.com\/drive\/(?:u\/\d+\/)?folders\//.test(u)).map(u=>u.match(/folders\/([-\w]+)/)?.[1]));
+  for(const id of list){if(!folders.has(id)){out.push(id);continue;}g.fileMeta(id);let page;do{const data=g.api('https://www.googleapis.com/drive/v3/files?'+new URLSearchParams({q:"'"+id+"' in parents and trashed = false",fields:'nextPageToken,files(id,name,mimeType,size,modifiedTime,trashed)',pageSize:'100',orderBy:'name',supportsAllDrives:'true',includeItemsFromAllDrives:'true',...(page?{pageToken:page}:{})}));for(const f of data.files||[])if(/^(audio|video)\//.test(f.mimeType||''))out.push(f.id);page=data.nextPageToken;}while(page);}
+  if(!out.length&&list.length)throw Error('TRANSIENT_MEDIA_FOLDER_EMPTY');return [...new Set(out)];};
  function nativeMetadata(id){let proof=nativeCache.get(id);try{assertNativeEvidence(proof,{id});}catch{proof=checkNativeYouTube(id,{key,transport:download});nativeCache.set(id,proof);}return {id,name:id,mimeType:'video/mp4',size:null,modifiedTime:proof.identity,nativeYouTube:proof,trashed:false};}
  function nativePart(m){const meta=nativeMetadata(m.id);if(m.modified&&m.modified!==meta.modifiedTime)throw Error('SOURCE_INPUT_CHANGED');m.nativeYouTube=meta.nativeYouTube;m.modified=meta.modifiedTime;return nativeYouTubePart(m);}
  function youtube(id){
-  if(nativeYoutubeEnabled()){try{return nativeMetadata(id);}catch(e){if(!/^TRANSIENT_MEDIA_YOUTUBE_NATIVE_/.test(e.message))throw e;/* Unsupported native input may still be downloadable as ordinary MP3. */}}
+  if(nativeYouTube&&nativeYoutubeEnabled()){try{return nativeMetadata(id);}catch(e){if(!/^TRANSIENT_MEDIA_YOUTUBE_NATIVE_/.test(e.message))throw e;/* Unsupported native input may still be downloadable as ordinary MP3. */}}
   if(!/^yt_[\w-]{11}$/.test(id))throw Error('INVALID_YOUTUBE_ID');const url=urls.get(id)||'https://www.youtube.com/watch?v='+id.slice(3),file=path.join(dir,id.slice(3)+'.mp3'),meta=path.join(dir,id+'.mp3.json');
   if(fs.existsSync(file)&&fs.existsSync(meta))return JSON.parse(fs.readFileSync(meta));
   const python=process.env.PYTHON_PATH||(process.platform==='win32'?'python':'python3');
-  retryTransient(()=>{const r=run(python,['-m','yt_dlp','--js-runtimes','node:'+process.execPath,'--no-playlist','--no-progress','--no-warnings','--socket-timeout','30','--retries','0','-f','bestaudio/best','-x','--audio-format','mp3','--audio-quality','64K','--print','after_move:%(filepath)s','-o',path.join(dir,'%(id)s.%(ext)s'),url],{encoding:'utf8',windowsHide:true,timeout:sheetTruthEnabled()?30000:20*60000});if(r.status!==0){throw Error(classifyYouTubeFailure(r));}},{retries:sheetTruthEnabled()?0:2});
+  const until=Date.now()+(sheetTruthEnabled()?30000:120000);let failure;
+  for(const client of ['android,web','android_vr,web_embedded','']){
+   const left=until-Date.now();if(left<=0)break;
+   const r=run(python,youtubeDownloadArgs({url,node:process.execPath,output:path.join(dir,'%(id)s.%(ext)s'),client}),{encoding:'utf8',windowsHide:true,timeout:Math.min(left,client?15000:30000)});
+   if(r.status===0){failure=null;break;}failure=classifyYouTubeFailure(r);if(['YOUTUBE_PRIVATE','SOURCE_NOT_FOUND'].includes(failure))break;
+  }
+  if(failure)throw Error(failure);
+
   if(!fs.existsSync(file)||!fs.statSync(file).size)throw Error('TRANSIENT_MEDIA_YOUTUBE_OUTPUT_MISSING');
   const result={id,name:id+'.mp3',mimeType:'audio/mpeg',size:String(fs.statSync(file).size),modifiedTime:fs.statSync(file).mtime.toISOString(),localFile:file,originalUrl:url,trashed:false};fs.writeFileSync(meta,JSON.stringify(result));return result;
  }
- const originalMeta=g.fileMeta.bind(g);g.fileMeta=id=>id.startsWith('yt_')?youtube(id):originalMeta(id);
+ const preparedPublic=new Map();const originalMeta=g.fileMeta.bind(g);g.fileMeta=id=>{
+  if(id.startsWith('yt_'))return youtube(id);if(preparedPublic.has(id))return preparedPublic.get(id);
+  try{return originalMeta(id);}catch(error){
+   if(![403,404].includes(Number(error.httpCode))||error.driveEvidence?.technical)throw error;
+   const file=path.join(dir,id+'.public.original');
+   const r=download({url:'https://drive.google.com/uc?export=download&confirm=t&id='+encodeURIComponent(id),outputFile:file,timeoutMs:30000});
+   const type=String(r.getAllHeaders?.()['content-type']||'').split(';')[0];
+   if(r.getResponseCode()===200&&/^(audio|video)\//.test(type)&&fs.existsSync(file)&&fs.statSync(file).size>10240){const meta={id,name:id+'.original',mimeType:type,size:String(fs.statSync(file).size),modifiedTime:fs.statSync(file).mtime.toISOString(),localFile:file,publicDownloadVerified:true,trashed:false};preparedPublic.set(id,meta);return meta;}
+   throw error;
+  }
+ };
  function localFile(m){
   const downloadDeadline=Date.now()+30000;
   if(m.id.startsWith('yt_'))return youtube(m.id).localFile;
+  if(preparedPublic.has(m.id))return preparedPublic.get(m.id).localFile;
   const tag=m.id+'-'+sha(Buffer.from(String(m.modified))).slice(0,10),existing=path.join(root,'private','cache',tag+'.original');
   if(fs.existsSync(existing)&&fs.statSync(existing).size===m.size)return existing;
   const out=path.join(dir,tag+'.original');if(fs.existsSync(out)&&fs.statSync(out).size===m.size)return out;
   const partial=out+'.part';let offset=fs.existsSync(partial)?fs.statSync(partial).size:0;if(offset>m.size){fs.unlinkSync(partial);offset=0;}
   while(offset<m.size){if(sheetTruthEnabled()&&Date.now()>=downloadDeadline)throw Error('TRANSIENT_MEDIA_DOWNLOAD_TIMEOUT');const end=Math.min(m.size-1,offset+8*1024*1024-1),range='bytes '+offset+'-'+end+'/'+m.size;
-   const response=downloadWithRetry({url:'https://www.googleapis.com/drive/v3/files/'+m.id+'?alt=media&supportsAllDrives=true',headers:{Authorization:'Bearer '+g.token(),Range:'bytes='+offset+'-'+end,'Accept-Encoding':'identity'},outputFile:partial,append:offset>0,expectedContentRange:range,timeoutMs:sheetTruthEnabled()?Math.max(1,downloadDeadline-Date.now()):120000},download,sheetTruthEnabled()?{retries:0}:{});if([401,403,404,410].includes(response.getResponseCode())){const e=Error('SOURCE_HTTP_'+response.getResponseCode());e.httpCode=response.getResponseCode();throw e;}if(response.getResponseCode()!==206||response.getAllHeaders()['content-range']!==range)throw Error('TRANSIENT_MEDIA_SOURCE_DOWNLOAD_FAILED');
+   let response;try{response=downloadWithRetry({url:'https://www.googleapis.com/drive/v3/files/'+m.id+'?alt=media&supportsAllDrives=true',headers:{Authorization:'Bearer '+g.token(),Range:'bytes='+offset+'-'+end,'Accept-Encoding':'identity'},outputFile:partial,append:offset>0,expectedContentRange:range,timeoutMs:sheetTruthEnabled()?Math.max(1,downloadDeadline-Date.now()):120000},download,sheetTruthEnabled()?{retries:0}:{});}catch(error){
+    // The bridge validates Content-Range before appending. An interrupted body
+    // can still have made durable progress; resume those bytes on the next
+    // unpaid preparation turn instead of imposing a five-minute source hold.
+    const bytes=fs.existsSync(partial)?fs.statSync(partial).size:offset;
+    if(sheetTruthEnabled()&&error.message==='NETWORK_OUTCOME_UNKNOWN'&&bytes>offset&&bytes<=end+1)throw Error('TRANSIENT_MEDIA_DOWNLOAD_TIMEOUT');
+    throw error;
+   }if([401,403,404,410].includes(response.getResponseCode())){const e=Error('SOURCE_HTTP_'+response.getResponseCode());e.httpCode=response.getResponseCode();throw e;}if(response.getResponseCode()!==206||response.getAllHeaders()['content-range']!==range)throw Error('TRANSIENT_MEDIA_SOURCE_DOWNLOAD_FAILED');
    offset=fs.statSync(partial).size;if(offset!==end+1)throw Error('TRANSIENT_MEDIA_DOWNLOAD_SIZE');
   }fs.renameSync(partial,out);return out;
  }
@@ -172,6 +207,12 @@ export function createMediaService({g,root,key=process.env.GEMINI_API_KEY,ffmpeg
   }
  }
  function prepare(m,{fileApi=false}={}){const tag=[m.id,m.modified,m.size].join('|');let result=prepared.get(tag);if(!result){const input=localFile(m),output=path.join(dir,m.id+'-'+sha(Buffer.from(tag)).slice(0,16)+'.mp3');result=transcodeUniversal({input,output,ffmpeg,run,sourceId:m.id,modified:m.modified,sourceSize:m.size});prepared.set(tag,result);}if(fileApi||result.segments.length>1)uploadSegments(result);return result;}
+ function verifyAudio(m){
+  const file=localFile(m);if(!fs.existsSync(file)||fs.statSync(file).size!==Number(m.size)||Number(m.size)<=10240)throw Error('TRANSIENT_MEDIA_PROBE_SIZE');
+  const r=run(ffmpeg,['-nostdin','-hide_banner','-i',file],{encoding:'utf8',windowsHide:true,timeout:30000});if(r.error)throw Error('TRANSIENT_MEDIA_PROBE');
+  const text=String(r.stderr||''),seconds=duration(text),streams=audioStreams(text);
+  return {version:'decoded-source-audio-proof-20261027',sourceId:m.id,modified:m.modified,size:Number(m.size),sha256:sha(fs.readFileSync(file)),audioStreams:streams.length,durationSeconds:Number.isFinite(seconds)?seconds:null,confirmedAbsent:streams.length===0&&seconds>0&&/Stream #0:\d+[^\n]*Video:/.test(text),at:new Date().toISOString()};
+ }
  function verifyDownload(m){const file=localFile(m),bytes=fs.statSync(file).size;return {complete:bytes===m.size&&bytes>0,bytes};}
- return {ids,register,youtube,nativePart,localFile,verifyDownload,prepare,ffmpeg};
+ return {ids,register,youtube,nativePart,localFile,verifyDownload,verifyAudio,prepare,ffmpeg};
 }

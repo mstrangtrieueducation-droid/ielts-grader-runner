@@ -1,3 +1,4 @@
+import {submissionUrls} from './ingestion-policy.mjs';
 import {assertNativeEvidence} from './native-youtube.mjs';
 // Receipt acknowledgement is independent of source availability and assessment.
 export const SOURCE_VERSION='submission-source-v1';
@@ -5,6 +6,7 @@ export const SOURCE_LABELS=Object.freeze({missing:'ĐÃ NỘP — Chưa có link
 export const normalizeInput=value=>String(value||'').replace(/\s+/g,' ').trim();
 export function sourceResult(state,reason,extra={}){return {schema:1,version:SOURCE_VERSION,state,label:SOURCE_LABELS[state],aiEligible:state==='valid',reason,...extra};}
 export function sourceFailure(error){
+ if(error?.driveEvidence?.technical||Number(error?.httpCode)===401)return sourceResult('pending','SOURCE_CHECK_RETRY');
  const message=String(error?.message||error||''),code=Number(error?.httpCode||message.match(/(?:HTTP[_ ]|SOURCE_HTTP_)(\d{3})/)?.[1]||0);
  if(process.env.SHEET_TRUTH_SYNC==='true'&&/TRANSIENT_MEDIA_DOWNLOAD_TIMEOUT/.test(message))return sourceResult('pending','DOWNLOAD_IN_PROGRESS',{retryAfterMs:2000});
  if(/^TRANSIENT_MEDIA_YOUTUBE_[A-Z_]+$/.test(message))return sourceResult('pending',message,{retryAfterMs:120000});
@@ -18,7 +20,7 @@ export function sourceFailure(error){
 }
 export function sourceInput(text){
  const input=normalizeInput(text);if(!input)return sourceResult('missing','NO_LINK');
- const raw=input.match(/https?:\/\/[^\s<>"']+/gi)||[];
+ const raw=submissionUrls(input);
  if(!raw.length)return sourceResult('invalid','MALFORMED_URL');
  const urls=[];
  for(const value of raw){let u;try{u=new URL(value.replace(/[),.;\]}]+$/,''));}catch{return sourceResult('invalid','MALFORMED_URL');}
@@ -51,7 +53,7 @@ export function classifyYouTubeFailure(result){
  const text=String(result?.stderr||'')+' '+String(result?.error?.message||'');
  if(result?.error?.code==='ETIMEDOUT')return 'TRANSIENT_MEDIA_DOWNLOAD_TIMEOUT';
  if(/No module named|command not found|ENOENT/.test(text))return 'TRANSIENT_MEDIA_YTDLP_UNAVAILABLE';
- if(/private video|this video is private|members.only|sign in.*(?:granted access|private video)/i.test(text))return 'YOUTUBE_PRIVATE';
+ if(/private video|this video is private|sign in.*(?:granted access|private video)/i.test(text))return 'YOUTUBE_PRIVATE';
  if(/(?:video (?:has been|was) (?:removed|deleted)|video does not exist|HTTP Error (404|410))/i.test(text))return 'SOURCE_NOT_FOUND';
  if(/confirm.*not a bot|HTTP Error (401|403)|sign in/i.test(text))return 'TRANSIENT_MEDIA_YOUTUBE_AUTH_CHALLENGE';
  if(/timed?\s*out|HTTP Error (500|502|503|504)|connection (?:reset|aborted)|Temporary failure/i.test(text))return 'TRANSIENT_MEDIA_YOUTUBE_NETWORK';
