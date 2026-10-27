@@ -15,5 +15,11 @@ export function guardClassRequests(g,id,requests,expected){
  const groups=[];let pending=[],encodedLength=0;for(const e of coordinates){const length=encodeURIComponent("'"+e.title.replaceAll("'","''")+"'!"+letters(e.col)+(e.row+1)).length+8;if(pending.length&&(encodedLength+length>5500||pending.length>=50)){groups.push(pending);pending=[];encodedLength=0;}pending.push(e);encodedLength+=length;}if(pending.length)groups.push(pending);
  for(const group of groups){const ranges=group.map(e=>"'"+e.title.replaceAll("'","''")+"'!"+letters(e.col)+(e.row+1)),data=g.api('https://sheets.googleapis.com/v4/spreadsheets/'+id+'?'+ranges.map(r=>'ranges='+encodeURIComponent(r)).join('&')+'&includeGridData=true&fields=sheets(properties(sheetId),merges,data(startRow,startColumn,rowData(values(userEnteredValue,effectiveValue,formattedValue,dataValidation,note))))');
   for(const s of data.sheets||[])current.merges.set(s.properties.sheetId,s.merges||[]);for(const s of data.sheets||[])for(const b of s.data||[])for(let y=0;y<(b.rowData||[]).length;y++)for(let x=0;x<(b.rowData[y].values||[]).length;x++)current.set([s.properties.sheetId,(b.startRow||0)+y,(b.startColumn||0)+x].join('|'),b.rowData[y].values[x]);
- }return classWritePlan(requests,expected,current);
+ }
+ // Sheets returns only merges intersecting each requested range set. The last
+ // coordinate chunk is not the complete header structure of the class. Read
+ // current merge metadata once after all chunks; never treat an omitted merge
+ // in the last chunk as a teacher edit, or retain a merge that was removed.
+ if(expected.some(e=>Array.isArray(e.headerMerges))){const metadata=g.api('https://sheets.googleapis.com/v4/spreadsheets/'+id+'?fields=sheets(properties(sheetId),merges)');current.merges.clear();for(const s of metadata.sheets||[])current.merges.set(s.properties.sheetId,s.merges||[]);}
+ return classWritePlan(requests,expected,current);
 }
