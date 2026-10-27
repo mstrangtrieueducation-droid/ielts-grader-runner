@@ -4,7 +4,7 @@ export const PEDAGOGY_INSTRUCTION=SCREEN_FIRST_INSTRUCTION+`\nQUY CHUẨN SƯ PH
 export function pedagogicSpans(spans){
  const out=[];let praise=false,bridged=false;for(const p of spans){
   if(p.text?.includes('• ')){praise=false;bridged=false;}
-  if(p.text?.includes(PEDAGOGIC_BRIDGE))bridged=true;
+  if(p.text?.includes(PEDAGOGIC_BRIDGE)||/Tuy nhiên,\s*để bài (?:nói|đọc)(?:\/bài đọc)?\b/iu.test(p.text||''))bridged=true;
   if(p.tone==='correction'&&praise&&!bridged){out.push({text:'\n'+PEDAGOGIC_BRIDGE+'\n',tone:'neutral'});bridged=true;}
   out.push(p);if(p.tone==='praise')praise=true;
  }return out;
