@@ -18,7 +18,7 @@ jobs:
   speaking:
     if: github.repository == 'mstrangtrieueducation-droid/ielts-grader-runner' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (inputs.mode == 'validate' || inputs.mode == 'audit' || vars.SPEAKING_ENABLED == 'true')
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 360
     env:
       MODE: ${{ inputs.mode || 'grade' }}
       SPEAKING_ENABLED: ${{ vars.SPEAKING_ENABLED }}
@@ -44,6 +44,8 @@ jobs:
           node automatic-authorization-tests.mjs
           node speaking-provider-retry-tests.mjs
           node continuous-dispatcher-tests.mjs
+          node lane-pool-tests.mjs
+          node workload-lanes-tests.mjs
           node universal-media-tests.mjs
           node speaking-media-preprocessing-tests.mjs
           node screen-grounding-tests.mjs

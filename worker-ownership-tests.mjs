@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import {nativeApprovalSession} from './native-approval-guards.mjs';
+import {assertDelegatedWork} from './workload-lanes.mjs';
+assert.throws(()=>assertDelegatedWork('shadowing','synthetic'),/TRUSTED_OWNED_WORKER_REQUIRED/);
+const before=process.env.AUTOMATIC_GRADING_AUTHORIZED;process.env.AUTOMATIC_GRADING_AUTHORIZED='false';
+const sheet={meta:{properties:{gridProperties:{rowCount:20}}},getSheetId:()=>123};
+const g={book:()=>({getSheetByName:()=>sheet}),api:()=>({values:[['','DUYỆT CHẤM',''],['https://example.invalid/control/A2:F2',true,'one'],['https://example.invalid/control/A3:F3',true,'two']]})};
+const jobs=[{row:2,job:{id:'one',status:'QUEUED'}},{row:3,job:{id:'two',status:'QUEUED',teacherApproval:{approved:true,untouched:'yes'}}}],prior=JSON.stringify(jobs[1]),saved=[];
+nativeApprovalSession(g,{masterApprovalControlId:'approvals'},{controlId:'control'},'SHADOWING AI',jobs,(j,row)=>saved.push({id:j.id,row}),'one');
+assert.deepEqual(saved,[{id:'one',row:2}]);assert.equal(JSON.stringify(jobs[1]),prior,'a delegated worker cannot accept/reset/persist a different native row');
+if(before===undefined)delete process.env.AUTOMATIC_GRADING_AUTHORIZED;else process.env.AUTOMATIC_GRADING_AUTHORIZED=before;
+console.log('PASS worker ownership: delegation denied outside trusted IPC; all history retained while only owned native row is accepted/persisted; 0 API calls.');
