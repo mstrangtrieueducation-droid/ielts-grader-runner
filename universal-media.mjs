@@ -106,6 +106,12 @@ function selection(stderr){
  if(streams.length===2&&aac.length===1&&streams.some(t=>/Audio: none \(apac\b/.test(t.description))&&/com\.apple\.quicktime\.make\s*:\s*Apple/.test(stderr))return {args:['-map','0:'+aac[0].index],mode:'apple_aac_compatibility',indices:[aac[0].index]};
  return streamSelection(streams);
 }
+export function decodedSampleClockArgs(selected){
+ const args=selected.slice(),complex=args.indexOf('-filter_complex');
+ if(complex<0)return [...args,'-af','asetpts=N/SR/TB'];
+ const map=args.indexOf('-map'),label=args[map+1];if(map<0||!/^\[[\w]+\]$/.test(label||''))throw Error('TRANSIENT_MEDIA_AUDIO_CLOCK_SELECTION');
+ args[complex+1]+=';'+label+'asetpts=N/SR/TB[decoded_sample_clock]';args[map+1]='[decoded_sample_clock]';return args;
+}
 export function transcodeUniversal({input,output,ffmpeg=process.env.FFMPEG_PATH||'ffmpeg',run=spawnSync,sourceId,modified,sourceSize}){
  fs.mkdirSync(path.dirname(output),{recursive:true});const manifest=output+'.universal.json';
  if(fs.existsSync(manifest))try{const m=JSON.parse(fs.readFileSync(manifest));if(m.version===PREPROCESS_VERSION&&m.modified===modified&&m.sourceSize===sourceSize&&[m.fullFile,...m.segments.map(s=>s.file)].every(f=>fs.existsSync(f))&&m.segments.every(s=>fs.statSync(s.file).size===s.bytes&&s.bytes>10240&&s.bytes<MAX_PART_BYTES&&sha(fs.readFileSync(s.file))===s.sha256))return m;}catch{}
@@ -113,10 +119,12 @@ export function transcodeUniversal({input,output,ffmpeg=process.env.FFMPEG_PATH|
  const r=run(ffmpeg,['-nostdin','-v','error','-i',input,...chosen.args,'-vn','-ar','16000','-ac','1','-c:a','libmp3lame','-b:a','64k','-y',working],{encoding:'utf8',windowsHide:true,timeout:20*60000});
  if(r.status!==0||!fs.existsSync(working)||fs.statSync(working).size<=10240)throw Error('TRANSIENT_MEDIA_TRANSCODE');
  const after=probe(ffmpeg,working,run);if(!Number.isFinite(after.seconds))throw Error('TRANSIENT_MEDIA_INCOMPLETE_AUDIO');
- // Container/video duration may exceed its audio track. Compare decoded AUDIO,
- // never reject a valid conversion merely because the silent picture lasts longer.
+ // Container/video duration and decoded packet timestamps may include a late
+ // audio start or timestamp gaps. Measure consumed samples from zero instead;
+ // comparing their final source PTS falsely rejects a complete normalized MP3.
+ // Only the validation clock changes. Conversion bytes/stream selection stay.
  if(Number.isFinite(before.seconds)&&after.seconds+0.25<before.seconds){
-  const decoded=run(ffmpeg,['-nostdin','-v','error','-nostats','-progress','pipe:1','-i',input,...chosen.args,'-vn','-f','null','-'],{encoding:'utf8',windowsHide:true,timeout:20*60000});
+  const decoded=run(ffmpeg,['-nostdin','-v','error','-nostats','-progress','pipe:1','-i',input,...decodedSampleClockArgs(chosen.args),'-vn','-f','null','-'],{encoding:'utf8',windowsHide:true,timeout:20*60000});
   const times=[...String(decoded.stdout||'').matchAll(/out_time_us=(\d+)/g)].map(x=>Number(x[1])/1e6),audioSeconds=times.at(-1);
   if(decoded.status!==0||!Number.isFinite(audioSeconds)||after.seconds+0.25<audioSeconds)throw Error('TRANSIENT_MEDIA_INCOMPLETE_AUDIO');
  }
