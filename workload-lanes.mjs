@@ -21,7 +21,8 @@ export function workConflict(a,b){
  // original pupil/target/media exclusions so a heavy file cannot block classmates.
  const pupil=j=>String(j.receipt?.student||j.source?.name||'').normalize('NFC').trim().replace(/\s+/g,' ').toUpperCase();
  const address=j=>j.target?.address||j.target?.cell||j.cell;
- if(cls(a)===cls(b)&&(!pupil(a)||!pupil(b)||pupil(a)===pupil(b)||address(a)&&address(a)===address(b)))return true;
+ if(a._runtimeRowKey&&a._runtimeRowKey===b._runtimeRowKey)return true;
+ if(cls(a)===cls(b)&&(!a._runtimeRowKey||!b._runtimeRowKey||!pupil(a)||!pupil(b)||pupil(a)===pupil(b)||address(a)&&address(a)===address(b)))return true;
  const input=j=>{try{return sourceIds(j.source?.link||j.receipt?.links||'');}catch{return [];}};
  const ids=new Set([...(a.media||[]).filter(m=>!m.isReference).map(m=>m.id),...input(a)]);
  return [...(b.media||[]).filter(m=>!m.isReference).map(m=>m.id),...input(b)].some(id=>ids.has(id));

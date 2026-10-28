@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';import {EventEmitter} from 'node:events'
 import {fileURLToPath} from 'node:url';
 import {runLanePool} from './lane-pool.mjs';
 let clock=0,pid=100,released=0,acquired=0,plans=0,heavy=0,maxHeavy=0,fast=0,maxFast=0;const ownership=[],active=new Set();
-const jobs=Array.from({length:8},(_,i)=>({row:i+2,job:{id:'fixture-'+i,source:{className:'TEST SAME',name:'LEARNER '+i},media:[{id:'media-'+i,size:i<5?1000:80_000_000}]}}));
+const jobs=Array.from({length:8},(_,i)=>({row:i+2,job:{id:'fixture-'+i,_runtimeRowKey:'native-test|row'+i,source:{className:'TEST SAME',name:'LEARNER '+i},media:[{id:'media-'+i,size:i<5?1000:80_000_000}]}}));
 const spawnWorker=(file,args,options)=>{
  const w=new EventEmitter();w.pid=pid++;w.connected=true;w.stdout=new EventEmitter();w.stderr=new EventEmitter();w.stdout.pipe=()=>{};w.stderr.pipe=()=>{};
  w.send=m=>{

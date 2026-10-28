@@ -10,5 +10,7 @@ console.log('PASS three small-file workers, at most one heavy/unknown worker, sa
 
 assert(workerAccepts(small,3,{heavyWaiting:true,ownerSlot:3}),'prepared files never become inaccessible when their heavy owner learns the true small size');
 
-assert.equal(workConflict({source:{className:'TEST SAME',name:'LEARNER A'}},{source:{className:'TEST SAME',name:'LEARNER B'}}),false);
+assert.equal(workConflict({_runtimeRowKey:'test|row1',source:{className:'TEST SAME',name:'LEARNER A'}},{_runtimeRowKey:'test|row2',source:{className:'TEST SAME',name:'LEARNER B'}}),false);
 assert.equal(workConflict({source:{className:'TEST SAME',name:'LEARNER A'},target:{address:'A1'}},{source:{className:'TEST SAME',name:'LEARNER B'},target:{address:'A1'}}),true);
+
+assert.equal(workConflict({_runtimeRowKey:'native|row1',source:{className:'TEST SAME',name:'DECLARED NAME A'}},{_runtimeRowKey:'native|row1',source:{className:'TEST SAME',name:'DECLARED NAME B'}}),true,'different source spellings cannot process the same native pupil row concurrently');
