@@ -32,7 +32,7 @@ import {assessmentInstruction} from './assessment-policy.mjs';
 
 const nativeResubmission=withIeltsNoticeAddress(nativeResubmissionBase,SILENT_NOTICE);
 
-export function runIelts({google,config,key,root,deadline,emit,audit=false,maxJobs=8,maxApiCalls=Infinity,onlySignature,planOnly=false,delegated=false}){
+export function runIelts({google,config,key,root,deadline,emit,audit=false,maxJobs=8,maxApiCalls=Infinity,onlySignature,planOnly=false,delegated=false,resumeExisting=false}){
  if(delegated)assertDelegatedWork('ielts',onlySignature);
  installFeedbackAlignment(google);
  verifyCodeFreeze(root);
@@ -67,12 +67,12 @@ export function runIelts({google,config,key,root,deadline,emit,audit=false,maxJo
  try{
   state?.acquire(deadline+60000);const manualApproval=approvalSession(google,process.env.TEACHER_APPROVAL_CONTROL_ID||config.masterApprovalControlId||config.clusters?.[0]?.controlId||binding.controlId);
   const nativeConfig=vm.runInContext('ISG',c),sweepClasses=Object.entries(nativeConfig.classes).map(([className,spreadsheetId])=>({className,spreadsheetId,sheetName:nativeConfig.tab}));const currentRoster=createCurrentRosterCheck(google,sweepClasses),rosterProcess=c.isgProcess_;c.isgProcess_=(t,item)=>currentRoster(item.job.source,{fresh:true})?rosterProcess(t,item):markNotCurrent(item.job,()=>c.isgSave_(t,item.row,item.job));
-  if(masterSweepEnabled()){if(!delegated)destinationBatch=beginMasterDestinationBatch(google,delegated?sweepClasses.filter(x=>x.className===c.isgJobs_(table).find(y=>y.job.id===onlySignature)?.job.source.className):sweepClasses,root,{emit});c.isgScopeAllows_=sourceInMasterScope;if(!delegated)queueBuffer=bufferSpeakingQueue(c,table,google,binding.controlId);}
+  if(masterSweepEnabled()){if(!delegated&&!resumeExisting)destinationBatch=beginMasterDestinationBatch(google,delegated?sweepClasses.filter(x=>x.className===c.isgJobs_(table).find(y=>y.job.id===onlySignature)?.job.source.className):sweepClasses,root,{emit});c.isgScopeAllows_=sourceInMasterScope;if(!delegated&&!resumeExisting)queueBuffer=bufferSpeakingQueue(c,table,google,binding.controlId);}
   const sourceId=vm.runInContext('ISG.source',c),sourceTabs=vm.runInContext('ISG.sourceTabs',c);google.preloadSource(sourceId,12,sourceTabs);
   const rawRows=c.isgSourceRows_().filter(s=>!masterSweepEnabled()||sourceInMasterScope(s)),latest=c.isgLatest_(rawRows),newest=new Map(latest.map(s=>[s.className+'|'+c.isgName_(s.name)+'|'+s.code,s]));
   const getKey=s=>s.className+'|'+c.isgName_(s.name)+'|'+s.code;
   let old=0,enqueued=0;
-  if(!delegated){
+  if(!delegated&&!resumeExisting){
   for(const item of c.isgJobs_(table))if(!c.speakingSourceScanIncomplete_&&newest.get(getKey(item.job.source))?.signature!==item.job.source.signature&&!['DONE','SKIPPED_EXISTING_FEEDBACK','SKIPPED_OLD_SUBMISSION'].includes(item.job.status)){item.job.status='SKIPPED_OLD_SUBMISSION';delete item.job.retryAt;c.isgSave_(table,item.row,item.job);old++;}
   // Enqueue every valid lesson independently; a new lesson does not supersede another.
   const known=new Set(c.isgJobs_(table).map(x=>x.job.source.signature));
@@ -91,8 +91,8 @@ export function runIelts({google,config,key,root,deadline,emit,audit=false,maxJo
   const fresh=c.isgFresh_;c.isgFresh_=source=>{google.refreshFileMetadata();google.preloadSource(sourceId,12,sourceTabs);google.books.get(vm.runInContext('ISG.classes',c)[source.className])?.cache.clear();return fresh(source);};
   c.isgIsLatestStudent_=source=>c.isgLatest_(c.isgSourceRows_()).some(s=>s.signature===source.signature);
   c.isgBindCostModel_=(job,save)=>{if(job.rawId)return;const model=binding.model||'gemini-2.5-flash';if(model==='gemini-2.5-flash'&&binding.modelAvailable===false)throw Error('SPEAKING_MODEL_UNAVAILABLE');if(job.requestModel!==model){delete job.inputHash;delete job.inputId;}job.requestModel=model;job.costPolicy='native-ielts-quality-v2';save();};
-  if(!delegated)emit({event:'SPEAKING_PENDING_RETRY',...reconcileSpeakingRetries(c.isgJobs_(table),(j,row)=>c.isgSave_(table,row,j))});
-  if(!delegated)emit({event:'SPEAKING_PREPROCESS_RECOVERY',...preprocessing.recover(c.isgJobs_(table),(j,row)=>c.isgSave_(table,row,j),j=>newest.get(getKey(j.source))?.signature===j.source.signature)});
+  if(!delegated&&!resumeExisting)emit({event:'SPEAKING_PENDING_RETRY',...reconcileSpeakingRetries(c.isgJobs_(table),(j,row)=>c.isgSave_(table,row,j))});
+  if(!delegated&&!resumeExisting)emit({event:'SPEAKING_PREPROCESS_RECOVERY',...preprocessing.recover(c.isgJobs_(table),(j,row)=>c.isgSave_(table,row,j),j=>newest.get(getKey(j.source))?.signature===j.source.signature)});
   const approval=nativeApprovalSession(google,config,binding,'IELTS SPEAKING AI',c.isgJobs_(table),(j,row)=>c.isgSave_(table,row,j),delegated?onlySignature:undefined);
   speakingApproval=approval;
   const bytesCache=new Map(),audioBytes=c.isgAudioBytes_;c.isgAudioBytes_=m=>{if(!bytesCache.has(m.id)){let bytes;try{bytes=Buffer.from(audioBytes(m));validateAudioPart(m,{inlineData:{mimeType:m.mime,data:bytes.toString('base64')}},{root,materialize:true});}catch{const out=repairAudioLocally({m,job:activeAudioJob,g:google,root,ffmpeg:process.env.FFMPEG_PATH||'ffmpeg',emit});bytes=fs.readFileSync(out.file);m.mime=out.mime;validateAudioPart(m,{inlineData:{mimeType:m.mime,data:bytes.toString('base64')}},{root});}bytesCache.set(m.id,[...bytes]);}return bytesCache.get(m.id);};

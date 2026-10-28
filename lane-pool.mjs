@@ -1,11 +1,14 @@
+import {mainRevisionChanged} from './cooperative-upgrade.mjs';
 import fs from 'node:fs';import path from 'node:path';import {fork} from 'node:child_process';
 import {stateStore} from './runner-state.mjs';
 import {workerAccepts,mediaWorkload,workConflict,ITEM_MS} from './workload-lanes.mjs';
 // One hosted coordinator owns the native lease. Children can only process one exact native job.
-export async function runLanePool({lane,root,google,config,key,deadline,plan,now=Date.now,spawnWorker=fork,makeLease=stateStore,emit=x=>console.log(JSON.stringify(x)),sleep=ms=>new Promise(r=>setTimeout(r,ms))}){
+export async function runLanePool({lane,root,google,config,key,deadline,plan,checkUpgrade=mainRevisionChanged,now=Date.now,spawnWorker=fork,makeLease=stateStore,emit=x=>console.log(JSON.stringify(x)),sleep=ms=>new Promise(r=>setTimeout(r,ms))}){
  const binding=lane==='shadowing'?config.shadowing:config.ielts,table=lane==='shadowing'?'SHADOWING AI':'IELTS SPEAKING AI';
- let finished=0,paidCalls=0,waves=0;
+ emit({event:'CONTINUOUS_POOL_STARTED',lane,workers:4,fastWorkers:3,heavyWorkers:1,perItemCommit:true});
+ let finished=0,paidCalls=0,waves=0,upgradeRequested=false;
  while(now()<deadline-ITEM_MS-120000){
+  if(await checkUpgrade())break;
   // Discovery/recovery is performed only with every child drained and through the original native planner.
   const planned=await plan();const work=planned.work||[];waves++;
   if(!work.length){emit({event:'CONTINUOUS_POOL_IDLE',lane,workers:4,finished,paidCalls});await sleep(Math.min(10*60000,Math.max(0,deadline-now()-ITEM_MS-120000)));continue;}
@@ -48,7 +51,7 @@ export async function runLanePool({lane,root,google,config,key,deadline,plan,now
      }catch(e){reject(e);}});
      w.on('error',reject);w.on('exit',()=>{active.delete(w.pid);stopped++;if(stopped===4)resolve();});
     }
-    const beat=setInterval(()=>{try{lease.heartbeat();lastBeat=now();}catch(e){emit({event:'CONTINUOUS_POOL_LEASE_DRAIN',lane});for(const w of children)w.retire=true;}},60000);
+    const beat=setInterval(async()=>{try{lease.heartbeat();lastBeat=now();if(await checkUpgrade()){upgradeRequested=true;for(const w of children){w.retire=true;schedule(w);}}}catch(e){emit({event:'CONTINUOUS_POOL_LEASE_DRAIN',lane});for(const w of children)w.retire=true;}},60000);
     Promise.all(children.map(w=>new Promise(r=>w.once('exit',r)))).finally(()=>clearInterval(beat));
    });
   }finally{
@@ -57,7 +60,8 @@ export async function runLanePool({lane,root,google,config,key,deadline,plan,now
    for(const w of children)if(w.connected&&!active.has(w.pid))w.send({stop:true});
    await Promise.all(children.filter(w=>w.connected).map(w=>new Promise(r=>w.once('exit',r))));lease.release();
   }
+  if(upgradeRequested)break;
   emit({event:'CONTINUOUS_POOL_WAVE_COMPLETE',lane,waves,finished,paidCalls});
  }
- emit({event:'CONTINUOUS_POOL_SAFE_HOSTED_HANDOVER',lane,finished,paidCalls});return {finished,paidCalls};
+ emit({event:'CONTINUOUS_POOL_SAFE_HOSTED_HANDOVER',lane,finished,paidCalls});return {finished,paidCalls,upgradeRequested};
 }

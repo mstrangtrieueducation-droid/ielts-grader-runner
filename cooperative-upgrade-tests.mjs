@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {mainRevisionChanged} from './cooperative-upgrade.mjs';
+const env={GITHUB_ACTIONS:'true',GITHUB_REPOSITORY:'mstrangtrieueducation-droid/kids-grader-runner',GITHUB_SHA:'a'.repeat(40),RUNNER_GITHUB_TOKEN:'synthetic'};let calls=0;
+assert.equal(await mainRevisionChanged({...env,GITHUB_REPOSITORY:'other/repo'},{now:()=>100000,fetcher:()=>assert.fail('no request')}),false);
+assert.equal(await mainRevisionChanged(env,{now:()=>100000,fetcher:async()=>{calls++;throw Error('offline');}}),false);
+assert.equal(await mainRevisionChanged(env,{now:()=>120000,fetcher:()=>assert.fail('rate limit')}),false);
+assert.equal(await mainRevisionChanged(env,{now:()=>170000,fetcher:async()=>({ok:true,json:async()=>({object:{sha:'a'.repeat(40)}})})}),false);
+assert.equal(await mainRevisionChanged(env,{now:()=>240000,fetcher:async()=>({ok:true,json:async()=>({object:{sha:'b'.repeat(40)}})})}),true);
+assert.equal(await mainRevisionChanged(env,{now:()=>240001,fetcher:()=>assert.fail('sticky decision')}),true);
+assert.equal(calls,1);console.log('PASS trusted read-only cooperative revision check, network failure continues work, throttling and sticky drain request; 0 actual network/AI calls.');

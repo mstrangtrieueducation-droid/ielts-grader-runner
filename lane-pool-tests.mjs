@@ -10,12 +10,12 @@ const spawnWorker=(file,args,options)=>{
   const j=jobs.find(x=>x.job.id===m.jobId);assert(j);const slot=Number(options.env.LANE_POOL_SLOT),isHeavy=j.job.media[0].size>=50_000_000;
   if(isHeavy){assert.equal(slot,3);maxHeavy=Math.max(maxHeavy,++heavy);}else assert(slot<3||slot===3);
   assert(!active.has(j.job.id));active.add(j.job.id);ownership.push({id:j.job.id,slot});
-  setTimeout(()=>{if(isHeavy)heavy--;active.delete(j.job.id);w.emit('message',{event:'RESULT',jobId:j.job.id,finished:1,paidCalls:0,work:null});},1);
+  setTimeout(()=>{clock+=isHeavy?9*60000:5000;if(isHeavy)heavy--;active.delete(j.job.id);w.emit('message',{event:'RESULT',jobId:j.job.id,finished:1,paidCalls:0,work:null});},1);
  };
  queueMicrotask(()=>w.emit('message',{event:'READY'}));return w;
 };
 const root=fileURLToPath(new URL('./.runtime/pool-test',import.meta.url));
-const result=await runLanePool({lane:'shadowing',root,google:{},config:{shadowing:{controlId:'synthetic'}},key:'unused',deadline:300*60000,now:()=>clock,spawnWorker,makeLease:()=>({acquire(){acquired++;},heartbeat(){},release(){released++;}}),emit:()=>{},sleep:async ms=>{clock+=ms;},plan:async()=>({work:plans++?[]:jobs})});
+const result=await runLanePool({lane:'shadowing',root,google:{},config:{shadowing:{controlId:'synthetic'}},key:'unused',deadline:300*60000,checkUpgrade:async()=>false,now:()=>clock,spawnWorker,makeLease:()=>({acquire(){acquired++;},heartbeat(){},release(){released++;}}),emit:()=>{},sleep:async ms=>{clock+=ms;},plan:async()=>({work:plans++?[]:jobs})});
 assert.equal(result.finished,8);assert.equal(new Set(ownership.map(x=>x.id)).size,8);assert.equal(maxHeavy,1);assert.equal(acquired,released);assert.equal(active.size,0);
 console.log('PASS real coordinator scheduling via synthetic child transports: 3 fast +1 heavy, exactly-once ownership, per-item commit acknowledgement, drained children/lease release and 5-hour service; 0 network/AI/Sheet writes.');
 

@@ -10,7 +10,7 @@ const required=name=>{const value=process.env[name]?.trim();if(!value)throw Erro
 const unpack=name=>JSON.parse(gunzipSync(Buffer.from(required(name),'base64')).toString('utf8'));
 async function main(){
  process.env.IELTS_SHEETS_TRANSPORT='python';
- for(const test of ['worker-ownership-tests.mjs','lane-pool-tests.mjs','workload-lanes-tests.mjs','audio-completeness-tests.mjs','sheet-truth-merge-chunk-tests.mjs','speaking-target-identity-tests.mjs','speaking-queue-capacity-tests.mjs','unpaid-google-retry-tests.mjs','receipt-body-tests.mjs','submission-source-tests.mjs','native-youtube-tests.mjs','current-roster-policy-tests.mjs','core-media-resolver-tests.mjs','media-source-notice-recovery-tests.mjs'])execFileSync(process.execPath,[test],{cwd:root,stdio:'inherit',windowsHide:true,env:{...process.env,NATIVE_YOUTUBE_INPUT:'false'}});
+ for(const test of ['encrypted-media-cache-tests.mjs','cooperative-upgrade-tests.mjs','worker-ownership-tests.mjs','lane-pool-tests.mjs','workload-lanes-tests.mjs','audio-completeness-tests.mjs','sheet-truth-merge-chunk-tests.mjs','speaking-target-identity-tests.mjs','speaking-queue-capacity-tests.mjs','unpaid-google-retry-tests.mjs','receipt-body-tests.mjs','submission-source-tests.mjs','native-youtube-tests.mjs','current-roster-policy-tests.mjs','core-media-resolver-tests.mjs','media-source-notice-recovery-tests.mjs'])execFileSync(process.execPath,[test],{cwd:root,stdio:'inherit',windowsHide:true,env:{...process.env,NATIVE_YOUTUBE_INPUT:'false'}});
  const mode=process.env.MODE||'audit';if(!['audit','grade'].includes(mode))throw Error('MODE_INVALID');
  const config=unpack('IELTS_RUNNER_CONFIG_GZIP_B64'),barem=unpack('IELTS_SPEAKING_BAREM_GZIP_B64'),key=required('GEMINI_KEY_IELTS_SPEAKING'),sa=JSON.parse(required('GOOGLE_SERVICE_ACCOUNT_JSON'));
  if(!config.ielts?.controlId||sa.client_email!==config.serviceAccount)throw Error('PRIVATE_CONFIGURATION_MISMATCH');
@@ -33,7 +33,7 @@ async function main(){
    const result=runIelts({google,config,key,root,deadline,emit,audit:true});console.log(JSON.stringify({preflight:true,providerGenerateCalls:0,...result}));return;
   }
   const {runLanePool}=await import('./lane-pool.mjs');
-  const drained=await runLanePool({lane:'ielts',root,google,config,key,deadline,plan:()=>{google.invalidate();return runIelts({google,config,key,root,deadline,emit,planOnly:true,maxJobs:0,maxApiCalls:0});}});finished=drained.finished;requests=drained.paidCalls;
+  const drained=await runLanePool({lane:'ielts',root,google,config,key,deadline,plan:()=>{google.invalidate();const current=runIelts({google,config,key,root,deadline,emit,planOnly:true,resumeExisting:true,maxJobs:0,maxApiCalls:0});return current.work?.length?current:runIelts({google,config,key,root,deadline,emit,planOnly:true,maxJobs:0,maxApiCalls:0});}});finished=drained.finished;requests=drained.paidCalls;
   const result={finished,providerGenerateCalls:requests};console.log(JSON.stringify(result));
   if(process.env.GITHUB_STEP_SUMMARY)fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,`IELTS Speaking: ${finished} results returned; ${requests} provider requests.\n`);
  }finally{release();}

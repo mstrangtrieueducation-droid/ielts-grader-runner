@@ -90,6 +90,19 @@ jobs:
             echo "$media_bin" >> "$GITHUB_PATH"
             echo "FFMPEG_PATH=$media_bin/ffmpeg" >> "$GITHUB_ENV"
           fi
+      - name: Restore encrypted media cache
+        if: inputs.mode != 'validate'
+        continue-on-error: true
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25
+        with:
+          path: .runtime/encrypted-media-cache.bin
+          key: grading-media-v1-${{ runner.os }}-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: grading-media-v1-${{ runner.os }}-${{ github.repository_id }}-
+      - name: Authenticate and recover media files locally
+        if: inputs.mode != 'validate'
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: node encrypted-media-cache.mjs restore
       - name: Audit or grade on the dedicated Speaking project
         if: env.MODE != 'validate'
         env:
@@ -99,3 +112,15 @@ jobs:
           IELTS_SPEAKING_BAREM_GZIP_B64: ${{ secrets.IELTS_SPEAKING_BAREM_GZIP_B64 }}
         run: python3 run.py
 
+      - name: Encrypt retained media for the successor
+        if: always() && inputs.mode != 'validate'
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: node encrypted-media-cache.mjs save
+      - name: Save only authenticated encrypted cache
+        if: always() && inputs.mode != 'validate'
+        continue-on-error: true
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25
+        with:
+          path: .runtime/encrypted-media-cache.bin
+          key: grading-media-v1-${{ runner.os }}-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
