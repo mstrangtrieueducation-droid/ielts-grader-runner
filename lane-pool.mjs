@@ -1,3 +1,4 @@
+import {deferredAfterResult} from './queue-isolation.mjs';
 import {mainRevisionChanged} from './cooperative-upgrade.mjs';
 import fs from 'node:fs';import path from 'node:path';import {fork} from 'node:child_process';
 import {stateStore} from './runner-state.mjs';
@@ -10,7 +11,7 @@ export async function runLanePool({lane,root,google,config,key,deadline,plan,che
  while(now()<deadline-ITEM_MS-120000){
   if(await checkUpgrade())break;
   // Discovery/recovery is performed only with every child drained and through the original native planner.
-  const planned=await plan();const work=planned.work||[];waves++;
+  const planned=await plan();const work=(planned.work||[]).filter(x=>!x.job.queueQuarantine);waves++;
   if(!work.length){emit({event:'CONTINUOUS_POOL_IDLE',lane,workers:4,finished,paidCalls});await sleep(Math.min(10*60000,Math.max(0,deadline-now()-ITEM_MS-120000)));continue;}
   const lease=makeLease(google,binding.controlId,lane==='shadowing'?'ShadowingState':'RunnerState');lease.acquire(deadline+60000);
   const waiting=work.slice(),active=new Map(),children=[],deferred=new Map();let lastBeat=0;
@@ -40,7 +41,7 @@ export async function runLanePool({lane,root,google,config,key,deadline,plan,che
        const owned=active.get(w.pid);if(!owned||owned.job.id!==m.jobId)throw Error('WORKER_RESULT_OWNERSHIP_INVALID');
        active.delete(w.pid);finished+=Number(m.finished)||0;paidCalls+=Number(m.paidCalls)||0;
        // Only the native selector may re-admit the exact job. Never reset a request/raw/reservation.
-       if(m.work){owned.job=m.work.job;owned.row=m.work.row;deferred.set(owned.job.id,Math.max(now()+5000,Number(owned.job.nextAt)||0));waiting.push(owned);}
+       if(m.work&&!m.work.job.queueQuarantine){const retryAt=deferredAfterResult(m.work.job,owned.job,{now:now()});owned.job=m.work.job;owned.row=m.work.row;deferred.set(owned.job.id,retryAt);waiting.push(owned);}
        emit({event:'CONTINUOUS_POOL_ITEM_SAVED',lane,worker:slot,finished,paidCalls,waiting:waiting.length,active:active.size});
        schedule(w);for(const other of children)schedule(other);
       }

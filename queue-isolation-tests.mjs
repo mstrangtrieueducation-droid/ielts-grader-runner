@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';import {isolateItem,isolateNativeJobs,CLAIM_TTL_MS,COOLDOWN_MS} from './queue-isolation.mjs';
+const paid={id:'synthetic-paid',status:'SYSTEM_GRADING_ERROR',generateRequests:1,rawId:'synthetic-invalid-raw',error:'PROVIDER_RESPONSE_BLOCKED',usage:{totalTokenCount:10}};
+const before=JSON.stringify(paid),item={state:'HELD',error:paid.error,attempts:[]};assert(isolateItem(item,paid));assert.equal(item.state,'QUARANTINED');assert.equal(JSON.stringify(paid),before);
+const owner={state:'CLAIMED',claim:{runId:'active',at:new Date(0).toISOString()}};assert.equal(isolateItem(owner,{}, {now:CLAIM_TTL_MS*4,activeRun:'active'}),false,'never release a live owner because wall clock elapsed');
+const expired={state:'CLAIMED',claim:{runId:'finished',at:new Date(0).toISOString()}};assert(isolateItem(expired,{}, {now:CLAIM_TTL_MS+1,activeRun:'new'}));assert.equal(expired.state,'PENDING_VALIDATION');assert.equal(expired.attempt_count,1);
+const cached={state:'RETRY',attempt_count:2,attempts:[]};assert.equal(isolateItem(cached,{rawId:'synthetic-saved-valid'}),false,'saved result reaches original native validation before any new call');
+const transient={state:'RETRY',error:'GOOGLE_HTTP_503',attempts:[{at:new Date(1000).toISOString(),state:'RETRY'}],nextAt:0};assert(isolateItem(transient,{}, {now:1000}));assert.equal(transient.nextAt,1000+COOLDOWN_MS);assert.equal(transient.queuePriority,'back');
+const exhausted={state:'RETRY',attempt_count:2,error:'NETWORK_TIMEOUT',attempts:[]};isolateItem(exhausted,{});assert.equal(exhausted.state,'QUARANTINED');
+const unknown={id:'synthetic-shadow-ready',status:'READY',generateRequests:1},fresh={id:'synthetic-unpaid',status:'READY',generateRequests:0},saved={id:'synthetic-saved',status:'READY',generateRequests:1,rawId:'saved'};let saves=0;
+assert.equal(isolateNativeJobs([unknown,fresh,saved].map((job,i)=>({job,row:i+2})),()=>saves++),1);assert.equal(saves,1);assert.equal(unknown.status,'READY');assert(unknown.queueQuarantine);assert(!fresh.queueQuarantine);assert(!saved.queueQuarantine);assert.equal(unknown.generateRequests,1);
+console.log('PASS poison isolation, two failures, 30-minute back queue, expired claim, active call preservation, raw-first recovery and READY is not a grade.');

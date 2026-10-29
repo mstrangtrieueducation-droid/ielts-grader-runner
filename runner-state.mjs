@@ -15,7 +15,7 @@ export function localGuard(file) {
   }
   return ()=>{try {const p=JSON.parse(fs.readFileSync(file));if(p.pid===process.pid)fs.unlinkSync(file);}catch{}};
 }
-export const LOCK_TTL_MS=15*60000;
+export const LOCK_TTL_MS=10*60000;
 export function stateStore(google,controlId,sheetName='RunnerState'){
  const b=google.book(controlId),s=b.getSheetByName(sheetName)||b.insertSheet(sheetName),truth=sheetTruthEnabled();
  const read=()=>{if(truth)return google.api('https://sheets.googleapis.com/v4/spreadsheets/'+controlId+'/values/'+encodeURIComponent("'"+sheetName+"'!A1:B1")).values?.[0]||[];b.cache.clear();return s.getRange('A1:B1').getDisplayValues()[0];};
