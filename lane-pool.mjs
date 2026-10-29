@@ -1,4 +1,4 @@
-import {deferredAfterResult} from './queue-isolation.mjs';
+import {deferredAfterResult,recordQueueFailure} from './queue-isolation.mjs';
 import {mainRevisionChanged} from './cooperative-upgrade.mjs';
 import fs from 'node:fs';import path from 'node:path';import {fork} from 'node:child_process';
 import {stateStore} from './runner-state.mjs';
@@ -41,6 +41,7 @@ export async function runLanePool({lane,root,google,config,key,deadline,plan,che
        const owned=active.get(w.pid);if(!owned||owned.job.id!==m.jobId)throw Error('WORKER_RESULT_OWNERSHIP_INVALID');
        active.delete(w.pid);finished+=Number(m.finished)||0;paidCalls+=Number(m.paidCalls)||0;
        // Only the native selector may re-admit the exact job. Never reset a request/raw/reservation.
+       if(m.work&&recordQueueFailure(m.work.job,owned.job,{now:now()})){google.api('https://sheets.googleapis.com/v4/spreadsheets/'+binding.controlId+'/values/'+encodeURIComponent("'"+table+"'!F"+m.work.row)+'?valueInputOption=RAW','PUT',{values:[[JSON.stringify(m.work.job)]]});}
        if(m.work&&!m.work.job.queueQuarantine){const retryAt=deferredAfterResult(m.work.job,owned.job,{now:now()});owned.job=m.work.job;owned.row=m.work.row;deferred.set(owned.job.id,retryAt);waiting.push(owned);}
        emit({event:'CONTINUOUS_POOL_ITEM_SAVED',lane,worker:slot,finished,paidCalls,waiting:waiting.length,active:active.size});
        schedule(w);for(const other of children)schedule(other);

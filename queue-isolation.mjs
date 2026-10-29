@@ -39,3 +39,12 @@ export function deferredAfterResult(job,before,{now=Date.now()}={}){
  const changed=JSON.stringify([job.status,job.rawId,job.gradeId,job.media,job.sourceIntake])!==JSON.stringify([before.status,before.rawId,before.gradeId,before.media,before.sourceIntake]);
  return changed&&!job.error?Math.max(now+5000,Number(job.nextAt)||0):Math.max(now+COOLDOWN_MS,Number(job.nextAt)||0);
 }
+export function recordQueueFailure(job,before,{now=Date.now()}={}){
+ if(job.rawId||job.gradeId||!['READY','RETRY','PENDING_RETRY','WAITING_MEDIA','WAITING_INPUT','QUEUED'].includes(job.status))return false;
+ const progress=JSON.stringify([job.media,job.sourceIntake])!==JSON.stringify([before.media,before.sourceIntake]);
+ if(progress&&!job.error)return false;
+ job.attempt_count=(Number(job.attempt_count)||0)+1;
+ job.nextAt=Math.max(Number(job.nextAt)||0,now+COOLDOWN_MS);job.queuePriority='back';
+ if(job.attempt_count>=2)job.queueQuarantine={policy:QUEUE_POLICY,at:new Date(now).toISOString(),reason:job.error||'PREPARATION_ATTEMPTS_EXHAUSTED',nativeStatus:job.status,paidHistoryPreserved:true};
+ return true;
+}
