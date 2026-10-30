@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import {feedbackPayload,requestFeedback,SAFETY_SETTINGS} from './provider-generation-policy.mjs';
+const response=raw=>({getResponseCode:()=>200,getContentText:()=>JSON.stringify(raw)}),recited={candidates:[{finishReason:'RECITATION'}],usageMetadata:{totalTokenCount:3}},ok={candidates:[{finishReason:'STOP',content:{parts:[{text:'SYNTHETIC'}]}}]};
+const payload={contents:[{parts:[{inlineData:{mimeType:'audio/mpeg',data:'synthetic'}}]}],generationConfig:{maxOutputTokens:2048,thinkingConfig:{thinkingLevel:'low'}}};
+let calls=[],events=[],job={generateRequests:1};
+requestFeedback({job,options:{body:JSON.stringify(payload)},send:o=>{calls.push(JSON.parse(o.body));return response(calls.length===1?recited:ok);},persist:()=>events.push('DURABLE_RETRY'),saveArtifact:()=>{events.push('DURABLE_RAW');return 'saved-first';},onRetry:()=>events.push('COUNTED')});
+assert.equal(calls.length,2);assert.equal(calls[0].generationConfig.temperature,0.25);assert.equal(calls[1].generationConfig.temperature,0.4);assert.deepEqual(calls[0].contents,payload.contents);assert.deepEqual(calls[0].safetySettings,SAFETY_SETTINGS);assert.equal(job.generateRequests,2);assert.deepEqual(events,['DURABLE_RAW','DURABLE_RETRY','COUNTED']);assert.equal(job.recitationRecovery.rawId,'saved-first');
+let n=0;requestFeedback({job,options:{body:payload},send:()=>{n++;return response(recited);},persist:()=>assert.fail(),saveArtifact:()=>assert.fail()});assert.equal(n,1);
+n=0;assert.throws(()=>requestFeedback({job:{generateRequests:1},options:{body:payload},send:()=>{n++;throw Error('NETWORK_UNKNOWN');},persist:()=>assert.fail(),saveArtifact:()=>assert.fail()}),/NETWORK_UNKNOWN/);assert.equal(n,1);
+n=0;requestFeedback({job:{generateRequests:1},options:{body:payload},send:()=>{n++;return response({promptFeedback:{blockReason:'SAFETY'}});},persist:()=>assert.fail(),saveArtifact:()=>assert.fail()});assert.equal(n,1);
+assert.equal(feedbackPayload(payload).generationConfig.maxOutputTokens,2048);assert.equal(payload.generationConfig.temperature,undefined);
+console.log('PASS durable rejected raw before exactly one recitation retry; all other calls single-pass; no unknown-network retry, no input mutation, output reserve retained.');

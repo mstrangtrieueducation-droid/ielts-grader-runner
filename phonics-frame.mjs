@@ -9,8 +9,7 @@ export function extractPhonicsFrame({ffmpeg,input,output,durationSeconds,timeSec
  return {path:output,timeSeconds:time,bytes:fs.statSync(output).size,mime:'image/jpeg'};
 }
 export function extractPresentationFrames(options){
- const times=[10,40].filter(t=>!Number.isFinite(options.durationSeconds)||t<options.durationSeconds),frames=[];
- if(!times.length)times.push(Math.max(0,(options.durationSeconds||1)/2));
+ const times=Number.isFinite(options.durationSeconds)&&options.durationSeconds>0?[0.15,0.5,0.8].map(n=>Math.round(options.durationSeconds*n*100)/100):[10,40],frames=[];
  for(const [i,timeSeconds] of times.entries())try{const f=extractPhonicsFrame({...options,timeSeconds,output:options.output.replace(/\.jpg$/,`-${i+1}.jpg`)});if(!frames.some(x=>x.timeSeconds===f.timeSeconds))frames.push(f);}catch{}
  return frames;
 }
