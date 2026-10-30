@@ -48,7 +48,7 @@ export function masterSchema(form){
  const span=obj({text:str,tone:{type:'string',enum:['praise','correction','neutral']}});
  const speaking=form[0]==='Fluency & Coherence',section=obj({label:{type:'string',enum:form},text:str,spans:{type:'array',items:span},...(speaking?{band:{type:'number',minimum:0,maximum:9,multipleOf:0.5}}:{})});
  return obj({assessable:bool,band:{type:'string',enum:speaking?['',...Array.from({length:19},(_,i)=>(i/2).toFixed(1))]:['',...PERCENT_BANDS]},reason:str,studentTranscript:str,speechStatus:{type:'string',enum:['SPEECH_DETECTED','NO_SPEECH_DETECTED','UNCERTAIN']},
-  submissionCheck:obj({status:{type:'string',enum:['correct_assignment','wrong_assignment','unclear_audio']},observedTask:str,basis:str}),
+  submissionCheck:obj({status:{type:'string',enum:['correct_assignment','wrong_assignment','unclear_audio']},observedTask:str,observedCode:str,basis:str}),
   presentationReadingCheck:obj({requiresPresentation:bool,readsPreparedScript:bool,confirmed:bool,basis:str,sourceFileIndex:{type:'integer'},time:str}),
   presentationVisualCheck:obj({confirmed:bool,studentVisible:bool,capture:{type:'string',enum:['student','screen_only','filming_screen','unknown']},basis:str,sourceFileIndex:{type:'integer'}}),
   roseSections:{type:'array',minItems:0,maxItems:form.length,items:section}

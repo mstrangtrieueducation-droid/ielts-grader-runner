@@ -18,12 +18,13 @@ export function inspectSilence(ffmpeg,file,run=spawnSync){
  if(r.error||r.status!==0)throw Error('AUDIO_SILENCE_PROBE_FAILED');return parseSilence(r.stderr);
 }
 const source=j=>j.receipt||j.source||{};
-const ids=j=>new Set((j.media||[]).filter(m=>!m.isReference).flatMap(m=>[m.id,m.md5Checksum,m.runnerAudio?.sha256].filter(Boolean)).concat(source(j).fileIds||[],[...String(source(j).links||source(j).link||'').matchAll(/(?:[?&]id=|\/d\/)([-\w]{20,})/g)].map(m=>m[1])));
+const ids=j=>new Set((j.media||[]).filter(m=>!m.isReference).flatMap(m=>[m.id].filter(Boolean)).concat(source(j).fileIds||[],[...String(source(j).links||source(j).link||'').matchAll(/(?:[?&]id=|\/d\/)([-\w]{20,})/g)].map(m=>m[1])));
 export function oldGradedSubmission(job,jobs,isGraded){
  const s=source(job),name=normalizeName(s.student||s.name),cls=job.cls?.className||s.className,code=job.route?.code||s.code,current=ids(job);
  if(!current.size)return null;
  for(const item of jobs){const prior=item.job||item,p=source(prior);if(prior.id===job.id||(prior.cls?.className||p.className)!==cls||normalizeName(p.student||p.name)!==name||(prior.route?.code||p.code)===code)continue;
   if(!['RETURNED','DONE','SKIPPED_ALREADY_GRADED','SKIPPED_EXISTING_FEEDBACK'].includes(prior.status))continue;
+  const before=Date.parse(p.time||p.timestamp||''),now=Date.parse(s.time||s.timestamp||'');if(Number.isFinite(before)&&Number.isFinite(now)&&before>=now)continue;
   if([...ids(prior)].some(id=>current.has(id))&&isGraded(prior))return prior;
  }return null;
 }
