@@ -5,7 +5,7 @@ export const SERVICE_MS=300*60000;
 export const ITEM_MS=10*60000;
 export function mediaWorkload(job){
  if(job.rawId||job.gradeId)return {lane:'fast',bytes:0,saved:true};
- const media=(job.media||[]).filter(m=>!m.isReference),files=media.length?media:job.sourceIntake?.files||[];
+ const media=(job.media||[]).filter(m=>!m.isReference),files=media.length?media:job.sourceIntake?.metadataFiles?.length?job.sourceIntake.metadataFiles:job.sourceIntake?.files||[];
  const sizes=files.map(m=>Number(m.size??m.bytes));
  const known=sizes.length>0&&sizes.every(n=>Number.isFinite(n)&&n>0),bytes=known?sizes.reduce((n,v)=>n+v,0):null;
  return {lane:known&&bytes<FAST_BYTES?'fast':'heavy',bytes,saved:false};

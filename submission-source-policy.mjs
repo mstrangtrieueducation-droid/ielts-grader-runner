@@ -30,19 +30,20 @@ export function sourceInput(text){
  return {input,urls};
 }
 export function inspectSubmissionSource({text,ids,service,metadata}){
- const syntax=ids?null:sourceInput(text);if(syntax?.state)return syntax;
+ const syntax=ids?null:sourceInput(text);if(syntax?.state)return syntax;const metadataFiles=[];
  try{
   const files=ids||service.ids(text);if(!files.length)return sourceResult('invalid','NO_EXTRACTABLE_FILE');
   const proofs=[];
   // Check every attachment before ANY Gemini upload or generation is allowed.
   for(const id of files){const m=metadata(id);if(m.nativeYouTube){if(m.trashed)throw Error('SOURCE_NOT_FOUND');const proof=assertNativeEvidence(m.nativeYouTube,{id});proofs.push({id,bytes:null,modified:m.modifiedTime||m.modified,nativeYouTube:proof});continue;}if(m.trashed||!Number(m.size))return sourceResult('invalid','EMPTY_OR_REMOVED_FILE');
+   metadataFiles.push({id,size:Number(m.size),mimeType:m.mimeType||m.mime,modified:m.modifiedTime||m.modified});
    const mime=m.mimeType||m.mime;if(!/^(audio|video|image)\//.test(mime||'')&&mime!=='application/pdf'&&!/\.(?:mp4|mov|m4a|mp3|wav|aac|ogg|flac|webm)$/i.test(m.name||''))return sourceResult('invalid','UNSUPPORTED_FILE_FORMAT');
    const proof=service.verifyDownload({id,mime,size:Number(m.size),modified:m.modifiedTime||m.modified});
    if(!proof||proof.complete!==true||proof.bytes!==Number(m.size))return sourceResult('pending','DOWNLOAD_NOT_CONFIRMED');
    proofs.push({id,bytes:proof.bytes,modified:m.modifiedTime||m.modified});
   }
   return sourceResult('valid',proofs.some(f=>f.nativeYouTube)?'PROVIDER_NATIVE_MEDIA_CONFIRMED':'DOWNLOAD_CONFIRMED',{files:proofs});
- }catch(error){return sourceFailure(error);}
+ }catch(error){const result=sourceFailure(error);if(result.state==='pending'){const safe=/^[A-Z0-9_: .-]+$/.test(error?.message||'')?String(error.message).slice(0,160):'SOURCE_TRANSPORT_ERROR';result.technicalDiagnostic={code:safe,...(/^[A-Z0-9_]+$/.test(error?.code||'')?{ioCode:error.code}:{}),httpCode:Number(error?.httpCode)||null};if(metadataFiles.length)result.metadataFiles=metadataFiles;}return result;}
 }
 export function assertSourceReady(result){if(result?.schema!==1||result.state!=='valid'||result.aiEligible!==true||!result.files?.length||result.files.some(f=>f.nativeYouTube?!assertNativeEvidence(f.nativeYouTube,{id:f.id}):!(f.bytes>0)))throw Error('SOURCE_NOT_READY_FOR_AI');}
 export function sourceNotice(result,time){return (result?.label||SOURCE_LABELS.pending)+(time?' · '+time:'');}

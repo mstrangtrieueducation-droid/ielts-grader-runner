@@ -232,7 +232,7 @@ export function createMediaService({g,root,key=process.env.GEMINI_API_KEY,ffmpeg
   }
  };
  function localFile(m){
-  const downloadDeadline=Date.now()+30000;
+  const downloadDeadline=Date.now()+(Number(m.size)>=50_000_000?300000:30000);
   if(m.id.startsWith('yt_'))return youtube(m.id).localFile;
   if(preparedPublic.has(m.id))return preparedPublic.get(m.id).localFile;
   const tag=m.id+'-'+sha(Buffer.from(String(m.modified))).slice(0,10),existing=path.join(root,'private','cache',tag+'.original');
