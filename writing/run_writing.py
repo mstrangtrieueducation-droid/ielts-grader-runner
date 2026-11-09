@@ -110,6 +110,10 @@ def form_files(row, cols):
     return singles or ([merged] if merged else [])
 
 
+def scans_text(resp):
+    return "".join(b.get("text", "") for b in resp["content"] if b.get("type") == "text")
+
+
 def file_id(url):
     m = re.search(r"(?:id=|/d/)([A-Za-z0-9_-]{20,})", str(url or ""))
     return m.group(1) if m else None
@@ -338,6 +342,13 @@ class Runner:
                              "firstAt": items[0]["time"], "sig": sig, "status": status, "at": now().isoformat()}
                 self.tick(status)
             self.state.setdefault("baselined", {})[a["code"]] = True
+        for s in subs.values():   # notebook passed on time before this week's essay pack existed → grade its essays now
+            a = next((x for x in self.cfg["assignments"] if x["code"] == s["assignment"]), {})
+            if (a.get("essayPack") and s["status"] in ("graded", "published") and s.get("verdict") == "Đạt"
+                    and s.get("afterDeadline") is False and s.get("essays") and not s.get("essayResult")
+                    and not s.get("essayTried")):
+                s.update(status="essay_new", essayTried=True)
+                self.tick("essay_new")
         self.unconfigured()
 
     def existing_comment(self, cls, code, name):
@@ -434,6 +445,15 @@ class Runner:
         base = self.cfg.get("model", cw.DEFAULT_MODEL)
         for k, s in todo:
             step = "essay" if s["status"] == "essay_new" else "notebook"
+            if step == "essay":
+                import essays
+                if not s.get("essays"):   # nothing typed: the notebook result alone is published
+                    s["status"] = "graded"
+                    continue
+                cid = h(k + step + s["sig"] + str(s.get("tries", 0)), 40)
+                reqs.append({"custom_id": cid, "params": essays.request(self.assignment(s["assignment"]), s)})
+                mapping[cid] = {"key": k, "step": step, "model": essays.MODEL}
+                continue
             # last attempt after repeated failures goes to the stronger model (rare, so cost stays low)
             model = (self.cfg.get("escalationModel") or base) if s.get("tries", 0) >= MAX_TRIES - 1 else base
             try:
@@ -477,6 +497,19 @@ class Runner:
                 resp = item.result.message.model_dump()
                 mdl = m.get("model", info["model"])
                 c = cw.cost_usd(mdl, resp["usage"], batch=True)
+                if m["step"] == "essay":
+                    import essays
+                    cw.ledger({"at": cw.now_iso(), "category": f"{s['className']} · Bài viết · {s['assignment'].split('-')[-1]}",
+                               "step": "essay-batch", "model": mdl, "usage": resp["usage"], "usd": c, "vnd": round(c * cw.USD_VND)})
+                    try:
+                        res = json.loads(scans_text(resp))
+                        s.update(essayResult=essays.checks(self.assignment(s["assignment"]), s, res), status="graded")
+                        self.tick("graded_essay")
+                    except Exception:
+                        s["tries"] = s.get("tries", 0) + 1
+                        s["status"] = "essay_new" if s["tries"] < MAX_TRIES else "graded"   # never block the notebook result
+                        self.tick("essay_retry")
+                    continue
                 spec, job = self.prepare(k, s, m["step"])
                 cw.ledger({"at": cw.now_iso(), "category": spec["category"], "step": "grade-batch",
                            "model": mdl, "usage": resp["usage"], "usd": c, "vnd": round(c * cw.USD_VND)})
@@ -573,6 +606,9 @@ class Runner:
                 prefix, existing = cur.split(MARK, 1)
                 existing = existing.strip()
             comment, prev = s["comment"], s.get("publishedBlock") or s.get("publishedComment")
+            if s.get("essayResult"):
+                import essays
+                comment = comment.rstrip() + "\n\n" + essays.summary(s["essayResult"])
             tag = f"【Lần nộp {sub_t.strftime('%d/%m/%Y') if sub_t else ''}】\n"
             if not existing or existing == prev:
                 body = blk = comment
