@@ -14,6 +14,12 @@ unclear = {"entries": [dict(e, example="unclear") for e in full["entries"]]}
 assert nb.score(u, unclear)["pct"] == 100, "unclear handwriting never counts as missing"
 nonum = {"entries": [dict(e, n=0) for e in full["entries"]]}
 assert nb.score(u, nonum)["seen"] == len(ns), "missing numbers are mapped by the term"
+u2 = nb.VOCAB["VF1-U02"]
+vu = ["achieve", "brain", "clever = smart", "concentrate", "consider", "course", "degree", "experience", "expert", "fail",
+      "guess", "hesitate", "instruction", "make progress", "make sure", "mark"]
+r = nb.score(u2, {"entries": [dict(n=i + 1, term=t, **{f: "filled" for f, _ in nb.FIELDS}) for i, t in enumerate(vu)]})
+assert r["seen"] == 10, ("pupil numbering from 1 is matched by the headword", r)
+print("VF1-U02 renumbered notebook:", r["seen"], "/", r["total"], r["pct"], "%")
 assert nb.ranges([1, 2, 3, 5, 7, 8]) == "1–3, 5, 7–8"
 assert nb.unit_code("VF2", "VF2-U14") == "VF2-U14" and nb.unit_code("RI2", "UNIT 7") == "RI2-U07"
 

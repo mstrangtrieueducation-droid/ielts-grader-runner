@@ -40,6 +40,7 @@ MODEL = "claude-haiku-5-5"
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
+VERSION = 2              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 40        # the status system normally marks the cell first; after this we write the status line ourselves
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -73,7 +74,7 @@ Việc cần làm:
 1. pages: với MỖI ảnh bài làm (không tính ảnh mẫu), theo thứ tự 1, 2, 3…: kind = handwritten (chữ viết tay trên sổ/giấy),
    printed_or_screen (bản in, ảnh chụp màn hình/web, chữ đánh máy), not_a_notebook (ảnh khác); readable = yes / partly / no.
 2. entries: mỗi mục từ em ĐÃ VIẾT trong sổ, một dòng: n = số thứ tự em ghi (nếu em không ghi số, lấy số của từ tương ứng
-   trong danh sách trên), term = từ/cụm từ em viết (chép lại ngắn gọn). Với từng cột type, ipa, vi, en, example:
+   trong danh sách trên; nhiều em tự đánh số lại từ 1 — vẫn ghi số em viết), term = từ/cụm từ tiếng Anh em viết (chép nguyên văn). Với từng cột type, ipa, vi, en, example:
    filled = có viết nội dung; empty = để trống; unclear = không nhìn rõ (ảnh mờ, bị cắt, che khuất).
    Ví dụ dài xuống dòng vẫn là filled. KHÔNG liệt kê mục em không viết. Không đoán: không chắc thì unclear.
 3. otherTerms = số mục em viết mà KHÔNG có trong danh sách trên (từ của bài khác).
@@ -92,9 +93,22 @@ def core(t):
     return re.sub(r"\s+", " ", re.sub(r"\(.*?\)|[^a-z ]", " ", bare(t))).strip()
 
 
-def sim(a, b):
-    a, b = core(a), core(b)
-    return difflib.SequenceMatcher(None, a, b).ratio() if a and b else 0.0
+def sim(listed, written):
+    """How well a written headword matches a listed entry ('achieve' ↔ 'achieve · achievement', 'clever = smart' ↔ 'clever ~ smart')."""
+    w = core(written)
+    if not w:
+        return 0.0
+    best = 0.0
+    for alt in re.split(r"~|·|=|><|/|,|;", bare(listed)):
+        a = core(alt)
+        if not a:
+            continue
+        if a == w or a.startswith(w + " ") or w.startswith(a + " "):
+            return 1.0
+        if a.split(" ")[0] == w.split(" ")[0] and len(w.split(" ")[0]) > 2:
+            best = max(best, 0.85)
+        best = max(best, difflib.SequenceMatcher(None, a, w).ratio())
+    return best
 
 
 def ranges(nums):
@@ -141,12 +155,15 @@ def score(unit, res):
     want = {e["n"]: e for e in unit["entries"]}
     seen = {}
     for e in res.get("entries", []):
-        n = e.get("n")
-        if n not in want:   # number missing/wrong: map by the term if it clearly matches one word of the unit
-            best = max(want.values(), key=lambda w: sim(w["term"], e.get("term")))
-            if sim(best["term"], e.get("term")) < 0.6:
-                continue
+        # the headword decides which listed word this is (pupils often number from 1); the number only breaks ties
+        best = max(want.values(), key=lambda w: (sim(w["term"], e.get("term")), w["n"] == e.get("n")))
+        bs = sim(best["term"], e.get("term"))
+        if bs >= 0.75:
             n = best["n"]
+        elif e.get("n") in want and bs >= 0.4 and sim(want[e["n"]]["term"], e.get("term")) >= 0.4:
+            n = e["n"]
+        else:
+            continue
         old = seen.get(n)
         if old is None or sum(old[f] != "empty" for f, _ in FIELDS) < sum(e[f] != "empty" for f, _ in FIELDS):
             seen[n] = e
@@ -154,9 +171,9 @@ def score(unit, res):
     empty = {f: [n for n, e in seen.items() if e[f] == "empty"] for f, _ in FIELDS}
     pts = sum(1 + sum(e[f] != "empty" for f, _ in FIELDS) for e in seen.values())
     pct = round(100 * pts / (6 * len(want))) if want else 0
-    termok = sum(1 for n, e in seen.items() if sim(want[n]["term"], e.get("term")) >= 0.45
-                 or core(e.get("term")).split(" ")[:1] == core(want[n]["term"]).split(" ")[:1])
-    return {"pct": pct, "missing": missing, "empty": empty, "seen": len(seen), "total": len(want), "termOk": termok}
+    termok = len(seen)
+    return {"pct": pct, "missing": missing, "empty": empty, "seen": len(seen), "total": len(want), "termOk": termok,
+            "written": len(res.get("entries", []))}
 
 
 class FighterNotebooks:
@@ -337,14 +354,14 @@ class FighterNotebooks:
             out["kind"] = "printed"
         elif reused and len(reused) * 2 >= len(imgs):
             out.update(kind="reused", reusedFrom=reused[0])
-        elif sc["seen"] >= 5 and res.get("otherTerms", 0) >= 5 and sc["termOk"] * 10 < sc["seen"] * 3:
+        elif sc["written"] >= 8 and res.get("otherTerms", 0) >= 8 and sc["seen"] * 10 < sc["written"] * 3:
             out["kind"] = "wrong_unit"
         elif pg and all(p["readable"] == "no" for p in pg):
             out["kind"] = "unreadable"
         mc = [m for m in res.get("meaningCheck", []) if m["match"] != "unclear"]
         out["meaningOff"] = sum(m["match"] == "no" for m in mc) >= 4
         secs = self.video_seconds(s["video"]) if s.get("video") else "none"
-        need = max(20, 2 * sc["total"])
+        need = max(20, round(1.2 * sc["total"]))
         out["video"] = ("none" if secs == "none" else "short" if isinstance(secs, int) and secs < need else "ok")
         out["videoSecs"], out["videoNeed"] = (secs if isinstance(secs, int) else None), need
         return out
@@ -411,6 +428,10 @@ class FighterNotebooks:
     def run(self):
         self.scan()
         subs = self.st["subs"]
+        for s in subs.values():
+            if s["status"] == "published" and s.get("ver", 1) < VERSION:
+                s.update(status="new", tries=0, regrade=True)
+                self.tick("regrade_new_rules")
         todo = []
         for sid, s in subs.items():
             if s["status"] in ("published", "skipped", "not_in_roster"):
@@ -465,7 +486,7 @@ class FighterNotebooks:
                 s.update(status="skipped" if w == "teacher_comment" else "graded", hold=w)
                 self.tick(w)
                 continue
-            s.update(status="published", published=text, ok=ok, publishedAt=now().isoformat())
+            s.update(status="published", published=text, ok=ok, publishedAt=now().isoformat(), ver=VERSION)
             for hx in res.get("hashes", []):
                 self.st["hashes"][hx] = {"sid": sid, "student": bare(s["student"]), "code": s["code"]}
             self.tick("published")
