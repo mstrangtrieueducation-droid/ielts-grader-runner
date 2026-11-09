@@ -1,12 +1,12 @@
 name: Grade Writing (Claude)
-run-name: Writing ${{ inputs.mode || 'cycle' }}
+run-name: Writing ${{ inputs.mode || 'loop' }}
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: cycle = grade new work · publish = only write approved results · audit = count only · fetch = download Drive files (IDs in approve) for a trial · shadow = regrade graded notebooks with a cheaper model (approve = model name)
+        description: loop = keep grading every 25 min for ~5 h then hand over to the next loop · cycle = grade new work once · publish = only write approved results · audit = count only · fetch = download Drive files (IDs in approve) for a trial · shadow = regrade graded notebooks with a cheaper model (approve = model name)
         type: choice
-        options: [cycle, publish, audit, fetch, shadow, scan]
+        options: [loop, cycle, publish, audit, fetch, shadow, scan]
         default: cycle
       approve:
         description: "Approve results for the tracker: all, or comma-separated keys (empty = none)"
@@ -20,6 +20,7 @@ on:
     types: [completed]
 permissions:
   contents: write
+  actions: write
 concurrency:
   group: writing-single-writer
   cancel-in-progress: false
@@ -27,9 +28,9 @@ jobs:
   writing:
     if: github.repository == 'mstrangtrieueducation-droid/ielts-grader-runner'
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 350
     env:
-      MODE: ${{ inputs.mode || 'cycle' }}
+      MODE: ${{ inputs.mode || 'loop' }}
       APPROVE: ${{ inputs.approve }}
       RUNTIME_DIR: ${{ github.workspace }}/.runtime/writing
       HAS_KEYS: ${{ secrets.ANTHROPIC_API_KEY != '' && secrets.WRITING_BUNDLE_KEY != '' }}
@@ -64,10 +65,46 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           WRITING_BUNDLE_KEY: ${{ secrets.WRITING_BUNDLE_KEY }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "$MODE" = fetch ]; then python writing/fetch.py; else
+          save_state() {
+            [ -d "$RUNTIME_DIR/state" ] || return 0
+            python writing/vault.py pack "$RUNTIME_DIR/state" "$RUNTIME_DIR/state.enc"
+            tmp=$(mktemp -d); cp "$RUNTIME_DIR/state.enc" "$tmp/"
+            (cd "$tmp" && git init -q -b writing-state && git add state.enc \
+              && git -c user.name=writing-runner -c user.email=writing-runner@users.noreply.github.com commit -qm "state" \
+              && git push -fq "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}" writing-state)
+          }
+          if [ "$MODE" = fetch ]; then python writing/fetch.py
+          elif [ "$MODE" = loop ]; then
+            end=$((SECONDS + 19500))
+            while [ $SECONDS -lt $end ]; do
+              hour=$(TZ=Asia/Ho_Chi_Minh date +%H)
+              if [ "$hour" -ge 7 ] && [ "$hour" -lt 23 ]; then
+                git fetch -q origin main && git checkout -q origin/main -- writing   # pick up new packs / fixes
+                rm -rf "$RUNTIME_DIR/bundle" && python writing/vault.py unpack writing/bundle.enc "$RUNTIME_DIR/bundle"
+                MODE=cycle python writing/run_writing.py || echo "cycle failed; next one in 25 min"
+                save_state
+              fi
+              sleep 1500
+            done
+          else
             [ "$MODE" = shadow ] && export SHADOW_MODEL="$APPROVE"
             python writing/run_writing.py
+          fi
+      - name: Hand over to the next loop
+        if: always() && env.HAS_KEYS == 'true' && (env.MODE == 'loop' || env.MODE == 'cycle')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          api="https://api.github.com/repos/${{ github.repository }}/actions/workflows/grade_writing.yml"
+          others=$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" "$api/runs?per_page=20" \
+            | python3 -c "import json,sys; r=json.load(sys.stdin)['workflow_runs']; print(sum(1 for x in r if x['status'] in ('queued','in_progress','waiting','pending') and x['id'] != ${{ github.run_id }}))")
+          if [ "$others" = "0" ]; then
+            curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" "$api/dispatches" -d '{"ref":"main","inputs":{"mode":"loop"}}'
+            echo "next loop dispatched"
+          else
+            echo "another run is already queued or running ($others)"
           fi
       - name: Save fetched files (encrypted)
         if: env.MODE == 'fetch' && env.HAS_KEYS == 'true'
