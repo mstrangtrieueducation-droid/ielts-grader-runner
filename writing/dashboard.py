@@ -145,7 +145,36 @@ def notebook_record(cls, s, roster_name, mode, pack_sha, ref_sha, receipt=None, 
     return rec
 
 
-def essay_records(cls, s, roster_name, a):
+def essay_source(grid, cls, roster_name, label, sheet, spreadsheet, code, task):
+    """The class backend's view of the newest typed essay (ieltsWritingLatestSource_): receipt id + checksum."""
+    if not grid:
+        return None
+    head = [str(x).strip() for x in grid[0]]
+    if label not in head:
+        return None
+    col = head.index(label)
+    key, ck = student_key(roster_name), student_key(cls)
+    rows = []
+    for r in grid[1:]:
+        r = list(r) + [""] * (len(head) + 1 - len(r))
+        if student_key(r[2]) == ck and student_key(r[1]) == key:
+            t = iso_vn(r[0])
+            if not t:
+                return None
+            rows.append((t, str(r[col])))
+    if not rows:
+        return None
+    t = max(x[0] for x in rows)
+    latest = {sha(x[1]) for x in rows if x[0] == t}
+    if len(latest) != 1:
+        return None
+    ident = {"assignmentCode": code, "className": cls, "sheetName": sheet, "spreadsheetId": spreadsheet,
+             "studentKey": key, "submittedAt": t, "taskNumber": task}
+    return {"submittedAt": t, "receiptId": sha(js_json(ident)), "sourceSha256": latest.pop(), "column": col,
+            "numbered": bool(re.search(rf"Đề\s+{task}(?![0-9])", grid[0][col]))}
+
+
+def essay_records(cls, s, roster_name, a, grid=None, spreadsheet=""):
     """One bài chữa per graded essay, in the parent page's review format."""
     res = s.get("essayResult") or {}
     meta = json.loads((BUNDLE / "packs" / a["essayPack"] / "meta.json").read_text(encoding="utf-8"))
@@ -176,18 +205,23 @@ def essay_records(cls, s, roster_name, a):
         c = e["criteria"]
         band = e.get("_qa", {}).get("band")
         crit = [("TA" if task1 else "TR", "TA_TR"), ("CC", "CC"), ("LR", "LR"), ("GRA", "GRA")]
-        grid = " · ".join(f"{k} {c[x]['band']}" for k, x in crit)
+        bands = " · ".join(f"{k} {c[x]['band']}" for k, x in crit)
         detail = "\n\n".join(f"**{k} {c[x]['band']}** — {c[x]['reason'].strip()}\n**Để lên band cao hơn:** {c[x]['whyNotHigher'].strip()}"
                              for k, x in crit)
         paragraphs = [p.strip() for p in re.split(r"\n\s*\n", e["revisedText"].strip()) if p.strip()]
-        identity = {"assignmentCode": a["code"], "className": cls, "studentKey": student_key(roster_name),
-                    "submittedAt": submitted, "taskNumber": e["de"]}
-        receipt = sha(json.dumps(identity, ensure_ascii=False, separators=(",", ":")))
-        source_sha = sha(original)
+        label = next((lbl for i, lbl in enumerate(sorted(s.get("essays", {}))) if E.de_number(lbl, i) == e["de"]), "")
+        src = essay_source(grid, cls, roster_name, label, a["formTab"], spreadsheet, a["code"], e["de"])
+        if src:
+            receipt, source_sha, submitted = src["receiptId"], src["sourceSha256"], src["submittedAt"]
+        else:
+            identity = {"assignmentCode": a["code"], "className": cls, "studentKey": student_key(roster_name),
+                        "submittedAt": submitted, "taskNumber": e["de"]}
+            receipt = sha(json.dumps(identity, ensure_ascii=False, separators=(",", ":")))
+            source_sha = sha(original)
         rec = {"schemaVersion": 1, "resultId": "claude-" + h(receipt + head_sha, 24),
                "className": cls, "studentName": roster_name, "assignmentCode": a["code"], "taskNumber": e["de"],
                "originalEssay": original, "originalWordCount": e.get("_qa", {}).get("words") or len(original.split()),
-               "overall": e["overall"].strip() + (f"\n\n**Band {band:.1f}** ({grid})" if band is not None else ""),
+               "overall": e["overall"].strip() + (f"\n\n**Band {band:.1f}** ({bands})" if band is not None else ""),
                "learningVerdict": f"Band {band:.1f}" if band is not None else "Đã chữa",
                "submittedAt": submitted,
                "publication": {"state": "published", "status": "published", "publishedAt": published, "autoReturn": True,
@@ -200,10 +234,18 @@ def essay_records(cls, s, roster_name, a):
                "provenance": {"promptSha256": head_sha, "contextSha256": head_sha, "grader": "claude-sonnet-5-5"}}
         raw = json.dumps(rec, ensure_ascii=False, separators=(",", ":"))
         out.append([receipt, student_key(roster_name), cls, a["code"], str(e["de"]), submitted, source_sha, head_sha,
-                    "published", raw, published, sha(raw)])
+                    "published", raw, utc_now(), sha(raw)])
+        if src and src["numbered"]:
+            CONFIG_CANDIDATES.append([cls, a["code"], str(e["de"]), spreadsheet, a["formTab"], "0", "1", "2",
+                                      str(src["column"]), head_sha, head_sha, "TRUE"])
     return out
 
 
+CONFIG_CANDIDATES = []
+ESSAY_CONFIG = "_WRITING_ASSIGNMENTS_V1"
+ESSAY_CONFIG_HEADERS = ['class', 'assignment', 'task', 'source_spreadsheet_id', 'source_sheet_name', 'timestamp_column',
+                        'name_column', 'class_column', 'essay_column', 'criteria_sha256', 'context_sha256', 'enabled']
+ESSAY_VERSION = "v2"
 NB_VERSION = "v2"   # v1 rows (09/11 evening) were bound to the wrong receipt; v2 republishes them once
 
 
@@ -240,7 +282,7 @@ class Dashboard:
         for k, s in subs.items():
             if s.get("status") != "published" or s.get("className") not in self.r.cfg["classes"]:
                 continue
-            if s.get("dashNb") in (NB_VERSION, "no_roster_name") and (s.get("dashEssay") or not s.get("essayResult")):
+            if s.get("dashNb") in (NB_VERSION, "no_roster_name") and (s.get("dashEssay") == ESSAY_VERSION or not s.get("essayResult")):
                 continue
             if s["assignment"] not in assignments or s.get("fallback"):
                 continue
@@ -366,8 +408,8 @@ class Dashboard:
                 s["dashNb"] = NB_VERSION
                 self.r.tick("dash_nb_bound" if files else "dash_nb_unbound")
             tasks = []
-            if s.get("essayResult") and a.get("essayPack") and not s.get("dashEssay"):
-                rows = essay_records(cls, s, name, a)
+            if s.get("essayResult") and a.get("essayPack") and s.get("dashEssay") != ESSAY_VERSION:
+                rows = essay_records(cls, s, name, a, self.form(a["formTab"]), self.r.cfg["formSheet"])
                 fb_rows += rows
                 tasks = sorted({int(r[4]) for r in rows})
             done.append(s)
@@ -377,9 +419,21 @@ class Dashboard:
             self.g.append_rows(sid, NB_STORE, nb_rows)
         if fb_rows:
             self.g.append_rows(sid, FEEDBACK, fb_rows)
+        if CONFIG_CANDIDATES:   # freshness config per class/week/task, only where none exists (never a duplicate)
+            rows = self.table(sid, ESSAY_CONFIG, ESSAY_CONFIG_HEADERS)
+            have = {(r[0], r[1], r[2]) for r in rows[1:] if len(r) > 2}
+            add = []
+            for c in CONFIG_CANDIDATES:
+                if c[0] == cls and (c[0], c[1], c[2]) not in have:
+                    have.add((c[0], c[1], c[2]))
+                    add.append(c)
+            if add:
+                self.g.append_rows(sid, ESSAY_CONFIG, add)
+                rows += add
+            CONFIG_CANDIDATES.clear()
         for s in done:
             if s.get("essayResult"):
-                s["dashEssay"] = now().isoformat()
+                s["dashEssay"] = ESSAY_VERSION
         self.r.tick("dash_notebooks", len(nb_rows))
         self.r.tick("dash_essays", len(fb_rows))
 
