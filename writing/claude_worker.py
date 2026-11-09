@@ -548,14 +548,21 @@ def process(spec, model=DEFAULT_MODEL, max_tokens=24000, thinking=0, repair=1, f
         why = notebook_doubts(read_json(draft))
         if why:
             write_json(side(out, "doubt"), {"at": now_iso(), "reasons": why, "maxSide": meta["maxSide"]})
+            escalated = None
             if spec.get("autoEscalate", True):
                 full = {**spec, "profile": "full", "maxSide": MAX_SIDE, "escalatedFrom": "lite"}
-                r = process(full, model, max_tokens, thinking, repair, force_new, cl=cl)
-                r["recheckReasons"] = why
-                if r.get("state") == "written":
-                    r["state"] = "written_after_full_recheck"
-                return r
-            return {"output": str(out), "state": "needs_full_recheck", "reasons": why}
+                try:
+                    escalated = process(full, model, max_tokens, thinking, repair, force_new, cl=cl)
+                except RuntimeError as e:   # too many pages for one sharp request: keep the readable lite result
+                    if "TOO_LARGE" not in str(e):
+                        raise
+            if escalated is not None:
+                escalated["recheckReasons"] = why
+                if escalated.get("state") == "written":
+                    escalated["state"] = "written_after_full_recheck"
+                return escalated
+            if not spec.get("autoEscalate", True):
+                return {"output": str(out), "state": "needs_full_recheck", "reasons": why}
     # ghi outputPath đúng một lần
     if out.exists():
         return {"output": str(out), "state": "sealed_exists"}

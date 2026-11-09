@@ -70,7 +70,8 @@ assert "Cô đã chấm.\n\n【Lần nộp 01/01/2026】\nĐã ghi nhận vở �
 assert g.cells["C9"].startswith("✅ ĐÃ NỘP\n01/01/2026 12:00\n\n— NHẬN XÉT GV —\nĐã ghi nhận"), "unmarked submission gets its status + result"
 assert next(s for s in st["subs"].values() if s["student"] == "DŨNG")["status"] == "not_in_roster"
 r.counts = {}; r.scan(); assert "new" not in r.counts, "unchanged work is not regraded"
-g.rows.append(ROW("BÌNH", "02/01/2026 09:00:00", "E")); r.scan(); assert r.counts.get("new") == 1, "resubmission is regraded"
+g.rows.append(ROW("BÌNH", "02/01/2026 09:00:00", "E")); r.counts = {}; r.scan()
+assert "new" not in r.counts and r.counts.get("resubmission_not_regraded") == 1, "a resubmission after a result is not regraded"
 # baseline: first sight of an assignment skips work already commented by the old pipeline
 st2 = {"subs": {}, "batches": {}}; g2 = G(); r2 = rw.Runner(g2, cfg, st2); r2.scan()
 assert sorted(s["status"] for s in st2["subs"].values()) == ["new", "new", "not_in_roster", "skipped"]

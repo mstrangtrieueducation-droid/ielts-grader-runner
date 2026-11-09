@@ -317,6 +317,12 @@ class Runner:
                 if old and old.get("status") == "skipped":   # history stays history, even if its file list is re-read
                     old.update(sig=sig, files=files, essays=essays)
                     continue
+                if (old and old.get("sig") != sig and old.get("status") in ("published", "graded", "held")
+                        and not self.cfg.get("rereadFix", {}).get(key)):
+                    # Cô 09/11: once a result is given, a later resubmission is NOT graded again
+                    old["resubmittedAfterResult"] = items[-1]["time"]
+                    self.tick("resubmission_not_regraded")
+                    continue
                 if old and old.get("sig") == sig and not waiting:
                     if essays and not old.get("essays"):
                         old["essays"] = essays
@@ -516,7 +522,10 @@ class Runner:
                 spec, job = self.prepare(k, s, m["step"])
                 cw.ledger({"at": cw.now_iso(), "category": spec["category"], "step": "grade-batch",
                            "model": mdl, "usage": resp["usage"], "usd": c, "vnd": round(c * cw.USD_VND)})
-                r = cw.process(spec, mdl, 24000, 0, 1, cl=cl, raw_override=resp, batch=True)
+                try:
+                    r = cw.process(spec, mdl, 24000, 0, 1, cl=cl, raw_override=resp, batch=True)
+                except Exception as e:   # one bad item never stops the class run
+                    r = {"state": f"error:{type(e).__name__}"}
                 self.finish(k, s, m["step"], r, spec, job)
             del batches[bid]
 
