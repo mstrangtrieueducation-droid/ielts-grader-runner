@@ -34,7 +34,11 @@ SAMPLE = HERE / "notebook-sample.png"
 STATE = Path(os.environ.get("FIGHTER_STATE") or (STATE_DIR / "fighter-notebook.json"))
 FORM = "1l02Y7llw4b6QZtcSgbH2bQ0LHARxa74iLwybVGQ_D68"          # sheet "Chấm bài FIGHTER"
 TABS = {"VOCABULARY FOUNDATION 1": "VF1", "VOCABULARY FOUNDATION 2": "VF2",
-        "READING 1": "RI1", "READING 2 - TỪ VỰNG": "RI2"}
+        "READING 1": "RI1", "READING 2 - TỪ VỰNG": "RI2",
+        "GRAMMAR FOUNDATION": "GF", "ĐOẠN VĂN HỌC THUẬT": "AP"}
+COPY = {"GF": json.loads((HERE / "grammar.json").read_text(encoding="utf-8")),      # vở chép lí thuyết ngữ pháp
+        "AP": json.loads((HERE / "paragraph.json").read_text(encoding="utf-8"))}    # vở chép bài giảng đoạn văn (Buổi 1–15)
+KIND_NAME = {"GF": "vở chép lí thuyết", "AP": "vở chép bài giảng"}
 START = dt.datetime(2026, 11, 8, 0, 0, tzinfo=VN)
 MODEL = "claude-haiku-5-5"
 SIDE = 1568
@@ -45,7 +49,8 @@ GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one 
 STATUS_WAIT_MIN = 40        # the status system normally marks the cell first; after this we write the status line ourselves
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
 PROGRAM_HEAD = {"VF1": r"Vocabulary Foundation 1", "VF2": r"Vocabulary Foundation 2",
-                "RI1": r"READING 1\s*-\s*TỪ VỰNG", "RI2": r"READING 2\s*-\s*TỪ VỰNG"}
+                "RI1": r"READING 1\s*-\s*TỪ VỰNG", "RI2": r"READING 2\s*-\s*TỪ VỰNG",
+                "GF": r"Grammar Foundation", "AP": r"ĐOẠN VĂN HỌC THUẬT"}
 
 S, I = {"type": "string"}, {"type": "integer"}
 CELL = {"type": "string", "enum": ["filled", "empty", "unclear"]}
@@ -85,6 +90,46 @@ Việc cần làm:
    (yes / no / unclear; sai chính tả, diễn đạt khác mà cùng nghĩa vẫn là yes; không thấy mục đó thì bỏ qua).
 
 Trả kết quả DUY NHẤT qua công cụ record."""
+
+
+PAGE = {"type": "object", "additionalProperties": False, "required": ["page", "kind", "readable", "neat"],
+        "properties": {"page": I, "kind": {"type": "string", "enum": ["handwritten", "printed_or_screen", "not_a_notebook"]},
+                       "readable": {"type": "string", "enum": ["yes", "partly", "no"]},
+                       "neat": {"type": "string", "enum": ["neat", "acceptable", "messy"]}}}
+OUTLINE_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["parts"],
+                  "properties": {"parts": {"type": "array", "items": {"type": "object", "additionalProperties": False,
+                                                                       "required": ["name", "starts"],
+                                                                       "properties": {"name": S, "starts": S}}}}}
+COPY_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["pages", "parts", "otherLesson"],
+               "properties": {"pages": {"type": "array", "items": PAGE},
+                              "parts": {"type": "array", "items": {"type": "object", "additionalProperties": False,
+                                                                    "required": ["id", "status"],
+                                                                    "properties": {"id": I, "status": {"type": "string", "enum": ["full", "partly", "missing", "unclear"]}}}},
+                              "otherLesson": {"type": "boolean"}}}
+OUTLINE_PROMPT = """Dưới đây là TÀI LIỆU BÀI GIẢNG mà học sinh phải chép tay vào vở. Hãy chia tài liệu thành các PHẦN CHÍNH (4–12 phần)
+theo đúng thứ tự trong tài liệu, để giáo viên kiểm tra học sinh đã chép đủ chưa. Dùng các đề mục có sẵn (I, II, 1, 2…, Outline,
+Bài mẫu, Từ vựng…); phần nào quá ngắn thì gộp với phần bên cạnh. name = tên phần ngắn gọn (≤ 60 ký tự, giữ ngôn ngữ của tài liệu);
+starts = vài chữ đầu của phần đó. Trả kết quả qua công cụ record.
+
+TÀI LIỆU:
+{doc}"""
+COPY_PROMPT = """Bạn đọc ảnh VỞ CHÉP BÀI GIẢNG viết tay của một học sinh. Bạn KHÔNG chấm, KHÔNG nhận xét; chỉ ghi lại đúng những gì nhìn thấy.
+Học sinh phải chép tay đầy đủ tài liệu bài giảng ({title}) dưới đây vào vở. Tài liệu gồm các phần:
+{parts}
+
+1. pages: với MỖI ảnh, theo thứ tự 1, 2, 3…: kind = handwritten / printed_or_screen (bản in, ảnh chụp màn hình, chữ đánh máy,
+   dán tài liệu in) / not_a_notebook; readable = yes / partly / no; neat = neat / acceptable / messy (chữ quá cẩu thả, nguệch ngoạc,
+   gạch xoá bôi bẩn nhiều, lộn xộn — chỉ chọn messy khi thật sự rõ ràng; ảnh mờ do chụp KHÔNG phải messy).
+2. parts: với MỖI phần ở trên (id theo số thứ tự): full = đã chép đủ nội dung chính của phần đó; partly = chỉ chép một phần
+   (thiếu rõ ràng nhiều ý/ví dụ); missing = không thấy phần đó trong vở; unclear = không nhìn rõ để kết luận.
+   Đối chiếu với nội dung tài liệu bên dưới; không đòi chép giống từng chữ, không bắt lỗi chính tả.
+3. otherLesson = true nếu vở chủ yếu là nội dung của một bài khác (không phải tài liệu này).
+
+TÀI LIỆU BÀI GIẢNG:
+{doc}
+
+Trả kết quả DUY NHẤT qua công cụ record."""
+STATUS_RANK = {"missing": 0, "partly": 1, "unclear": 2, "full": 3}
 
 
 def bare(s):
@@ -127,8 +172,27 @@ def ranges(nums):
 
 
 def unit_code(prog, raw):
-    m = re.search(r"(\d+)\s*$", str(raw or "").strip()) or re.search(r"U\s*0*(\d+)", str(raw or ""), re.I)
+    raw = str(raw or "").strip()
+    if prog == "GF":   # GF1-U04.1-LT, "Unit 4.1"
+        m = re.search(r"U(?:nit)?\s*0*(\d+)(?:\.(\d))?", raw, re.I) or re.search(r"(\d+)(?:\.(\d))?", raw)
+        return f"GF1-U{int(m.group(1)):02d}{'.' + m.group(2) if m.group(2) else ''}-LT" if m else None
+    if prog == "AP":   # AP-B07, "Buổi 05"
+        m = re.search(r"(\d+)", raw)
+        return f"AP-B{int(m.group(1)):02d}" if m else None
+    m = re.search(r"(\d+)\s*$", raw) or re.search(r"U\s*0*(\d+)", raw, re.I)
     return f"{prog}-U{int(m.group(1)):02d}" if m else None
+
+
+def unit_label(code):
+    """Text used in the tracker header and in the comment: 'Unit 14', 'Unit 4.1', 'Buổi 7'."""
+    if code.startswith("AP-B"):
+        return "Buổi", str(int(code[4:]))
+    m = re.search(r"U0*(\d+(?:\.\d)?)", code)
+    return "Unit", m.group(1)
+
+
+def known(prog, code):
+    return code in (COPY[prog] if prog in COPY else VOCAB)
 
 
 def dhash(jpeg: bytes) -> str:
@@ -205,16 +269,20 @@ class FighterNotebooks:
             if not table:
                 continue
             hdr = [unicodedata.normalize("NFC", str(x or "")).upper() for x in table[0]]
-            vid = next((i for i, x in enumerate(hdr) if "VIDEO" in x), None)
-            merged = next((i for i, x in enumerate(hdr) if "PDF ĐÃ GHÉP" in x), None)
-            status = next((i for i, x in enumerate(hdr) if "TRẠNG THÁI GHÉP" in x), None)
-            photos = [i for i, x in enumerate(hdr) if i > 3 and i not in (vid, merged, status) and ("ẢNH" in x or "FILE" in x)]
+            col = lambda *keys: next((i for i, x in enumerate(hdr) if any(k in x for k in keys)), None)
+            vid, merged, status = col("VIDEO"), col("PDF ĐÃ GHÉP"), col("TRẠNG THÁI GHÉP")
+            c_code, c_name, c_cls = col("MÃ BÀI"), col("HỌ VÀ TÊN", "HỌ TÊN"), col("LỚP")
+            if None in (c_code, c_name, c_cls):
+                self.tick("form_columns_unknown")
+                continue
+            photos = [i for i, x in enumerate(hdr) if i not in (0, c_code, c_name, c_cls, vid, merged, status)
+                      and any(k in x for k in ("ẢNH", "FILE", "PDF"))]
             for k, row in enumerate(table[1:], 2):
                 t = parse_vn_time(row[0] if row else "")
-                if not t or t < START or len(row) < 4:
+                if not t or t < START or len(row) <= max(c_code, c_name, c_cls):
                     continue
-                code = unit_code(prog, row[1])
-                if code not in VOCAB:
+                code = unit_code(prog, row[c_code])
+                if not code or not known(prog, code):
                     self.tick("unit_without_word_list")
                     continue
                 files = []
@@ -229,8 +297,8 @@ class FighterNotebooks:
                 if mid and "HOÀN TẤT" in st_txt and (("PDF GỐC" in st_txt) or (m and int(m.group(1)) >= len(files))):
                     files = [mid]
                 video = file_id(row[vid]) if vid is not None and vid < len(row) else None
-                rows.append({"tab": tab, "prog": prog, "row": k, "time": t, "code": code, "rawName": row[2].strip(),
-                             "cls": self.r.class_of(row[3]), "files": files, "video": video})
+                rows.append({"tab": tab, "prog": prog, "row": k, "time": t, "code": code, "rawName": row[c_name].strip(),
+                             "cls": self.r.class_of(row[c_cls]), "files": files, "video": video})
         # one submission = rows of the same student / unit sent within GROUP_MINUTES of each other
         rows.sort(key=lambda x: x["time"])
         groups = []
@@ -275,14 +343,15 @@ class FighterNotebooks:
         start = next((i for i, v in enumerate(r1) if "BÀI TẬP VỀ NHÀ" in unicodedata.normalize("NFC", str(v)).upper()), None)
         if start is None:
             return None, None, "no_homework_area"
-        unit = int(s["code"].split("U")[-1])
+        label, unit = unit_label(s["code"])
+        unit_re = rf"\b{label}\s*0*{re.escape(unit)}(?![.\d]*\d)"
         hits, group = [], ""
         for i in range(start, max(len(r2), len(r3))):
             v2 = str(r2[i]) if i < len(r2) else ""
             if v2.strip():
                 group = v2
             v3 = str(r3[i]) if i < len(r3) else ""
-            if (re.search(PROGRAM_HEAD[s["prog"]], group, re.I) and re.search(rf"\bUnit\s*0*{unit}\b", group, re.I)
+            if (re.search(PROGRAM_HEAD[s["prog"]], group, re.I) and re.search(unit_re, group, re.I)
                     and re.match(r"\s*Hạn", v3, re.I)):
                 hits.append(i)
         if len(hits) != 1:
@@ -309,6 +378,58 @@ class FighterNotebooks:
                 break
         return out[:MAX_PAGES]
 
+    def reused_pages(self, sid, s, hashes):
+        reused = []
+        for hx in hashes:
+            for other, owner in self.st["hashes"].items():
+                if owner["sid"] != sid and (owner["student"] != bare(s["student"]) or owner["code"] != s["code"]) and ham(hx, other) <= 60:
+                    reused.append(owner)
+                    break
+        return reused
+
+    def grade_copy(self, sid, s):
+        les = self.lesson(COPY[s["prog"]][s["code"]]["doc"])
+        imgs = self.pages(s)
+        if not imgs:
+            return {"kind": "no_photos", "type": "copy"}
+        hashes = [dhash(b) for b in imgs]
+        reused = self.reused_pages(sid, s, hashes)
+        parts = "\n".join(f"{i}. {p['name']} (bắt đầu: {p['starts'][:60]})" for i, p in enumerate(les["parts"], 1))
+        content = [{"type": "text", "text": f"Vở của học sinh ({len(imgs)} ảnh):"}] + [img_block(b) for b in imgs]
+        content.append({"type": "text", "text": COPY_PROMPT.format(title=COPY[s["prog"]][s["code"]].get("title") or s["code"],
+                                                                   parts=parts, doc=les["text"])})
+        cat = f"{s['cls']} · {KIND_NAME[s['prog']].capitalize()} · {s['code']}"
+        with cf.ThreadPoolExecutor(2) as ex:
+            a, b = ex.map(lambda _: self.call(content, COPY_SCHEMA, cat), range(2))
+        # merged in the pupil's favour: a part is missing only if both reads say so
+        best = {}
+        for x in a.get("parts", []) + b.get("parts", []):
+            if 1 <= x["id"] <= len(les["parts"]) and STATUS_RANK[x["status"]] >= STATUS_RANK.get(best.get(x["id"]), -1):
+                best[x["id"]] = x["status"]
+        n = len(les["parts"])
+        status = {i: best.get(i, "missing") for i in range(1, n + 1)}
+        pct = round(100 * sum({"full": 1, "unclear": 1, "partly": 0.5}.get(v, 0) for v in status.values()) / n) if n else 0
+        pb = {p["page"]: p for p in b.get("pages", [])}
+        pg = []
+        for p in a.get("pages", []):
+            q = pb.get(p["page"], p)
+            pg.append({"kind": p["kind"] if p["kind"] == q["kind"] else "handwritten",
+                       "readable": p["readable"] if p["readable"] == q["readable"] else "partly",
+                       "messy": p.get("neat") == q.get("neat") == "messy"})
+        out = {"type": "copy", "kind": "scored", "pct": pct, "pages": len(imgs), "hashes": hashes,
+               "missing": [les["parts"][i - 1]["name"] for i, v in status.items() if v == "missing"],
+               "partly": [les["parts"][i - 1]["name"] for i, v in status.items() if v == "partly"], "total": n,
+               "messy": bool(pg) and sum(p["messy"] for p in pg) * 2 >= len(pg)}
+        if pg and sum(p["kind"] == "printed_or_screen" for p in pg) * 2 > len(pg):
+            out["kind"] = "printed"
+        elif reused and len(reused) * 2 >= len(imgs):
+            out.update(kind="reused", reusedFrom=reused[0])
+        elif a.get("otherLesson") and b.get("otherLesson") and pct < 50:
+            out["kind"] = "wrong_unit"
+        elif pg and all(p["readable"] == "no" for p in pg):
+            out["kind"] = "unreadable"
+        return out
+
     def video_seconds(self, fid):
         try:
             m = self.g._req(f"https://www.googleapis.com/drive/v3/files/{fid}?supportsAllDrives=true"
@@ -318,18 +439,45 @@ class FighterNotebooks:
         d = (m.get("videoMediaMetadata") or {}).get("durationMillis")
         return round(int(d) / 1000) if d else None
 
+    def call(self, content, schema, category, max_tokens=6000):
+        r = self.cl.messages.create(model=MODEL, max_tokens=max_tokens, thinking={"type": "disabled"},
+                                    tools=[{"name": "record", "description": "Ghi lại kết quả", "input_schema": schema}],
+                                    tool_choice={"type": "tool", "name": "record"},
+                                    messages=[{"role": "user", "content": content}])
+        u = r.usage.model_dump()
+        c = cw.cost_usd(MODEL, u)
+        cw.ledger({"at": cw.now_iso(), "category": category, "step": "fighter-notebook", "model": MODEL,
+                   "usage": u, "usd": c, "vnd": round(c * cw.USD_VND)})
+        self.r.tick("fnb_cost_vnd", round(c * cw.USD_VND))
+        return json.loads(json.dumps(next(b.input for b in r.content if b.type == "tool_use")))
+
+    def lesson(self, doc):
+        """Lecture text (Drive export, cached with the encrypted state) and its fixed list of parts (one Haiku call per lecture)."""
+        docs = self.st.setdefault("docs", {})
+        if doc not in docs:
+            text = None
+            for mime in ("text/markdown", "text/plain"):
+                try:
+                    text = self.g._req(f"https://www.googleapis.com/drive/v3/files/{doc}/export?mimeType={mime}", raw=True).decode("utf-8", "replace")
+                    break
+                except Exception:
+                    continue
+            if not text:
+                raise RuntimeError("LECTURE_NOT_READABLE")
+            text = re.sub(r"\\([*\[\]_#])", r"\1", text)[:14000]
+            parts = self.call([{"type": "text", "text": OUTLINE_PROMPT.format(doc=text)}], OUTLINE_SCHEMA, "Fighter · Chia phần bài giảng", 2000)["parts"]
+            docs[doc] = {"text": text, "parts": parts[:12]}
+        return docs[doc]
+
     def grade(self, sid, s):
+        if s["prog"] in COPY:
+            return self.grade_copy(sid, s)
         unit = VOCAB[s["code"]]
         imgs = self.pages(s)
         if not imgs:
             return {"kind": "no_photos"}
         hashes = [dhash(b) for b in imgs]
-        reused = []
-        for hx in hashes:
-            for other, owner in self.st["hashes"].items():
-                if owner["sid"] != sid and (owner["student"] != bare(s["student"]) or owner["code"] != s["code"]) and ham(hx, other) <= 60:   # 1024-bit hash: different pages differ by ~350, a re-saved photo by <50
-                    reused.append(owner)
-                    break
+        reused = self.reused_pages(sid, s, hashes)   # 1024-bit hash: different pages differ by ~350, a re-saved photo by <50
         ents = unit["entries"]
         step = max(1, len(ents) // 5)
         spot = [e["n"] for e in ents[::step]][:5]
@@ -388,18 +536,35 @@ class FighterNotebooks:
 
     # ------------------------------------------------------------ feedback text
     def comment(self, s, res, count_incomplete):
-        unit = s["code"].split("-U")[-1].lstrip("0")
+        label, unit = unit_label(s["code"])
+        what = "SỔ TỪ VỰNG" if s["prog"] not in COPY else KIND_NAME[s["prog"]].upper()
+        book = "sổ" if s["prog"] not in COPY else "vở"
         if res["kind"] == "no_photos":
-            return "⛔ CHƯA GHI NHẬN SỔ TỪ VỰNG\n• Không mở được ảnh/tệp sổ con gửi.\n→ Con chụp rõ, đủ các trang sổ và nộp lại nhé.", False
+            return f"⛔ CHƯA GHI NHẬN {what}\n• Không mở được ảnh/tệp {book} con gửi.\n→ Con chụp rõ, đủ các trang {book} và nộp lại nhé.", False
         if res["kind"] == "unreadable":
-            return ("⛔ CHƯA GHI NHẬN SỔ TỪ VỰNG\n• Ảnh sổ quá mờ/bị cắt nên không đọc được.\n"
+            return (f"⛔ CHƯA GHI NHẬN {what}\n• Ảnh {book} quá mờ/bị cắt nên không đọc được.\n"
                     "→ Con chụp lại rõ nét, đủ sáng, đủ các trang và nộp lại nhé."), False
         if res["kind"] in ("printed", "reused", "wrong_unit"):
-            why = {"printed": "Sổ nộp là bản in/ảnh chụp màn hình, không phải chép tay.",
-                   "reused": "Ảnh sổ trùng với bài đã nộp trước đó"
-                             + (f" (Unit {res['reusedFrom']['code'].split('-U')[-1].lstrip('0')})" if res.get("reusedFrom") else "") + ".",
-                   "wrong_unit": f"Các từ trong sổ không phải từ của Unit {unit}."}[res["kind"]]
-            return f"⛔ KHÔNG ĐƯỢC GHI NHẬN\n• {why}\n→ Con chép tay đúng Unit {unit} vào sổ và nộp lại.", False
+            prev = res.get("reusedFrom", {}).get("code")
+            why = {"printed": f"{book.capitalize()} nộp là bản in/ảnh chụp màn hình, không phải chép tay.",
+                   "reused": f"Ảnh {book} trùng với bài đã nộp trước đó" + (f" ({' '.join(unit_label(prev))})" if prev else "") + ".",
+                   "wrong_unit": (f"Các từ trong sổ không phải từ của {label} {unit}." if s["prog"] not in COPY
+                                  else f"Nội dung trong vở không phải bài giảng của {label} {unit}.")}[res["kind"]]
+            return f"⛔ KHÔNG ĐƯỢC GHI NHẬN\n• {why}\n→ Con chép tay đúng {label} {unit} vào {book} và nộp lại.", False
+        if res.get("type") == "copy":
+            lines = [f"Mức hoàn thành {KIND_NAME[s['prog']]}: {res['pct']}% "
+                     f"({res['total'] - len(res['missing']) - len(res['partly'])}/{res['total']} phần chép đủ)."]
+            if res["missing"]:
+                lines.append("• Chưa chép: " + "; ".join(res["missing"]) + ".")
+            if res["partly"]:
+                lines.append("• Chép thiếu nội dung: " + "; ".join(res["partly"]) + ".")
+            if res.get("messy"):
+                lines.append("• Chữ viết cẩu thả, bẩn, khó đọc. Con viết lại cẩn thận, rõ ràng, sạch sẽ.")
+            ok = res["pct"] >= PASS and not res.get("messy")
+            if not ok:
+                lines.append("→ Con chép bổ sung đầy đủ các phần còn thiếu, chụp nộp lại trước buổi học tới." if res["pct"] < PASS
+                             else "→ Con chép lại cẩn thận và nộp lại trước buổi học tới.")
+            return "\n".join(lines), ok
         lines = [f"Mức hoàn thành sổ từ vựng: {res['pct']}% ({res['total'] - len(res['missing'])}/{res['total']} từ"
                  + (", đủ 7 cột)." if res["pct"] >= 100 else ").")]
         if res["missing"]:
@@ -457,7 +622,7 @@ class FighterNotebooks:
                 self.tick("regrade_new_rules")
         todo = []
         for sid, s in subs.items():
-            if s["status"] in ("published", "skipped", "not_in_roster"):
+            if s["status"] in ("published", "skipped", "not_in_roster", "held_error"):
                 continue
             if s["status"] == "graded":
                 continue
@@ -486,20 +651,22 @@ class FighterNotebooks:
                     s["tries"] = s.get("tries", 0) + 1
                     s["error"] = type(e).__name__
                     self.tick("error_" + type(e).__name__)
-                    if s["tries"] >= 3:
-                        s["result"] = {"kind": "no_photos"}
-                        s["status"] = "graded"
+                    if s["tries"] >= 6:   # our side failing (Drive access, API): never blame the pupil, keep it for a fix
+                        s["status"] = "held_error"
         for sid, s in subs.items():   # publish (graded earlier or just now)
             if s["status"] != "graded":
                 continue
             res = s["result"]
             key = (s["cls"], bare(norm(s["student"])))
             earlier = sorted({x["code"] for x in subs.values() if (x["cls"], bare(norm(x["student"]))) == key
-                              and x["status"] == "published" and not x.get("ok") and x["code"] != s["code"]})
+                              and x["status"] == "published" and not x.get("ok") and x["code"] != s["code"]
+                              and (x["prog"] in COPY) == (s["prog"] in COPY) and (x["prog"] == s["prog"] or s["prog"] not in COPY)})
             text, ok = self.comment(s, res, len(earlier))
             if not ok and len(earlier) >= 2:
-                units = ", ".join(c.split("-U")[-1].lstrip("0") for c in earlier + [s["code"]])
-                text += f"\n• Đây là lần thứ {len(earlier) + 1} con nộp sổ chưa đầy đủ (Unit {units})."
+                label = unit_label(s["code"])[0]
+                units = ", ".join(unit_label(c)[1] for c in earlier + [s["code"]])
+                book = "sổ từ vựng" if s["prog"] not in COPY else KIND_NAME[s["prog"]]
+                text += f"\n• Đây là lần thứ {len(earlier) + 1} con nộp {book} chưa đầy đủ ({label} {units})."
             dl = dt.datetime.fromisoformat(s["deadline"]) if s.get("deadline") else None
             w = self.write(s, s["cell"], dl, text)
             if w == "wait":

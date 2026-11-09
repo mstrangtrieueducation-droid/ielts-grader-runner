@@ -47,7 +47,7 @@ a1, dl, why = f.cell_for({"cls": "FIGHTER 5", "student": "LƯU GIA BẢO (Legacy
 assert a1 == "BN9", a1
 assert f.cell_for({"cls": "FIGHTER 5", "student": "X Y", "code": "VF2-U14", "prog": "VF2"})[2] == "not_in_roster"
 
-s = {"code": "VF2-U14"}
+s = {"code": "VF2-U14", "prog": "VF2"}
 res = dict(nb.score(u, part), kind="scored", video="ok", videoSecs=60, meaningOff=False)
 txt, ok = f.comment(s, res, 0); assert not ok and "Thiếu 4 từ" in txt and "Nghĩa tiếng Anh" in txt, txt
 print(txt); print("---")
@@ -55,4 +55,18 @@ txt, ok = f.comment(s, dict(nb.score(u, full), kind="scored", video="ok", videoS
 txt, ok = f.comment(s, dict(nb.score(u, full), kind="scored", video="ok", videoSecs=60, meaningOff=False, messy=True), 0)
 assert not ok and "cẩu thả" in txt, txt
 print(f.comment(s, {"kind": "reused", "reusedFrom": {"code": "VF2-U13"}}, 0)[0])
+assert nb.unit_code("GF", "GF1-U04.1-LT") == "GF1-U04.1-LT" and nb.unit_code("GF", "Unit 10") == "GF1-U10-LT"
+assert nb.unit_code("AP", "AP-B07") == "AP-B07" and nb.unit_code("AP", "Buổi 05") == "AP-B05"
+assert nb.unit_label("GF1-U04.1-LT") == ("Unit", "4.1") and nb.unit_label("AP-B07") == ("Buổi", "7")
+r2[66] = "Grammar Foundation \nNgữ pháp nền tảng\nUnit 4.1"; r3[66] = "* làm lại trên web"; r3[67] = "Hạn: Thứ 2, 05/10/2026"
+r2[68] = "Grammar Foundation \nNgữ pháp nền tảng\nUnit 4"; r3[68] = "Hạn: Thứ 2, 28/09/2026"
+r2[69] = "ĐOẠN VĂN HỌC THUẬT\nBuổi 07"; r3[69] = "Hạn:\nThứ tư, 07/10/2026"
+assert f.cell_for({"cls": "FIGHTER 5", "student": "Nguyễn Kim Ngân", "code": "GF1-U04.1-LT", "prog": "GF"})[0] == "BP7"
+assert f.cell_for({"cls": "FIGHTER 5", "student": "Nguyễn Kim Ngân", "code": "GF1-U04-LT", "prog": "GF"})[0] == "BQ7", "Unit 4 ≠ Unit 4.1"
+assert f.cell_for({"cls": "FIGHTER 5", "student": "Nguyễn Kim Ngân", "code": "AP-B07", "prog": "AP"})[0] == "BR7"
+g = {"code": "GF1-U10-LT", "prog": "GF"}
+txt, ok = f.comment(g, {"type": "copy", "kind": "scored", "pct": 70, "total": 5, "missing": ["IV. Countable – Uncountable Nouns"],
+                        "partly": ["VI. Articles"], "messy": True}, 0)
+assert not ok and "Chưa chép: IV." in txt and "cẩu thả" in txt; print(txt); print("---")
+print(f.comment({"code": "AP-B07", "prog": "AP"}, {"kind": "printed"}, 0)[0])
 print("fighter notebook offline checks: OK")
