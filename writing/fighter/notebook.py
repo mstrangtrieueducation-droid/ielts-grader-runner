@@ -630,6 +630,8 @@ class FighterNotebooks:
             if why:
                 s.update(status="not_in_roster" if why == "not_in_roster" else "new", hold=why)
                 self.tick(why)
+                if why.startswith("tracker_column"):   # counts only (no names): which class / lesson has no column
+                    self.tick(f"{why}[{s['cls']}|{s['code']}]")
                 continue
             # a later notebook of the same unit replaces an earlier one only if that one was incomplete
             done = [x for x in subs.values() if x is not s and x["cls"] == s["cls"] and bare(norm(x["student"])) == bare(norm(s["student"]))
@@ -650,7 +652,7 @@ class FighterNotebooks:
                 except Exception as e:
                     s["tries"] = s.get("tries", 0) + 1
                     s["error"] = type(e).__name__
-                    self.tick("error_" + type(e).__name__)
+                    self.tick("error_" + type(e).__name__ + ("_" + str(e)[:40] if isinstance(e, RuntimeError) else ""))
                     if s["tries"] >= 6:   # our side failing (Drive access, API): never blame the pupil, keep it for a fix
                         s["status"] = "held_error"
         for sid, s in subs.items():   # publish (graded earlier or just now)
