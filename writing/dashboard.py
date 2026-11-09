@@ -58,7 +58,8 @@ def iso_vn(text):
 
 
 def utc_now():
-    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    """Publication time as the class backend compares it: plain string order, so always Vietnam time like earlier rows."""
+    return now().isoformat(timespec="microseconds")
 
 
 def js_json(d):
@@ -245,7 +246,7 @@ CONFIG_CANDIDATES = []
 ESSAY_CONFIG = "_WRITING_ASSIGNMENTS_V1"
 ESSAY_CONFIG_HEADERS = ['class', 'assignment', 'task', 'source_spreadsheet_id', 'source_sheet_name', 'timestamp_column',
                         'name_column', 'class_column', 'essay_column', 'criteria_sha256', 'context_sha256', 'enabled']
-ESSAY_VERSION = "v2"
+ESSAY_VERSION = "v3"   # v2 rows lost to v1 on publication-time order
 NB_VERSION = "v2"   # v1 rows (09/11 evening) were bound to the wrong receipt; v2 republishes them once
 
 
@@ -297,6 +298,21 @@ class Dashboard:
             except Exception as e:  # one class never blocks the others
                 self.r.tick("dash_class_failed")
                 print("dashboard:", cls, type(e).__name__, str(e)[:80])
+        # keep the lesson version of every published week current (a later edit of the lesson doc must not hide results)
+        weeks = {(v["className"], v["assignment"]) for v in subs.values()
+                 if v.get("dashNb") == NB_VERSION and v.get("className") in self.r.cfg["classes"] and v["assignment"] in assignments}
+        if weeks and not self.known_versions:
+            self.scan_configs()
+        for cls, code in sorted(weeks):
+            try:
+                a = assignments[code]
+                n = int(re.search(r"W0*(\d+)$", code).group(1))
+                pack = BUNDLE / "packs" / a["pack"]
+                pack_sha = sha((pack / "head.md").read_bytes())
+                ref_sha = sha((pack / "meta.json").read_bytes()) if (pack / "meta.json").exists() else sha(code + pack_sha)
+                self.config_for(cls, self.r.cfg["classes"][cls], a, n, pack_sha, ref_sha)
+            except Exception:
+                self.r.tick("dash_config_check_failed")
         save_json(MANIFEST, manifest)
 
     def form(self, tab):
@@ -317,13 +333,23 @@ class Dashboard:
     def source_versions(self, code):
         """The lesson document version the class backend checks: reuse a week's existing config from any class,
         else the lesson doc from the bundle (its current modifiedTime)."""
-        if code in self.known_versions:
-            return self.known_versions[code]
         doc = self.r.cfg.get("lessonDocs", {}).get(code)
         m = self.file_meta(doc) if doc else None
-        v = [{"fileId": doc, "modifiedTime": m["modifiedTime"]}] if m and m["modifiedTime"] else None
-        self.known_versions[code] = v
-        return v
+        if m and m["modifiedTime"]:
+            return [{"fileId": doc, "modifiedTime": m["modifiedTime"]}]
+        return self.refresh_versions(self.known_versions.get(code))
+
+    def refresh_versions(self, versions):
+        """Same lesson files, their current modifiedTime (the backend hides results when a lesson doc was edited later)."""
+        if not versions:
+            return None
+        out = []
+        for v in versions:
+            m = self.file_meta(v.get("fileId", ""))
+            if not m or not m["modifiedTime"]:
+                return None
+            out.append({"fileId": v["fileId"], "modifiedTime": m["modifiedTime"]})
+        return out
 
     def scan_configs(self):
         """Existing notebook configs of every class: lesson versions per week (shared lessons)."""
@@ -356,11 +382,13 @@ class Dashboard:
             d = json.loads(r[11])
             sv = d.get("sourceVersions") or []
             ours = d.get("claudeRunner") or any(str(x.get("fileId", "")).startswith("claude-pack-") for x in sv)
-            fresh = self.source_versions(a["code"]) if ours else None
-            if ours and fresh and (fresh != sv or r[10] != header[:60]):
-                d.update(sourceVersions=fresh, claudeRunner=True)
+            fresh = self.source_versions(a["code"]) if ours else self.refresh_versions(sv)
+            if fresh and (fresh != sv or (ours and r[10] != header[:60])):
+                d["sourceVersions"] = fresh
+                if ours:
+                    d["claudeRunner"] = True
                 raw = canonical(d)
-                r = r[:10] + [header[:60], raw, sha(raw), "TRUE"]
+                r = r[:10] + [header[:60] if ours else r[10], raw, sha(raw), "TRUE"]
                 self.g.set_row(sid, f"'{NB_CONFIG}'!A{idx + 1}:N{idx + 1}", r)
                 rows[idx] = r
             return {"notebookColumn": int(r[9] or 3), "sheet": r[5], "spreadsheet": r[4],
