@@ -753,6 +753,11 @@ def main():
             run.collect()
             run.scan()
             run.submit()
+            try:   # paper tests in the scan folder (new uploads only)
+                import scans
+                scans.run(run)
+            except Exception as e:
+                run.tick(f"scan_failed_{type(e).__name__}")
         if mode in ("cycle", "publish"):
             run.publish(approve)
         if mode == "audit":

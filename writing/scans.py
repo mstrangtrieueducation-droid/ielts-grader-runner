@@ -121,6 +121,11 @@ class Scans:
                     self.tick("new")
                 continue
             meta = parse_name(f["name"])
+            cut = self.r.cfg.get("scanBaselineBefore")
+            if not old and cut and (f.get("modifiedTime") or "") < cut:   # uploaded before go-live: already handled
+                self.st["files"][f["id"]] = {"title": f["name"], "modified": f.get("modifiedTime"), "meta": meta,
+                                             "students": {}, "status": "baseline", "at": now().isoformat()}
+                continue
             rec = {"title": f["name"], "modified": f.get("modifiedTime"), "meta": meta, "students": {},
                    "status": "new", "at": now().isoformat()}
             if not meta or meta["cls"] not in self.r.cfg["classes"]:
