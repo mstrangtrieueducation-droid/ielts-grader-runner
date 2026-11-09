@@ -262,12 +262,41 @@ class Scans:
                 except ValueError:
                     stu["status"] = "retry"
                     continue
-                stu.update(result=self.checks(rec, res), status="graded", vnd=round(c * cw.USD_VND))
+                res = self.checks(rec, res)
+                if res.get("_qa") and (res["_qa"].get("bannedInRevision") or not 140 <= res["_qa"]["revisionWords"] <= 170):
+                    res = self.fix_revision(rec, res)
+                stu.update(result=res, status="graded", vnd=round(c * cw.USD_VND))
                 self.tick("graded")
             del self.st["batches"][bid]
         for rec in self.st["files"].values():
             if rec["status"] == "submitted" and all(s["status"] in ("graded", "unidentified") for s in rec["students"].values()):
                 rec["status"] = "graded"
+
+    def fix_revision(self, rec, res):
+        """Fighter rule-breaks left in the suggested revision (banned linkers, length) are fixed by a small cheap call."""
+        q = res["_qa"]
+        prompt = ("Sửa ĐOẠN VĂN tiếng Anh dưới đây (bản sửa gợi ý cho học sinh) theo đúng các yêu cầu, giữ nguyên ý, ví dụ và "
+                  "cách diễn đạt còn lại; chỉ trả đoạn văn đã sửa, một đoạn, không lời dẫn.\n"
+                  f"- Độ dài 140–160 từ (hiện {q['revisionWords']} từ).\n"
+                  "- Không dùng: so, because, because of, but (đối lập), like (nêu ví dụ), you, your, and so on, '...', "
+                  "viết tắt. Thay bằng cách nối học thuật đúng nghĩa: as a result, thereby, owing to, whereas, however, such as.\n\n"
+                  + res["revision"])
+        try:
+            r = self.cl.messages.create(model="claude-haiku-5-5", max_tokens=1200, thinking={"type": "disabled"},
+                                        messages=[{"role": "user", "content": prompt}])
+            u = r.usage.model_dump()
+            c = cw.cost_usd("claude-haiku-5-5", u)
+            cw.ledger({"at": cw.now_iso(), "category": "Sửa bản sửa (quy ước lớp)", "step": "revision-fix",
+                       "model": "claude-haiku-5-5", "usage": u, "usd": c, "vnd": round(c * cw.USD_VND)})
+            new = "".join(b.text for b in r.content if b.type == "text").strip()
+            allowed = re.sub(r"(?i)not only\b.*?\bbut also|last but not least|but also", " ", new)
+            if new and "\n" not in new and not BANNED_FIGHTER.search(allowed) and 135 <= words(new) <= 175:
+                res["_qa"]["revisionBefore"] = res["revision"]
+                res["revision"] = new
+                res["_qa"].update(revisionWords=words(new), bannedInRevision=[], revisionFixed=True)
+        except Exception:
+            res["_qa"]["revisionFixFailed"] = True
+        return res
 
     def checks(self, rec, res):
         """Free checks done by code: word counts, quotes really in the transcript, banned forms, class score."""
@@ -332,8 +361,10 @@ def run(runner, only=None, limit_files=None):
         sc.discover()
         for fid in (only or []):   # trial re-run of a named file
             rec = sc.st["files"].get(fid)
-            if rec and rec["status"] == "graded" and runner.cfg.get("scanRegrade") == fid:
+            if (rec and rec["status"] == "graded" and runner.cfg.get("scanRegrade") == fid
+                    and fid not in sc.st.setdefault("regradeDone", [])):   # one re-run only, never a loop
                 rec.update(status="new", students={})
+                sc.st["regradeDone"].append(fid)
         if only:  # trial: grade only the named file(s); everything else waits
             for fid, rec in sc.st["files"].items():
                 if rec["status"] == "new" and fid not in only:
