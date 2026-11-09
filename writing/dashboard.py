@@ -61,18 +61,72 @@ def utc_now():
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
 
+def js_json(d):
+    """JSON.stringify of a plain object (insertion order, no spaces, non-ASCII kept)."""
+    return json.dumps(d, ensure_ascii=False, separators=(",", ":"))
+
+
+def link_ids(cell):
+    out = []
+    for u in re.findall(r"https://[^\s,]+", str(cell or "")):
+        m = re.search(r"/d/([A-Za-z0-9_-]+)", u) or re.search(r"[?&]id=([A-Za-z0-9_-]+)", u)
+        if m and m.group(1) not in out:
+            out.append(m.group(1))
+    return out
+
+
+def supplement_columns(header, notebook_col, merged_col):
+    out = []
+    for i, v in enumerate(header):
+        t = re.sub(r"\s+", " ", re.sub("[\u0300-\u036f]", "", unicodedata.normalize("NFD", str(v))).lower()).strip()
+        if i not in (notebook_col, merged_col) and re.match(r"^(?:anh bo sung|anh (?:chup )?vo(?:\s|$)|supplement(?:al|ary)? (?:notebook )?(?:images?|photos?|files?))", t):
+            out.append(i)
+    return out
+
+
+def latest_receipt(grid, cls, roster_name, code, sheet, spreadsheet, nb_col):
+    """The class backend's view of the newest notebook receipt (ieltsNotebookLatest_): time, receipt id, file ids."""
+    head = grid[0]
+    merged = next((i for i, v in enumerate(head) if "PDF ĐÃ GHÉP TỰ ĐỘNG" in str(v)), -1)
+    sup = supplement_columns(head, nb_col, merged)
+    key, ck = student_key(roster_name), student_key(cls)
+    rows = []
+    for r in grid[1:]:
+        r = list(r) + [""] * (len(head) + 1 - len(r))
+        if student_key(r[2]) != ck or student_key(r[1]) != key:
+            continue
+        t = iso_vn(r[0])
+        if not t:
+            return None
+        ids = set(link_ids(r[nb_col]))
+        if merged >= 0:
+            ids |= set(link_ids(r[merged]))
+        for c in sup:
+            ids |= set(link_ids(r[c]))
+        rows.append((t, sorted(ids)))
+    if not rows:
+        return None
+    t = max(x[0] for x in rows)
+    latest = [x for x in rows if x[0] == t]
+    if len({json.dumps(x[1]) for x in latest}) > 1 or not latest[0][1]:
+        return None
+    ident = {"assignmentCode": code, "className": cls, "component": "notebook", "sheetName": sheet,
+             "spreadsheetId": spreadsheet, "studentKey": key, "submittedAt": t}
+    return {"submittedAt": t, "receiptId": sha(js_json(ident)), "fileIds": latest[0][1]}
+
+
 NB_STATE = {
     "Đạt": ("notebook_complete", "Đạt yêu cầu"),
     "Cần bổ sung": ("awaiting_notebook_completion", "Cần bổ sung vở"),
 }
 
 
-def notebook_record(cls, s, roster_name, mode, pack_sha, ref_sha):
+def notebook_record(cls, s, roster_name, mode, pack_sha, ref_sha, receipt=None, files=None):
     verdict = s.get("verdict") or ""
     state, title = NB_STATE.get(verdict, ("needs_readable_copy", "Cần ảnh rõ hơn"))
-    submitted = iso_vn(s.get("submittedAt", ""))
-    receipt = sha(canonical({"component": "notebook", "className": cls, "assignmentCode": s["assignment"],
-                             "studentKey": student_key(roster_name), "submittedAt": submitted}))
+    submitted = receipt["submittedAt"] if receipt else iso_vn(s.get("submittedAt", ""))
+    receipt_id = receipt["receiptId"] if receipt else sha(canonical({"component": "notebook", "className": cls,
+                 "assignmentCode": s["assignment"], "studentKey": student_key(roster_name), "submittedAt": submitted}))
     overall = (s.get("comment") or "").strip()
     locked = state == "awaiting_notebook_completion" and mode == "notebook_and_writing"
     rec = {"schemaVersion": 1, "kind": "review", "className": cls, "assignmentCode": s["assignment"],
@@ -82,8 +136,8 @@ def notebook_record(cls, s, roster_name, mode, pack_sha, ref_sha):
            "overall": overall, "nextSteps": [], "issues": [],
            "handwriting": {"legibility": "readable" if state != "needs_readable_copy" else "unclear",
                            "captureQuality": "clear" if state != "needs_readable_copy" else "unclear", "evidence": []},
-           "binding": {"receiptId": receipt, "notebookJobId": sha(receipt + "|" + s.get("sig", "")),
-                       "files": [{"fileId": f} for f in s.get("files", [])],
+           "binding": {"receiptId": receipt_id, "notebookJobId": sha(receipt_id + "|" + s.get("sig", "")),
+                       "files": files if files is not None else [{"fileId": f} for f in s.get("files", [])],
                        "promptSha256": pack_sha, "referenceSha256": ref_sha},
            "essayGradingLocked": locked, "reviewMode": "quick_check", "sourceUrls": []}
     if locked:
@@ -150,16 +204,21 @@ def essay_records(cls, s, roster_name, a):
     return out
 
 
+NB_VERSION = "v2"   # v1 rows (09/11 evening) were bound to the wrong receipt; v2 republishes them once
+
+
 class Dashboard:
     def __init__(self, runner):
         self.r, self.g = runner, runner.g
-        self.tabs = {}
+        self.tabs, self.forms, self.metas, self.known_versions = {}, {}, {}, {}
 
-    def table(self, sid, tab, headers):
+    def table(self, sid, tab, headers, create=True):
         """The store tab's rows; created hidden with its headers if missing. A header mismatch → never write."""
         key = (sid, tab)
         if key not in self.tabs:
             if tab not in self.g.sheet_titles(sid):
+                if not create:
+                    raise RuntimeError("STORE_ABSENT")
                 self.g.add_hidden_sheet(sid, tab, headers)
             vals = self.g.values(sid, f"'{tab}'!A1:{chr(64 + len(headers))}3000")
             if not vals or [str(x) for x in vals[0][:len(headers)]] != headers:
@@ -181,12 +240,14 @@ class Dashboard:
         for k, s in subs.items():
             if s.get("status") != "published" or s.get("className") not in self.r.cfg["classes"]:
                 continue
-            if s.get("dash") and (s.get("dashEssay") or not s.get("essayResult")):
+            if s.get("dashNb") in (NB_VERSION, "no_roster_name") and (s.get("dashEssay") or not s.get("essayResult")):
                 continue
             if s["assignment"] not in assignments or s.get("fallback"):
                 continue
             todo.setdefault(s["className"], []).append((k, s))
         manifest = load_json(MANIFEST, {"schemaVersion": 1, "entries": []})
+        if todo:
+            self.scan_configs()
         seen = {(e["className"], e["assignmentCode"]) for e in manifest["entries"]}
         for cls, items in todo.items():
             try:
@@ -196,14 +257,90 @@ class Dashboard:
                 print("dashboard:", cls, type(e).__name__, str(e)[:80])
         save_json(MANIFEST, manifest)
 
+    def form(self, tab):
+        if tab not in self.forms:
+            self.forms[tab] = self.g.values(self.r.cfg["formSheet"], f"'{tab}'!A1:Z2000")
+        return self.forms[tab]
+
+    def file_meta(self, fid):
+        if fid not in self.metas:
+            try:
+                m = self.g.meta(fid)
+                self.metas[fid] = {"fileId": fid, "mimeType": m.get("mimeType", ""), "modifiedTime": m.get("modifiedTime", ""),
+                                   "size": str(m.get("size", ""))}
+            except Exception:
+                self.metas[fid] = None
+        return self.metas[fid]
+
+    def source_versions(self, code):
+        """The lesson document version the class backend checks: reuse a week's existing config from any class,
+        else the lesson doc from the bundle (its current modifiedTime)."""
+        if code in self.known_versions:
+            return self.known_versions[code]
+        doc = self.r.cfg.get("lessonDocs", {}).get(code)
+        m = self.file_meta(doc) if doc else None
+        v = [{"fileId": doc, "modifiedTime": m["modifiedTime"]}] if m and m["modifiedTime"] else None
+        self.known_versions[code] = v
+        return v
+
+    def scan_configs(self):
+        """Existing notebook configs of every class: lesson versions per week (shared lessons)."""
+        for cls, sid in self.r.cfg["classes"].items():
+            try:
+                rows = self.table(sid, NB_CONFIG, NB_CONFIG_HEADERS, create=False)
+            except Exception:
+                continue
+            for r in rows[1:]:
+                if len(r) < 14 or r[13] != "TRUE":
+                    continue
+                try:
+                    d = json.loads(r[11])
+                except ValueError:
+                    continue
+                sv = d.get("sourceVersions") or []
+                if sv and not any(str(x.get("fileId", "")).startswith("claude-pack-") for x in sv) and r[1] not in self.known_versions:
+                    if not d.get("claudeRunner"):
+                        self.known_versions[r[1]] = sv
+
+    def config_for(self, cls, sid, a, n, pack_sha, ref_sha):
+        """This class's notebook config row for the week (created if missing; our own rows kept current)."""
+        rows = self.table(sid, NB_CONFIG, NB_CONFIG_HEADERS)
+        idx = next((i for i, r in enumerate(rows) if i and len(r) > 1 and r[0] == cls and r[1] == a["code"]), None)
+        grid = self.form(a["formTab"])
+        nb_col = 3
+        header = str(grid[0][nb_col]).strip() if grid and len(grid[0]) > nb_col else ""
+        if idx is not None:
+            r = rows[idx] + [""] * (14 - len(rows[idx]))
+            d = json.loads(r[11])
+            sv = d.get("sourceVersions") or []
+            ours = d.get("claudeRunner") or any(str(x.get("fileId", "")).startswith("claude-pack-") for x in sv)
+            fresh = self.source_versions(a["code"]) if ours else None
+            if ours and fresh and (fresh != sv or r[10] != header[:60]):
+                d.update(sourceVersions=fresh, claudeRunner=True)
+                raw = canonical(d)
+                r = r[:10] + [header[:60], raw, sha(raw), "TRUE"]
+                self.g.set_row(sid, f"'{NB_CONFIG}'!A{idx + 1}:N{idx + 1}", r)
+                rows[idx] = r
+            return {"notebookColumn": int(r[9] or 3), "sheet": r[5], "spreadsheet": r[4],
+                    "promptSha256": d.get("promptSha256"), "referenceSha256": d.get("referenceSha256")}
+        sv = self.source_versions(a["code"]) or [{"fileId": "claude-pack-" + pack_sha[:16], "modifiedTime": "2026-11-09T00:00:00Z"}]
+        d = {"claudeRunner": True, "notebookSourceResolveHyperlinks": True, "notebookSubmissionFormats": ["pdf", "image"],
+             "preferredNotebookHeader": "PDF ĐÃ GHÉP TỰ ĐỘNG", "promptSha256": pack_sha, "referenceSha256": ref_sha,
+             "schemaVersion": 1, "sourceUrls": [], "sourceVersions": sv}
+        raw = canonical(d)
+        row = [cls, a["code"], str(n), a.get("mode", "notebook_only"), self.r.cfg["formSheet"], a["formTab"],
+               "0", "1", "2", str(nb_col), header[:60], raw, sha(raw), "TRUE"]
+        self.g.append_rows(sid, NB_CONFIG, [row])
+        rows.append(row)
+        return {"notebookColumn": nb_col, "sheet": a["formTab"], "spreadsheet": self.r.cfg["formSheet"],
+                "promptSha256": pack_sha, "referenceSha256": ref_sha}
+
     def publish_class(self, cls, items, assignments, manifest, seen):
         tr = self.r.tracker(cls)
         sid = tr.id
-        cfg_rows = self.table(sid, NB_CONFIG, NB_CONFIG_HEADERS)
-        have_cfg = {r[1] for r in cfg_rows[1:] if len(r) > 1 and r[0] == cls}
         self.table(sid, NB_STORE, NB_STORE_HEADERS)
         self.table(sid, FEEDBACK, FEEDBACK_HEADERS)
-        new_cfg, nb_rows, fb_rows, done = [], [], [], []
+        nb_rows, fb_rows, done = [], [], []
         for k, s in items:
             a = assignments[s["assignment"]]
             n = int(re.search(r"W0*(\d+)$", a["code"]).group(1))
@@ -211,24 +348,23 @@ class Dashboard:
             pack_sha = sha((pack / "head.md").read_bytes())
             ref_sha = sha((pack / "meta.json").read_bytes()) if (pack / "meta.json").exists() else sha(a["code"] + pack_sha)
             mode = a.get("mode", "notebook_only")
-            if a["code"] not in have_cfg:
-                details = {"notebookSourceResolveHyperlinks": True, "notebookSubmissionFormats": ["pdf", "image"],
-                           "preferredNotebookHeader": "PDF ĐÃ GHÉP TỰ ĐỘNG", "promptSha256": pack_sha,
-                           "referenceSha256": ref_sha, "schemaVersion": 1, "sourceUrls": [],
-                           "sourceVersions": [{"fileId": "claude-pack-" + pack_sha[:16], "modifiedTime": "2026-11-09T00:00:00Z"}]}
-                raw = canonical(details)
-                new_cfg.append([cls, a["code"], str(n), mode, self.r.cfg["formSheet"], a["formTab"], "0", "1", "2", "3",
-                                "Ảnh / File scan vở chép", raw, sha(raw), "TRUE"])
-                have_cfg.add(a["code"])
             name = self.roster_name(tr, s["student"])
             if not name:
-                s["dash"] = "no_roster_name"
+                s["dashNb"] = "no_roster_name"
                 continue
-            if not s.get("dash"):
-                rec = notebook_record(cls, s, name, mode, pack_sha, ref_sha)
+            if s.get("dashNb") != NB_VERSION:
+                c = self.config_for(cls, sid, a, n, pack_sha, ref_sha)
+                rc = latest_receipt(self.form(c["sheet"]), cls, name, a["code"], c["sheet"], c["spreadsheet"], c["notebookColumn"])
+                files = [self.file_meta(f) for f in rc["fileIds"]] if rc else None
+                if files and any(f is None for f in files):
+                    files = None
+                rec = notebook_record(cls, s, name, mode, c["promptSha256"], c["referenceSha256"],
+                                      receipt=rc if files else None, files=files)
                 raw = canonical(rec)
                 nb_rows.append([sha(raw), student_key(name), cls, a["code"], rec["submittedAt"], rec["binding"]["notebookJobId"],
-                                rec["state"], raw, s.get("publishedAt") or utc_now(), sha(raw), rec["binding"]["receiptId"], "published"])
+                                rec["state"], raw, utc_now(), sha(raw), rec["binding"]["receiptId"], "published"])
+                s["dashNb"] = NB_VERSION
+                self.r.tick("dash_nb_bound" if files else "dash_nb_unbound")
             tasks = []
             if s.get("essayResult") and a.get("essayPack") and not s.get("dashEssay"):
                 rows = essay_records(cls, s, name, a)
@@ -237,14 +373,11 @@ class Dashboard:
             done.append(s)
             if (cls, a["code"]) not in seen or tasks:
                 self.add_manifest(manifest, seen, cls, a, n, tasks)
-        if new_cfg:
-            self.g.append_rows(sid, NB_CONFIG, new_cfg)
         if nb_rows:
             self.g.append_rows(sid, NB_STORE, nb_rows)
         if fb_rows:
             self.g.append_rows(sid, FEEDBACK, fb_rows)
         for s in done:
-            s["dash"] = s.get("dash") or now().isoformat()
             if s.get("essayResult"):
                 s["dashEssay"] = now().isoformat()
         self.r.tick("dash_notebooks", len(nb_rows))

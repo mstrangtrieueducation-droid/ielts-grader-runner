@@ -105,6 +105,11 @@ class Google:
                + urllib.parse.quote(rng, safe="") + "?valueInputOption=RAW")
         self._req(url, "PUT", {"range": rng, "values": [headers]})
 
+    def set_row(self, sheet_id, rng, row):
+        url = (f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}/values/"
+               + urllib.parse.quote(rng, safe="") + "?valueInputOption=RAW")
+        return self._req(url, "PUT", {"range": rng, "values": [row]})
+
     def sheet_titles(self, sheet_id):
         r = self._req(f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}?fields=sheets.properties.title")
         return [x["properties"]["title"] for x in r.get("sheets", [])]
