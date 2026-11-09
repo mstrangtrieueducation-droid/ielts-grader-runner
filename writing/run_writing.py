@@ -424,7 +424,7 @@ class Runner:
     # ---------------- publish
     def publish(self, approve):
         for k, s in self.state.get("subs", {}).items():
-            retry = (s["status"] == "held" and s.get("approved")
+            retry = (s["status"] == "held" and (s.get("approved") or approve == "all" or k in approve)
                      and s.get("hold") in ("tracker_cell_not_found", "status_prefix_not_ready"))
             if s["status"] != "graded" and not retry:
                 continue
