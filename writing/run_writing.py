@@ -281,6 +281,12 @@ class Runner:
                     s.update(status="new", verdict=None, comment=None, tries=0)
                     self.tick("reset_for_new_pack")
             done.append(code)
+        for key in self.cfg.get("resetKeys", []):   # our own failure (not a resubmission): grade that work properly once
+            sub = subs.get(key)
+            if sub and key not in done:
+                sub.update(status="new", tries=0, fallback=None, verdict=None)
+                done.append(key)
+                self.tick("reset_after_system_fix")
         for a in self.cfg["assignments"]:
             if not a.get("enabled", True):  # every week stays open: late work must still get its notebook check
                 continue
@@ -395,17 +401,28 @@ class Runner:
         pack = BUNDLE / "packs" / (a["pack"] if step == "notebook" else a["essayPack"])
         d = WORK / h(key + step + str(sub.get("tries", 0)), 20)
         d.mkdir(parents=True, exist_ok=True)
-        paths, pages = [], 0
+        paths, pages, seen = [], 0, set()
         for i, f in enumerate(sub["files"], 1):
-            p = d / f"file-{i:02d}.pdf"
-            if not p.exists():
+            done = sorted(d.glob(f"file-{i:02d}*"))
+            if not done:
                 data = self.g.download(f)
-                if data[:4] != b"%PDF":  # Form uploads may be images (iPhone photos arrive as HEIC)
-                    p = d / f"file-{i:02d}.jpg"
-                    data = to_jpeg(data)
-                p.write_bytes(data)
-            paths.append(p)
-            pages += fitz.open(p).page_count if p.suffix == ".pdf" else 1
+                digest = h(hashlib.sha256(data).hexdigest())
+                if digest in seen:          # the same file uploaded into two form boxes
+                    continue
+                seen.add(digest)
+                if data[:4] != b"%PDF":     # Form uploads may be images (iPhone photos arrive as HEIC)
+                    (d / f"file-{i:02d}.jpg").write_bytes(to_jpeg(data))
+                elif len(data) > 12_000_000:   # very large scans: send readable page images instead of the raw PDF
+                    doc = fitz.open(stream=data, filetype="pdf")
+                    for j, pg in enumerate(doc, 1):
+                        pix = pg.get_pixmap(dpi=110)
+                        (d / f"file-{i:02d}-p{j:03d}.jpg").write_bytes(to_jpeg(pix.tobytes("png")))
+                else:
+                    (d / f"file-{i:02d}.pdf").write_bytes(data)
+                done = sorted(d.glob(f"file-{i:02d}*"))
+            for p in done:
+                paths.append(p)
+                pages += fitz.open(p).page_count if p.suffix == ".pdf" else 1
         tr = self.tracker(sub["className"])
         _, deadline = tr.column(sub["assignment"])
         self.note_deadline(sub["assignment"], deadline)
