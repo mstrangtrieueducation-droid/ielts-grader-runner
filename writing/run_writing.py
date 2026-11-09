@@ -486,7 +486,8 @@ class Runner:
                      and s.get("hold") in ("tracker_cell_not_found", "status_prefix_not_ready"))
             if s["status"] != "graded" and not retry:
                 continue
-            if not (retry or self.auto_publish() or approve == "all" or k in approve):
+            manual = f"{s['className']}|{s['assignment']}" in self.cfg.get("manualReview", [])
+            if not (retry or (self.auto_publish() and not manual) or approve == "all" or k in approve):
                 self.tick("awaiting_review")
                 continue
             s["approved"] = True  # approval sticks: a held item is retried each cycle until its cell is ready
