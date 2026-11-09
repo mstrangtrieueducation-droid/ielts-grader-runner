@@ -60,7 +60,7 @@ class Google:
         self._tok = (res["access_token"], now + int(res["expires_in"]))
         return self._tok[0]
 
-    def _req(self, url, method="GET", data=None, raw=False, retries=4):
+    def _req(self, url, method="GET", data=None, raw=False, retries=6):
         _check(url)
         body = None if data is None else json.dumps(data, ensure_ascii=False).encode()
         for attempt in range(retries):
@@ -73,7 +73,7 @@ class Google:
             except urllib.error.HTTPError as e:
                 # Only read-type calls or quota errors are retried; writes are idempotent cell PUTs.
                 if e.code in (429, 500, 502, 503) and attempt < retries - 1:
-                    time.sleep(10 * (attempt + 1))
+                    time.sleep(20 * (attempt + 1))  # Sheets read quota is per minute
                     continue
                 raise RuntimeError(f"GOOGLE_HTTP_{e.code}") from None
 

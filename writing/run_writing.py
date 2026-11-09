@@ -116,9 +116,19 @@ class Tracker:
             self._names = {norm(r[0]): n + 1 for n, r in enumerate(vals) if r and r[0].strip()}
         return self._names
 
-    def cell(self, a1):
+    def cell(self, a1):  # live read: used only right before / after a write
         v = self.g.values(self.id, f"'{self.tab}'!{a1}")
         return v[0][0] if v and v[0] else ""
+
+    def cached(self, col, row):
+        """One read of the whole tab per run for scanning (avoids per-cell reads hitting the Sheets quota)."""
+        if getattr(self, "_grid", None) is None:
+            self._grid = self.g.values(self.id, f"'{self.tab}'!A1:ZZ200")
+        idx = 0
+        for ch in col:
+            idx = idx * 26 + (ord(ch) - 64)
+        r = self._grid[row - 1] if row - 1 < len(self._grid) else []
+        return r[idx - 1] if idx - 1 < len(r) else ""
 
     def write(self, a1, text):
         self.g.set_cell(self.id, f"'{self.tab}'!{a1}", text)
@@ -220,7 +230,7 @@ class Runner:
                     status = "no_tracker_column"   # class tracker has no column for this week: nothing to write to
                 elif not old and not self.state.get("baselined", {}).get(a["code"]):
                     # first sight of this assignment: work already commented by the old pipeline is not regraded
-                    if self.existing_comment(cls, a["code"], name) or self.too_old(cls, a["code"]):
+                    if self.too_old(cls, a["code"]) or self.existing_comment(cls, a["code"], name):
                         status = "skipped"
                 subs[key] = {"assignment": a["code"], "className": cls, "student": name, "files": files,
                              "rows": [i["row"] for i in items], "submittedAt": items[-1]["time"],
@@ -235,7 +245,7 @@ class Runner:
         row = tr.rows().get(name)
         if not col or not row:
             return False
-        cur = tr.cell(f"{col}{row}")
+        cur = tr.cached(col, row)
         return MARK in cur and bool(cur.split(MARK, 1)[1].strip())
 
     def too_old(self, cls, code):

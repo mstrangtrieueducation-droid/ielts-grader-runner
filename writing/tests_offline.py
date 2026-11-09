@@ -1,4 +1,5 @@
 """Offline safety tests for the Writing runner: fake Google + fake Claude batch, synthetic data, no network."""
+import re
 import json, os, sys, tempfile, types
 from pathlib import Path
 
@@ -29,6 +30,12 @@ class G:
         if "W01" in rng: return s.rows
         if "A4:ZZ4" in rng: return [["", "", "Mã: IELTS-WRITING-W01\nHạn: Thứ Bảy, " + DUE]]
         if "B1:B200" in rng: return [[]] * 6 + [["AN"], ["BÌNH"], ["CHI"]]
+        if "A1:ZZ200" in rng:
+            s.grid_reads = getattr(s, "grid_reads", 0) + 1
+            g = [[""] * 10 for _ in range(12)]
+            for a1, v in s.cells.items():
+                m = re.match(r"([A-Z]+)(\d+)$", a1); g[int(m.group(2)) - 1][ord(m.group(1)) - 65] = v
+            return g
         return [[s.cells.get(rng.split("!")[1], "")]]
     def set_cell(s, sid, rng, text): s.cells[rng.split("!")[1]] = text; s.writes.append(rng)
     def download(s, f): return PDF
