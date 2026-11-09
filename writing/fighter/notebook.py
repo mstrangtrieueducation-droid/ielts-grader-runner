@@ -40,7 +40,7 @@ MODEL = "claude-haiku-5-5"
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 2              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 3              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 40        # the status system normally marks the cell first; after this we write the status line ourselves
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -165,8 +165,7 @@ def score(unit, res):
         else:
             continue
         old = seen.get(n)
-        if old is None or sum(old[f] != "empty" for f, _ in FIELDS) < sum(e[f] != "empty" for f, _ in FIELDS):
-            seen[n] = e
+        seen[n] = dict(e) if old is None else dict(old, **{f: ("empty" if old[f] == e[f] == "empty" else "filled") for f, _ in FIELDS})
     missing = [n for n in want if n not in seen]
     empty = {f: [n for n, e in seen.items() if e[f] == "empty"] for f, _ in FIELDS}
     pts = sum(1 + sum(e[f] != "empty" for f, _ in FIELDS) for e in seen.values())
@@ -337,16 +336,32 @@ class FighterNotebooks:
         content += [img_block(b) for b in imgs]
         content.append({"type": "text", "text": PROMPT.format(code=s["code"], title=unit["title"], first=ents[0]["n"],
                                                               last=ents[-1]["n"], listing=listing, spot=", ".join(map(str, spot)))})
-        r = self.cl.messages.create(model=MODEL, max_tokens=6000, thinking={"type": "disabled"},
-                                    tools=[{"name": "record", "description": "Ghi lại những gì đọc được", "input_schema": SCHEMA}],
-                                    tool_choice={"type": "tool", "name": "record"},
-                                    messages=[{"role": "user", "content": content}])
-        u = r.usage.model_dump()
-        c = cw.cost_usd(MODEL, u)
-        cw.ledger({"at": cw.now_iso(), "category": f"{s['cls']} · Sổ từ vựng · {s['code']}", "step": "fighter-notebook",
-                   "model": MODEL, "usage": u, "usd": c, "vnd": round(c * cw.USD_VND)})
-        res = next(b.input for b in r.content if b.type == "tool_use")
-        res = json.loads(json.dumps(res))
+        def read():
+            r = self.cl.messages.create(model=MODEL, max_tokens=6000, thinking={"type": "disabled"},
+                                        tools=[{"name": "record", "description": "Ghi lại những gì đọc được", "input_schema": SCHEMA}],
+                                        tool_choice={"type": "tool", "name": "record"},
+                                        messages=[{"role": "user", "content": content}])
+            u = r.usage.model_dump()
+            c = cw.cost_usd(MODEL, u)
+            cw.ledger({"at": cw.now_iso(), "category": f"{s['cls']} · Sổ từ vựng · {s['code']}", "step": "fighter-notebook",
+                       "model": MODEL, "usage": u, "usd": c, "vnd": round(c * cw.USD_VND)})
+            return json.loads(json.dumps(next(b.input for b in r.content if b.type == "tool_use"))), c
+        # two independent reads, merged in the pupil's favour: a word/column counts as missing only if BOTH reads miss it
+        with cf.ThreadPoolExecutor(2) as ex:
+            (a, ca), (b, cb) = ex.map(lambda _: read(), range(2))
+        c = ca + cb
+        pb = {p["page"]: p for p in b.get("pages", [])}
+        for p in a.get("pages", []):
+            q = pb.get(p["page"])
+            if q and q["kind"] != p["kind"]:
+                p["kind"] = "handwritten"
+            if q and "no" in (p["readable"], q["readable"]) and p["readable"] != q["readable"]:
+                p["readable"] = "partly"
+        res = {"pages": a.get("pages", []), "entries": a.get("entries", []) + b.get("entries", []),
+               "otherTerms": min(a.get("otherTerms", 0), b.get("otherTerms", 0)),
+               "meaningCheck": [m for m in a.get("meaningCheck", [])
+                                if any(x["n"] == m["n"] and x["match"] == m["match"] for x in b.get("meaningCheck", []))]}
+        self.r.tick("fnb_cost_vnd", round(c * cw.USD_VND))
         sc = score(unit, res)
         pg = res.get("pages", [])
         out = {"kind": "scored", **sc, "pages": len(imgs), "hashes": hashes, "costVnd": round(c * cw.USD_VND)}
@@ -354,7 +369,7 @@ class FighterNotebooks:
             out["kind"] = "printed"
         elif reused and len(reused) * 2 >= len(imgs):
             out.update(kind="reused", reusedFrom=reused[0])
-        elif sc["written"] >= 8 and res.get("otherTerms", 0) >= 8 and sc["seen"] * 10 < sc["written"] * 3:
+        elif sc["written"] >= 16 and res.get("otherTerms", 0) >= 8 and sc["seen"] * 20 < sc["written"] * 3:   # entries of two reads
             out["kind"] = "wrong_unit"
         elif pg and all(p["readable"] == "no" for p in pg):
             out["kind"] = "unreadable"
