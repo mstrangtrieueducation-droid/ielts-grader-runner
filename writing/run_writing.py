@@ -490,6 +490,9 @@ class Runner:
                 if not m:
                     continue
                 k, s = m["key"], self.state["subs"][m["key"]]
+                if m["step"] == "notebook" and item.custom_id != h(k + "notebook" + s["sig"], 40):
+                    self.tick("stale_result_ignored")   # files changed after submission: the newer files are graded instead
+                    continue
                 if item.result.type != "succeeded":
                     s.update(status="new" if m["step"] == "notebook" else "essay_new")  # resubmit next cycle
                     self.tick("batch_retry")
