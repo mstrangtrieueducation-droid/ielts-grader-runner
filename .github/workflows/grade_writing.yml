@@ -6,7 +6,7 @@ on:
       mode:
         description: loop = keep grading every 25 min for ~5 h then hand over to the next loop · cycle = grade new work once · publish = only write approved results · audit = count only · fetch = download Drive files (IDs in approve) for a trial · shadow = regrade graded notebooks with a cheaper model (approve = model name)
         type: choice
-        options: [loop, cycle, publish, audit, fetch, shadow, scan, report]
+        options: [loop, cycle, publish, audit, fetch, shadow, scan, report, fighter]
         default: cycle
       approve:
         description: "Approve results for the tracker: all, or comma-separated keys (empty = none)"
@@ -48,7 +48,7 @@ jobs:
           .venv/bin/pip install --quiet -r writing/requirements.txt
       - name: Offline tests
         if: env.HAS_KEYS == 'true'
-        run: python writing/tests_offline.py
+        run: python writing/tests_offline.py && python writing/fighter/tests.py
       - name: Restore encrypted state
         if: env.HAS_KEYS == 'true'
         env:

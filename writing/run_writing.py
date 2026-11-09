@@ -764,6 +764,13 @@ def main():
                 scans.run(run)
             except Exception as e:
                 run.tick(f"scan_failed_{type(e).__name__}")
+        if mode in ("cycle", "fighter"):
+            try:   # Fighter vocabulary notebooks (Haiku reads, code scores, written straight to the tracker)
+                from fighter import notebook as fnb
+                run.discover_classes()
+                fnb.run(run)
+            except Exception as e:
+                run.tick(f"fighter_nb_failed_{type(e).__name__}")
         if mode in ("cycle", "publish"):
             run.publish(approve)
             if run.auto_publish():
