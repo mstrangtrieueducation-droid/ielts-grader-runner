@@ -8,7 +8,7 @@ import base64, io, json, re, unicodedata
 from pathlib import Path
 
 import claude_worker as cw
-from run_writing import BUNDLE, STATE_DIR, WORK, h, load_json, norm, now, save_json
+from run_writing import BUNDLE, STATE_DIR, WORK, col_letter, h, load_json, norm, now, save_json
 
 SCANS = STATE_DIR / "scans.json"
 MODEL = "claude-sonnet-5-5"
@@ -348,6 +348,119 @@ class Scans:
         res["_qa"] = qa
         return res
 
+
+    # ------------------------------------------------------------ publish to the class tracker
+    @staticmethod
+    def find_columns(grid, meta, tasks):
+        """Tracker columns for this paper test.
+        FIGHTER: row 2 'KT 0N' with row 3 'Điểm /1 …'.
+        IELTS: the block whose row-2 title says 'KIỂM TRA … LẦN N' (and mentions VIẾT); inside it the row-4 cell
+        'VIẾT (TASK t)'. A block with a single plain 'VIẾT' column takes every task. Returns {task|0: column index}."""
+        row = lambda r: grid[r] if r < len(grid) else []
+        cell = lambda r, c: str(row(r)[c]) if c < len(row(r)) else ""
+        width = max((len(x) for x in grid[:4]), default=0)
+        if meta["cls"].startswith("FIGHTER"):
+            for c in range(width):
+                if re.fullmatch(rf"\s*KT\s*0*{meta['n']}\s*", cell(1, c)) and "Điểm /1" in cell(2, c):
+                    return {0: c}
+            return {}
+        for c in range(width):
+            t = unicodedata.normalize("NFC", cell(1, c)).upper()
+            if "KIỂM TRA" in t and "VIẾT" in t and re.search(rf"LẦN\s*0*{meta['n']}\b", t):
+                end = next((x for x in range(c + 1, width) if cell(1, x).strip()), width)
+                out, plain = {}, []
+                for x in range(c, end):
+                    lab = " ".join(cell(r, x) for r in (2, 3)).upper()
+                    m = re.search(r"VIẾT\s*\(?\s*TASK\s*([12])", lab)
+                    if m:
+                        out[int(m.group(1))] = x
+                    elif re.search(r"\bVIẾT\b", lab):
+                        plain.append(x)
+                if not out and len(plain) == 1:
+                    out = {0: plain[0]}
+                return out
+        return {}
+
+    @staticmethod
+    def fmt(x):
+        return f"{x:.2f}".replace(".", ",") if abs(x * 10 - round(x * 10)) > 1e-9 else f"{x:.1f}".replace(".", ",")
+
+    def cell_text(self, rec, res, task=None):
+        if rec["meta"]["cls"].startswith("FIGHTER"):
+            sc = res.get("score") or {}
+            if not sc:
+                return None
+            return f"{self.fmt(sc['tong'])}/1\n{res['overall'].strip()}\nSố từ: {res['_qa']['words']}"
+        lines = []
+        for t in res.get("tasks", []):
+            if task and t["task"] != task:
+                continue
+            cs = t["_qa"]["classScore"]
+            cr = cs["classAssessment"]["criteria"]
+            ta = cr.get("TA", cr.get("TR"))
+            band = cs["classAssessment"]["overallBand"]
+            head = f"{band:.1f}" if task else f"Task {t['task']}: {band:.1f}"
+            note = f"Số từ: {cs['wordCount']}/{cs['minimum']}"
+            if cs["shortfall"] > 0:
+                note += f"; thiếu {cs['shortfallPercent']:g}%"
+                if cs["deductionPerLanguageCriterion"]:
+                    note += f"; đã trừ {cs['deductionPerLanguageCriterion']:g} ở mỗi CC, LR, GRA theo quy tắc lớp"
+            lines.append(f"{head}\n{'TA' if t['task'] == 1 else 'TR'}: {ta:g} | CC: {cr['CC']:g} | LR: {cr['LR']:g} | "
+                         f"GRA: {cr['GRA']:g}\n{t['overall'].strip()}\n{note}.")
+        if not lines:
+            return None
+        if not task and res.get("_overall") is not None:
+            lines.insert(0, f"Overall: {res['_overall']:.1f}")
+        return "\n\n".join(lines)
+
+    def publish(self):
+        """Graded paper tests → the class tracker. A cell that already has anything is never touched (the result was
+        given before); a test without its tracker column waits until the column exists."""
+        cut = self.r.cfg.get("scanBaselineBefore") or ""
+        for fid, rec in self.st["files"].items():
+            if (rec.get("modified") or "") < cut:   # trials on papers from before go-live are never published
+                continue
+            todo = [s for s in rec["students"].values() if s["status"] in ("graded", "held") and s.get("name")]
+            if not todo:
+                continue
+            tr = self.r.tracker(rec["meta"]["cls"])
+            tr._grid = None
+            tr.cached("A", 1)
+            grid = tr._grid
+            spec = pack_for(rec["meta"])
+            cols = self.find_columns(grid, rec["meta"], spec.get("tasks") or [])
+            if not cols:
+                for s in todo:
+                    s.update(status="held", hold="no_tracker_column")
+                self.tick("held_no_column", len(todo))
+                continue
+            for s in todo:
+                row = tr.row_of(s["name"])
+                if not row:
+                    s.update(status="held", hold="not_in_roster")
+                    self.tick("held_not_in_roster")
+                    continue
+                done = True
+                for task, c in cols.items():
+                    text = self.cell_text(rec, s["result"], task or None)
+                    if text is None:
+                        continue
+                    a1 = f"{col_letter(c)}{row}"
+                    cur = tr.cell(a1)
+                    if cur.strip():
+                        if cur.strip() != text.strip():
+                            s.setdefault("skippedCells", []).append(a1)   # result already given there
+                        continue
+                    tr.write(a1, text)
+                    if tr.cell(a1).strip() != text.strip():
+                        done = False
+                        s["hold"] = "readback_mismatch"
+                if done:
+                    s.update(status="published", at=now().isoformat())
+                    self.tick("published")
+                else:
+                    s["status"] = "held"
+
     def review(self):
         out = []
         for fid, rec in self.st["files"].items():
@@ -363,6 +476,8 @@ def run(runner, only=None, limit_files=None):
     sc = Scans(runner)
     try:
         sc.collect()
+        if runner.auto_publish():
+            sc.publish()
         sc.discover()
         for fid in (only or []):   # trial re-run of a named file
             rec = sc.st["files"].get(fid)
