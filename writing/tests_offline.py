@@ -15,6 +15,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 import pymupdf, run_writing as rw, claude_worker as cw
 
 doc = pymupdf.open(); doc.new_page(); PDF = doc.tobytes()
+import datetime as _d0
+DUE = (_d0.datetime.now() + _d0.timedelta(days=3)).strftime("%d/%m/%Y")
 ROW = lambda name, t, f: [t, name, "L 1", "", "", f"https://drive.google.com/file/d/{f*24}/view", ""]
 
 class G:
@@ -25,12 +27,13 @@ class G:
         s.writes = []
     def values(s, sid, rng):
         if "W01" in rng: return s.rows
-        if "A4:ZZ4" in rng: return [["", "", "Mã: IELTS-WRITING-W01\nHạn: Thứ Bảy, 03/01/2026"]]
+        if "A4:ZZ4" in rng: return [["", "", "Mã: IELTS-WRITING-W01\nHạn: Thứ Bảy, " + DUE]]
         if "B1:B200" in rng: return [[]] * 6 + [["AN"], ["BÌNH"], ["CHI"]]
         return [[s.cells.get(rng.split("!")[1], "")]]
     def set_cell(s, sid, rng, text): s.cells[rng.split("!")[1]] = text; s.writes.append(rng)
     def download(s, f): return PDF
     def sheet_titles(s, sid): return ["IELTS WRITING - W01"]
+    def search(s, q): return [{"id": "T53", "name": "IELTS 53_THEO DÕI TOÀN DIỆN"}, {"id": "F10", "name": "FIGHTER 10_THEO DÕI TOÀN DIỆN"}, {"id": "X", "name": "MẪU - THEO DÕI TOÀN DIỆN - LỚP MỚI"}]
 
 class B:
     reqs = []
@@ -61,4 +64,8 @@ g.rows.append(ROW("BÌNH", "02/01/2026 09:00:00", "E")); r.scan(); assert r.coun
 # baseline: first sight of an assignment skips work already commented by the old pipeline
 st2 = {"subs": {}, "batches": {}}; g2 = G(); r2 = rw.Runner(g2, cfg, st2); r2.scan()
 assert sorted(s["status"] for s in st2["subs"].values()) == ["new", "skipped"]
+assert cfg["classes"].get("IELTS 53") == "T53" and cfg["classes"].get("FIGHTER 10") == "F10" and len(cfg["classes"]) == 3, "new classes discovered, template ignored"
+import datetime as _dt
+st2["lastDeadline"] = {"IELTS-WRITING-W01": (rw.now() - _dt.timedelta(days=20)).isoformat()}
+r2.counts = {}; r2.scan(); assert "IELTS-WRITING-W01" in st2["closedWeeks"], "old week closed"
 print("writing offline tests OK")

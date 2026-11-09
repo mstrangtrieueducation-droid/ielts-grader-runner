@@ -101,6 +101,18 @@ class Google:
         return self._req(f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&supportsAllDrives=true",
                          raw=True)
 
+    def search(self, q):
+        out, token = [], ""
+        while True:
+            url = ("https://www.googleapis.com/drive/v3/files?q=" + urllib.parse.quote(q)
+                   + "&pageSize=200&supportsAllDrives=true&includeItemsFromAllDrives=true"
+                   "&fields=nextPageToken,files(id,name,modifiedTime)" + (f"&pageToken={token}" if token else ""))
+            r = self._req(url)
+            out += r.get("files", [])
+            token = r.get("nextPageToken")
+            if not token:
+                return out
+
     def list_folder(self, folder_id):
         out, token = [], ""
         while True:

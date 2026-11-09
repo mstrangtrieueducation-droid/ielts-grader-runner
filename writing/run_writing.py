@@ -144,10 +144,49 @@ class Runner:
         return self.trackers[cls]
 
     # ---------------- discovery
+    def discover_classes(self):
+        """Every tracker named 'IELTS N_THEO DÕI TOÀN DIỆN' / 'FIGHTER N_…' shared with the service account
+        becomes a class automatically (new classes need no configuration)."""
+        try:
+            files = self.g.search("name contains 'THEO DÕI TOÀN DIỆN' and "
+                                  "mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false")
+        except Exception:
+            self.tick("class_discovery_failed")
+            return
+        found = 0
+        for f in files:
+            m = re.match(r"\s*(IELTS|FIGHTER)\s*(\d+)\s*_\s*THEO DÕI TOÀN DIỆN\s*$", unicodedata.normalize("NFC", f["name"]), re.I)
+            if m:
+                name = f"{m.group(1).upper()} {int(m.group(2))}"
+                if name not in self.cfg["classes"]:
+                    self.cfg["classes"][name] = f["id"]
+                    found += 1
+        if found:
+            self.tick("classes_discovered", found)
+
+    def closed(self, a):
+        """A week is skipped once every class's deadline is more than 14 days in the past (late work after the
+        next writing day is not graded anyway), so the scan stays light as weeks accumulate."""
+        closed = self.state.setdefault("closedWeeks", {})
+        if a["code"] in closed:
+            return True
+        last = self.state.setdefault("lastDeadline", {}).get(a["code"])
+        if last and now() > dt.datetime.fromisoformat(last) + dt.timedelta(days=14):
+            closed[a["code"]] = now().isoformat()
+            return True
+        return False
+
+    def note_deadline(self, code, deadline):
+        if deadline:
+            ld = self.state.setdefault("lastDeadline", {})
+            if not ld.get(code) or dt.datetime.fromisoformat(ld[code]) < deadline:
+                ld[code] = deadline.isoformat()
+
     def scan(self):
         subs = self.state.setdefault("subs", {})
+        self.discover_classes()
         for a in self.cfg["assignments"]:
-            if not a.get("enabled", True):
+            if not a.get("enabled", True) or self.closed(a):
                 continue
             rows = self.g.values(self.cfg["formSheet"], f"'{a['formTab']}'!A2:G2000")
             grouped = {}
@@ -230,6 +269,7 @@ class Runner:
             pages += fitz.open(p).page_count if p.suffix == ".pdf" else 1
         tr = self.tracker(sub["className"])
         _, deadline = tr.column(sub["assignment"])
+        self.note_deadline(sub["assignment"], deadline)
         sub_time = parse_vn_time(sub["submittedAt"])
         job = {"className": sub["className"], "assignmentCode": sub["assignment"], "studentName": sub["student"],
                "sourceRows": sub["rows"], "submittedAt": sub["submittedAt"],
