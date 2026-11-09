@@ -220,6 +220,11 @@ class Runner:
     def tick(self, k, n=1):
         self.counts[k] = self.counts.get(k, 0) + n
 
+    def drop_excluded(self):
+        """Classes the teacher took off the list (finished / closed) are never read, graded or written."""
+        for c in self.cfg.get("excludeClasses", []):
+            self.cfg["classes"].pop(c, None)
+
     def tracker(self, cls):
         if cls not in self.trackers:
             self.trackers[cls] = Tracker(self.g, self.cfg["classes"][cls], self.cfg.get("trackerTab", "THEO DÕI TOÀN DIỆN"))
@@ -240,7 +245,7 @@ class Runner:
             m = re.match(r"\s*(IELTS|FIGHTER)\s*(\d+)\s*_\s*THEO DÕI TOÀN DIỆN\s*$", unicodedata.normalize("NFC", f["name"]), re.I)
             if m:
                 name = f"{m.group(1).upper()} {int(m.group(2))}"
-                if name not in self.cfg["classes"]:
+                if name not in self.cfg["classes"] and name not in self.cfg.get("excludeClasses", []):
                     self.cfg["classes"][name] = f["id"]
                     found += 1
         if found:
@@ -746,6 +751,7 @@ def main():
     state = load_json(STATE_DIR / "state.json", {"subs": {}, "batches": {}})
     g = Google(json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"]))
     run = Runner(g, cfg, state)
+    run.drop_excluded()
     approve = os.environ.get("APPROVE", "").strip()
     approve = "all" if approve == "all" else {x.strip() for x in approve.split(",") if x.strip()}
     try:
