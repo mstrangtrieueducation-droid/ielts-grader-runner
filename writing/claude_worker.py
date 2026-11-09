@@ -544,7 +544,7 @@ def process(spec, model=DEFAULT_MODEL, max_tokens=24000, thinking=0, repair=1, f
             attempt += 1
             resp = repair_call(cl or client(), params, resp, last_err, out, model, spec.get("category"))
     # gói tiết kiệm còn nghi ngờ → KHÔNG niêm phong, tự chấm lại ở ảnh nét đầy đủ (gọi ngay, không batch)
-    if want_json and profile_of(spec) == "lite" and not full_pass:
+    if want_json and profile_of(spec) == "lite" and not full_pass and not spec.get("acceptDoubts"):
         why = notebook_doubts(read_json(draft))
         if why:
             write_json(side(out, "doubt"), {"at": now_iso(), "reasons": why, "maxSide": meta["maxSide"]})

@@ -448,6 +448,12 @@ class Runner:
                 "kind": "notebook" if step == "notebook" else "essay",
                 "category": f"{sub['className']} · {'Kiểm tra vở' if step == 'notebook' else a.get('essayLabel', 'Bài viết')} · "
                             + sub["assignment"].split("-")[-1]}
+        # sharp recheck of doubtful notebooks goes through the next BATCH (half price), never an immediate full-price call
+        spec["autoEscalate"] = False
+        if sub.get("sharp") == "yes":
+            spec.update(profile="full", escalatedFrom="lite")
+        elif sub.get("sharp") == "done":
+            spec["acceptDoubts"] = True
         if step != "notebook" and deadline:
             spec["deadline"] = deadline.strftime("%d/%m/%Y %H:%M:%S")
         return spec, job
@@ -481,7 +487,16 @@ class Runner:
             model = (self.cfg.get("escalationModel") or base) if s.get("tries", 0) >= MAX_TRIES - 1 else base
             try:
                 spec, _ = self.prepare(k, s, step)
-                params, _ = cw.build_params(spec, model, 24000, 0)
+                try:
+                    params, _ = cw.build_params(spec, model, 24000, 0)
+                except RuntimeError as e:
+                    if "TOO_LARGE" not in str(e) or s.get("sharp") != "yes":
+                        raise
+                    s["sharp"] = "done"          # too many pages for a sharp request: accept the readable result
+                    spec, _ = self.prepare(k, s, step)
+                    params, _ = cw.build_params(spec, model, 24000, 0)
+                if s.get("sharp") == "yes":
+                    s["sharp"] = "done"
             except Exception as e:
                 s.update(status="error", error=f"prepare:{type(e).__name__}"[:120], errStep=step)
                 self.tick("error")
@@ -547,6 +562,10 @@ class Runner:
             del batches[bid]
 
     def finish(self, k, s, step, r, spec, job):
+        if r.get("state") == "needs_full_recheck" and step == "notebook" and not s.get("sharp"):
+            s.update(status="new", sharp="yes")     # regraded once at full sharpness in the next batch
+            self.tick("sharp_recheck_next_batch")
+            return
         if r.get("state") not in ("written", "written_after_full_recheck"):
             if s.get("tries", 0) < MAX_TRIES - 1:   # regrade next cycle (last try on the stronger model)
                 s.update(tries=s.get("tries", 0) + 1, status="essay_new" if step == "essay" else "new",
