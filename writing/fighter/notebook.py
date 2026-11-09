@@ -652,7 +652,7 @@ class FighterNotebooks:
                 except Exception as e:
                     s["tries"] = s.get("tries", 0) + 1
                     s["error"] = type(e).__name__
-                    self.tick("error_" + type(e).__name__ + ("_" + str(e)[:40] if isinstance(e, RuntimeError) else ""))
+                    self.tick("error_" + type(e).__name__ + (f"_{str(e)[:40]}[{s['code']}]" if isinstance(e, RuntimeError) else ""))
                     if s["tries"] >= 6:   # our side failing (Drive access, API): never blame the pupil, keep it for a fix
                         s["status"] = "held_error"
         for sid, s in subs.items():   # publish (graded earlier or just now)
