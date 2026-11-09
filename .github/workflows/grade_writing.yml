@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: cycle = grade new work · publish = only write approved results · audit = count only
+        description: cycle = grade new work · publish = only write approved results · audit = count only · fetch = download Drive files (IDs in approve) for a trial
         type: choice
-        options: [cycle, publish, audit]
+        options: [cycle, publish, audit, fetch]
         default: cycle
       approve:
         description: "Approve results for the tracker: all, or comma-separated keys (empty = none)"
@@ -60,9 +60,20 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           WRITING_BUNDLE_KEY: ${{ secrets.WRITING_BUNDLE_KEY }}
-        run: python writing/run_writing.py
+        run: |
+          if [ "$MODE" = fetch ]; then python writing/fetch.py; else python writing/run_writing.py; fi
+      - name: Save fetched files (encrypted)
+        if: env.MODE == 'fetch' && env.HAS_KEYS == 'true'
+        env:
+          WRITING_BUNDLE_KEY: ${{ secrets.WRITING_BUNDLE_KEY }}
+        run: |
+          python writing/vault.py pack "$RUNTIME_DIR/fetch" "$RUNTIME_DIR/fetch.enc"
+          tmp=$(mktemp -d); cp "$RUNTIME_DIR/fetch.enc" "$tmp/"; cd "$tmp"
+          git init -q -b writing-fetch && git add fetch.enc
+          git -c user.name=writing-runner -c user.email=writing-runner@users.noreply.github.com commit -qm "fetch"
+          git push -fq "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" writing-fetch
       - name: Save encrypted state
-        if: always() && env.HAS_KEYS == 'true'
+        if: always() && env.HAS_KEYS == 'true' && env.MODE != 'fetch'
         env:
           WRITING_BUNDLE_KEY: ${{ secrets.WRITING_BUNDLE_KEY }}
         run: |
