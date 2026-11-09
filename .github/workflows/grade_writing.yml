@@ -1,0 +1,74 @@
+name: Grade Writing (Claude)
+run-name: Writing ${{ inputs.mode || 'cycle' }}
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: cycle = grade new work · publish = only write approved results · audit = count only
+        type: choice
+        options: [cycle, publish, audit]
+        default: cycle
+      approve:
+        description: "Approve results for the tracker: all, or comma-separated keys (empty = none)"
+        required: false
+        default: ''
+  schedule:
+    - cron: '17 0-15/3 * * *'   # 07:17 → 22:17 Vietnam time, every 3 hours
+permissions:
+  contents: write
+concurrency:
+  group: writing-single-writer
+  cancel-in-progress: false
+jobs:
+  writing:
+    if: github.repository == 'mstrangtrieueducation-droid/ielts-grader-runner'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      MODE: ${{ inputs.mode || 'cycle' }}
+      APPROVE: ${{ inputs.approve }}
+      RUNTIME_DIR: ${{ github.workspace }}/.runtime/writing
+      HAS_KEYS: ${{ secrets.ANTHROPIC_API_KEY != '' && secrets.WRITING_BUNDLE_KEY != '' }}
+    steps:
+      - name: Wait for setup
+        if: env.HAS_KEYS != 'true'
+        run: echo "Writing runner not configured yet (missing ANTHROPIC_API_KEY or WRITING_BUNDLE_KEY)." >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        if: env.HAS_KEYS == 'true'
+      - name: Install
+        if: env.HAS_KEYS == 'true'
+        run: |
+          python3 -m venv .venv && echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          .venv/bin/pip install --quiet -r writing/requirements.txt
+      - name: Offline tests
+        if: env.HAS_KEYS == 'true'
+        run: python writing/tests_offline.py
+      - name: Restore encrypted state
+        if: env.HAS_KEYS == 'true'
+        env:
+          WRITING_BUNDLE_KEY: ${{ secrets.WRITING_BUNDLE_KEY }}
+        run: |
+          mkdir -p "$RUNTIME_DIR"
+          python writing/vault.py unpack writing/bundle.enc "$RUNTIME_DIR/bundle"
+          if git fetch --depth 1 origin writing-state 2>/dev/null; then
+            git show origin/writing-state:state.enc > "$RUNTIME_DIR/state.enc"
+            python writing/vault.py unpack "$RUNTIME_DIR/state.enc" "$RUNTIME_DIR/state"
+          fi
+      - name: Run
+        if: env.HAS_KEYS == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          WRITING_BUNDLE_KEY: ${{ secrets.WRITING_BUNDLE_KEY }}
+        run: python writing/run_writing.py
+      - name: Save encrypted state
+        if: always() && env.HAS_KEYS == 'true'
+        env:
+          WRITING_BUNDLE_KEY: ${{ secrets.WRITING_BUNDLE_KEY }}
+        run: |
+          [ -d "$RUNTIME_DIR/state" ] || exit 0
+          python writing/vault.py pack "$RUNTIME_DIR/state" "$RUNTIME_DIR/state.enc"
+          tmp=$(mktemp -d); cp "$RUNTIME_DIR/state.enc" "$tmp/"; cd "$tmp"
+          git init -q -b writing-state && git add state.enc
+          git -c user.name=writing-runner -c user.email=writing-runner@users.noreply.github.com commit -qm "state"
+          git push -fq "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" writing-state
