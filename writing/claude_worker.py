@@ -403,7 +403,9 @@ def build_params(spec, model, max_tokens, thinking):
     if spec.get("schema"):
         # Model mới (Sonnet/Opus 5.5) không nhận tool_choice ép buộc → dùng structured outputs.
         params["output_config"] = {"format": {"type": "json_schema", "schema": api_schema(spec["schema"])}}
-    if thinking:
+    if thinking == "off":   # no reasoning pass: the costly part of the output for routine checks
+        params["thinking"] = {"type": "disabled"} if "haiku" in model else {"type": "between_tools"}
+    elif thinking:
         params["thinking"] = {"type": "enabled", "budget_tokens": int(thinking)}
     meta = {"workerInputSha256": sha(wi.read_bytes()), "media": [str(p) for p in media],
             "profile": profile_of(spec), "maxSide": side_for(spec),

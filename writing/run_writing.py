@@ -543,6 +543,33 @@ class Runner:
                      publishedAt=now().isoformat(), hold=None)
             self.tick("published")
 
+    # ---------------- shadow comparison (no tracker writes, no status changes)
+    def shadow(self, model, think="off", limit=120):
+        """Regrade notebooks already graded by the main model with a cheaper setting and record agreement."""
+        import concurrent.futures as cf
+        sh = self.state.setdefault("shadow", {})
+        todo = [(k, s) for k, s in self.state.get("subs", {}).items()
+                if s["status"] in ("graded", "published") and s.get("verdict") in ("Đạt", "Cần bổ sung")
+                and not s.get("fallback") and f"{k}|{model}|{think}" not in sh][:limit]
+        cl = cw.client()
+
+        def one(item):
+            k, s = item
+            spec, _ = self.prepare(k, s, "notebook")
+            spec["output"] = str(Path(spec["output"]).with_name(f"shadow-{h(model + think, 6)}.json"))
+            spec["category"] = "THỬ SO SÁNH · " + spec["category"]
+            r = cw.process(spec, model, 8000, think, 1, cl=cl)
+            if r.get("state") not in ("written", "written_after_full_recheck"):
+                return k, {"verdict": None, "state": r.get("state")}
+            res = json.loads(Path(spec["output"]).read_text(encoding="utf-8"))
+            return k, {"verdict": res.get("verdict"), "overall": res.get("overall", "")}
+
+        with cf.ThreadPoolExecutor(6) as ex:
+            for k, res in ex.map(one, todo):
+                s = self.state["subs"][k]
+                sh[f"{k}|{model}|{think}"] = {**res, "main": s.get("verdict"), "at": now().isoformat()}
+                self.tick("shadow_same" if res.get("verdict") == s.get("verdict") else "shadow_diff")
+
     # ---------------- review list (encrypted with the state; read by the teacher's session)
     def review(self):
         items = [{"key": k, **{f: s.get(f) for f in ("assignment", "className", "student", "submittedAt", "verdict", "fallback",
@@ -571,6 +598,8 @@ def main():
             run.publish(approve)
         if mode == "audit":
             run.scan()
+        if mode == "shadow":
+            run.shadow(os.environ.get("SHADOW_MODEL") or "claude-haiku-5-5", os.environ.get("SHADOW_THINK") or "off")
     finally:
         save_json(STATE_DIR / "state.json", state)
         run.review()
