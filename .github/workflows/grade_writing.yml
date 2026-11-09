@@ -74,6 +74,12 @@ jobs:
             (cd "$tmp" && git init -q -b writing-state && git add state.enc \
               && git -c user.name=writing-runner -c user.email=writing-runner@users.noreply.github.com commit -qm "state" \
               && git push -fq "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}" writing-state)
+            if [ -f "$RUNTIME_DIR/state/dashboard-assignments.json" ]; then   # public week list for the parent pages (no pupil data)
+              pub=$(mktemp -d); cp "$RUNTIME_DIR/state/dashboard-assignments.json" "$pub/"
+              (cd "$pub" && git init -q -b writing-dashboard && git add dashboard-assignments.json \
+                && git -c user.name=writing-runner -c user.email=writing-runner@users.noreply.github.com commit -qm "weeks" \
+                && git push -fq "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}" writing-dashboard) || true
+            fi
           }
           if [ "$MODE" = fetch ]; then python writing/fetch.py
           elif [ "$MODE" = loop ]; then
@@ -127,3 +133,9 @@ jobs:
           git init -q -b writing-state && git add state.enc
           git -c user.name=writing-runner -c user.email=writing-runner@users.noreply.github.com commit -qm "state"
           git push -fq "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" writing-state
+          if [ -f "$RUNTIME_DIR/state/dashboard-assignments.json" ]; then
+            pub=$(mktemp -d); cp "$RUNTIME_DIR/state/dashboard-assignments.json" "$pub/"; cd "$pub"
+            git init -q -b writing-dashboard && git add dashboard-assignments.json
+            git -c user.name=writing-runner -c user.email=writing-runner@users.noreply.github.com commit -qm "weeks"
+            git push -fq "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" writing-dashboard || true
+          fi

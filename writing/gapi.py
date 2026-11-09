@@ -88,6 +88,23 @@ class Google:
                + urllib.parse.quote(rng, safe="") + "?valueInputOption=RAW")
         return self._req(url, "PUT", {"range": rng, "values": [[text]]})
 
+    def append_rows(self, sheet_id, tab, rows):
+        """Append literal string rows (RAW, never formulas) after the table's last row."""
+        rng = f"'{tab}'!A1"
+        url = (f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}/values/"
+               + urllib.parse.quote(rng, safe="") + ":append?valueInputOption=RAW&insertDataOption=INSERT_ROWS")
+        return self._req(url, "POST", {"range": rng, "majorDimension": "ROWS", "values": rows}, retries=1)
+
+    def add_hidden_sheet(self, sheet_id, title, headers):
+        self._req(f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}:batchUpdate", "POST",
+                  {"requests": [{"addSheet": {"properties": {"title": title, "hidden": True,
+                                                             "gridProperties": {"rowCount": 200, "columnCount": len(headers)}}}}]},
+                  retries=1)
+        rng = f"'{title}'!A1"
+        url = (f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}/values/"
+               + urllib.parse.quote(rng, safe="") + "?valueInputOption=RAW")
+        self._req(url, "PUT", {"range": rng, "values": [headers]})
+
     def sheet_titles(self, sheet_id):
         r = self._req(f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}?fields=sheets.properties.title")
         return [x["properties"]["title"] for x in r.get("sheets", [])]

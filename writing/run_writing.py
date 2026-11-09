@@ -766,6 +766,12 @@ def main():
                 run.tick(f"scan_failed_{type(e).__name__}")
         if mode in ("cycle", "publish"):
             run.publish(approve)
+            if run.auto_publish():
+                try:   # parent dashboard: bài chữa + kết quả vở (only what is already on the tracker)
+                    import dashboard
+                    dashboard.Dashboard(run).run()
+                except Exception as e:
+                    run.tick(f"dash_failed_{type(e).__name__}")
         if mode == "audit":
             run.scan()
         if mode == "scan":   # paper tests from the scan folder (trial: APPROVE = file IDs to grade now)
