@@ -6,7 +6,7 @@ on:
       mode:
         description: cycle = grade new work · publish = only write approved results · audit = count only · fetch = download Drive files (IDs in approve) for a trial · shadow = regrade graded notebooks with a cheaper model (approve = model name)
         type: choice
-        options: [cycle, publish, audit, fetch, shadow]
+        options: [cycle, publish, audit, fetch, shadow, scan]
         default: cycle
       approve:
         description: "Approve results for the tracker: all, or comma-separated keys (empty = none)"

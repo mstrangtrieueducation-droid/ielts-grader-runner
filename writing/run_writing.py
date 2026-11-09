@@ -598,6 +598,11 @@ def main():
             run.publish(approve)
         if mode == "audit":
             run.scan()
+        if mode == "scan":   # paper tests from the scan folder (trial: APPROVE = file IDs to grade now)
+            import scans
+            run.discover_classes()
+            only = {x.strip() for x in os.environ.get("APPROVE", "").split(",") if x.strip()} or None
+            scans.run(run, only=only)
         if mode == "shadow":
             run.shadow(os.environ.get("SHADOW_MODEL") or "claude-haiku-5-5", os.environ.get("SHADOW_THINK") or "off")
     finally:
