@@ -130,8 +130,18 @@ class Tracker:
     def rows(self):
         if self._names is None:
             vals = self.g.values(self.id, f"'{self.tab}'!B1:B200")
-            self._names = {norm(r[0]): n + 1 for n, r in enumerate(vals) if r and r[0].strip()}
+            # the name is the first line; staff sometimes add notes below it ("new 31/10/2026")
+            self._names = {norm(r[0].strip().split("\n")[0]): n + 1 for n, r in enumerate(vals) if r and r[0].strip()}
         return self._names
+
+    def row_of(self, name):
+        """Exact name first; otherwise a unique match ignoring diacritics (form typos like CỒNG ↔ CÔNG)."""
+        rows = self.rows()
+        if name in rows:
+            return rows[name]
+        bare = lambda s: "".join(c for c in unicodedata.normalize("NFD", s) if not unicodedata.combining(c)).replace("Đ", "D")
+        hits = [r for n, r in rows.items() if bare(n) == bare(name)]
+        return hits[0] if len(hits) == 1 else None
 
     def cell(self, a1):  # live read: used only right before / after a write
         v = self.g.values(self.id, f"'{self.tab}'!{a1}")
@@ -259,7 +269,7 @@ class Runner:
     def existing_comment(self, cls, code, name):
         tr = self.tracker(cls)
         col, _ = tr.column(code)
-        row = tr.rows().get(name)
+        row = tr.row_of(name)
         if not col or not row:
             return False
         cur = tr.cached(col, row)
@@ -414,14 +424,17 @@ class Runner:
     # ---------------- publish
     def publish(self, approve):
         for k, s in self.state.get("subs", {}).items():
-            if s["status"] != "graded":
+            retry = (s["status"] == "held" and s.get("approved")
+                     and s.get("hold") in ("tracker_cell_not_found", "status_prefix_not_ready"))
+            if s["status"] != "graded" and not retry:
                 continue
-            if not (self.cfg.get("autoPublish") or approve == "all" or k in approve):
+            if not (retry or self.cfg.get("autoPublish") or approve == "all" or k in approve):
                 self.tick("awaiting_review")
                 continue
+            s["approved"] = True  # approval sticks: a held item is retried each cycle until its cell is ready
             tr = self.tracker(s["className"])
             col, _ = tr.column(s["assignment"])
-            row = tr.rows().get(s["student"])
+            row = tr.row_of(s["student"])
             if not col or not row:
                 s.update(status="held", hold="tracker_cell_not_found")
                 self.tick("held")
