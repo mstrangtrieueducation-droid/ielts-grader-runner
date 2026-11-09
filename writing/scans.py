@@ -293,14 +293,22 @@ class Scans:
         qa["quotesNotFound"] = [x["quote"] for x in items if x["quote"] not in t]
         rev = res.get("revision") or ""
         qa["revisionWords"] = words(rev)
-        qa["bannedInRevision"] = sorted({m.group(0) for m in BANNED_FIGHTER.finditer(rev)})
+        allowed = re.sub(r"(?i)not only\b.*?\bbut also|last but not least|but also", " ", rev)
+        qa["bannedInRevision"] = sorted({m.group(0).lower() for m in BANNED_FIGHTER.finditer(allowed)})
         openings = [" ".join(x["explanation"].split()[:4]).lower() for x in items]
         qa["repeatedOpenings"] = sorted({o for o in openings if openings.count(o) > 2})
         s2 = sum(1 for e in items if e["severity"] == "S2")
         s3 = sum(1 for e in items if e["severity"] == "S3")
         level = 3 if s2 >= 6 or s3 >= 2 else 2 if s2 >= 3 or s3 == 1 else 1
         qa["level"] = level
-        qa["levelMismatch"] = ("Bài làm rất ẩu" in res.get("overall", "")) != (level == 3)
+        harsh = "Bài làm rất ẩu. Em chưa kiểm tra và tự sửa bài cẩn thận."
+        ov = res.get("overall", "")
+        if level == 3 and "Bài làm rất ẩu" not in ov:      # Mức is decided by the error counts (rulebook §11)
+            res["overall"] = harsh + " " + ov
+            qa["levelAdjusted"] = "added"
+        elif level < 3 and "Bài làm rất ẩu" in ov:
+            res["overall"] = re.sub(r"Bài làm rất ẩu\.\s*(Em chưa kiểm tra và tự sửa bài cẩn thận\.\s*)?(Cô không chấp nhận[^.]*\.\s*)?", "", ov).strip()
+            qa["levelAdjusted"] = "removed"
         if res.get("score"):
             qa["scoreSumOK"] = abs(sum(c["diem"] for c in res["score"]["tieuChi"]) - res["score"]["tong"]) < 1e-6
         res["_qa"] = qa
@@ -322,6 +330,10 @@ def run(runner, only=None, limit_files=None):
     try:
         sc.collect()
         sc.discover()
+        for fid in (only or []):   # trial re-run of a named file
+            rec = sc.st["files"].get(fid)
+            if rec and rec["status"] == "graded" and runner.cfg.get("scanRegrade") == fid:
+                rec.update(status="new", students={})
         if only:  # trial: grade only the named file(s); everything else waits
             for fid, rec in sc.st["files"].items():
                 if rec["status"] == "new" and fid not in only:
