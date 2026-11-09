@@ -62,6 +62,23 @@ def parse_vn_time(s):
     return None
 
 
+def to_jpeg(data: bytes) -> bytes:
+    """Any photo format the form accepts (JPEG, PNG, HEIC/HEIF, WebP…) → JPEG bytes."""
+    if data[:3] == b"\xff\xd8\xff":
+        return data
+    import io
+    from PIL import Image, ImageOps
+    try:
+        import pillow_heif
+        pillow_heif.register_heif_opener()
+    except ImportError:
+        pass
+    im = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
+    out = io.BytesIO()
+    im.save(out, "JPEG", quality=90)
+    return out.getvalue()
+
+
 def file_id(url):
     m = re.search(r"(?:id=|/d/)([A-Za-z0-9_-]{20,})", str(url or ""))
     return m.group(1) if m else None
@@ -282,8 +299,9 @@ class Runner:
             p = d / f"file-{i:02d}.pdf"
             if not p.exists():
                 data = self.g.download(f)
-                if data[:4] != b"%PDF":  # Form uploads may be images
+                if data[:4] != b"%PDF":  # Form uploads may be images (iPhone photos arrive as HEIC)
                     p = d / f"file-{i:02d}.jpg"
+                    data = to_jpeg(data)
                 p.write_bytes(data)
             paths.append(p)
             pages += fitz.open(p).page_count if p.suffix == ".pdf" else 1
@@ -318,6 +336,10 @@ class Runner:
 
     # ---------------- batch submit / collect
     def submit(self):
+        for s in self.state.get("subs", {}).values():  # retry download/convert failures a few times
+            if s["status"] == "error" and str(s.get("error", "")).startswith("prepare:") and s.get("tries", 0) < 3:
+                s["tries"] = s.get("tries", 0) + 1
+                s["status"] = s.get("errStep") == "essay" and "essay_new" or "new"
         todo = [(k, s) for k, s in self.state.get("subs", {}).items() if s["status"] in ("new", "essay_new")]
         if not todo:
             return
@@ -329,7 +351,7 @@ class Runner:
                 spec, _ = self.prepare(k, s, step)
                 params, _ = cw.build_params(spec, model, 24000, 0)
             except Exception as e:
-                s.update(status="error", error=f"prepare:{type(e).__name__}"[:120])
+                s.update(status="error", error=f"prepare:{type(e).__name__}"[:120], errStep=step)
                 self.tick("error")
                 continue
             cid = h(k + step + s["sig"], 40)

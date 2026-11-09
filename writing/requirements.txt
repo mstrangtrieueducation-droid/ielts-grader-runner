@@ -3,3 +3,4 @@ pymupdf>=1.24
 pillow>=10
 jsonschema>=4
 cryptography>=45,<47
+pillow-heif>=0.18
