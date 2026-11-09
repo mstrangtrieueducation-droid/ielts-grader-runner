@@ -6,7 +6,7 @@ on:
       mode:
         description: loop = keep grading every 25 min for ~5 h then hand over to the next loop · cycle = grade new work once · publish = only write approved results · audit = count only · fetch = download Drive files (IDs in approve) for a trial · shadow = regrade graded notebooks with a cheaper model (approve = model name)
         type: choice
-        options: [loop, cycle, publish, audit, fetch, shadow, scan]
+        options: [loop, cycle, publish, audit, fetch, shadow, scan, report]
         default: cycle
       approve:
         description: "Approve results for the tracker: all, or comma-separated keys (empty = none)"
@@ -21,6 +21,7 @@ on:
 permissions:
   contents: write
   actions: write
+  issues: write
 concurrency:
   group: writing-single-writer
   cancel-in-progress: false

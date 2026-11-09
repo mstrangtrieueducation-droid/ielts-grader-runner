@@ -772,6 +772,12 @@ def main():
                     dashboard.Dashboard(run).run()
                 except Exception as e:
                     run.tick(f"dash_failed_{type(e).__name__}")
+        if mode in ("cycle", "report"):
+            try:   # digest for Cô (counts only) as a GitHub issue comment → e-mail
+                import report
+                report.maybe_send(run, load_json(STATE_DIR / "scans.json", {}), force=(mode == "report"))
+            except Exception as e:
+                run.tick(f"report_failed_{type(e).__name__}")
         if mode == "audit":
             run.scan()
         if mode == "scan":   # paper tests from the scan folder (trial: APPROVE = file IDs to grade now)
