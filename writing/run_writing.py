@@ -422,13 +422,20 @@ class Runner:
             self.tick("graded_essay")
 
     # ---------------- publish
+    def auto_publish(self):
+        """autoPublish, or autoPublishFrom (DD/MM/YYYY, Vietnam time) once that day has come."""
+        if self.cfg.get("autoPublish"):
+            return True
+        start = parse_vn_time(self.cfg.get("autoPublishFrom", "") + " 00:00:00") if self.cfg.get("autoPublishFrom") else None
+        return bool(start and now() >= start)
+
     def publish(self, approve):
         for k, s in self.state.get("subs", {}).items():
             retry = (s["status"] == "held" and (s.get("approved") or approve == "all" or k in approve)
                      and s.get("hold") in ("tracker_cell_not_found", "status_prefix_not_ready"))
             if s["status"] != "graded" and not retry:
                 continue
-            if not (retry or self.cfg.get("autoPublish") or approve == "all" or k in approve):
+            if not (retry or self.auto_publish() or approve == "all" or k in approve):
                 self.tick("awaiting_review")
                 continue
             s["approved"] = True  # approval sticks: a held item is retried each cycle until its cell is ready
