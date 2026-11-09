@@ -35,13 +35,14 @@ FIGHTER_SCHEMA = obj({
     "overall": S, "revision": S,
     "score": {"anyOf": [{"type": "null"}, obj({"tieuChi": ARR(obj({"ten": S, "diem": N, "bangChung": S})), "tong": N})]},
     "doubts": ARR(S)})
-IELTS_SCHEMA = obj({
-    "transcript": S, "transcriptionNote": S, "taskSeen": S,
-    "criteria": obj({k: obj({"band": {"type": "integer"}, "reason": S, "whyNotHigher": S}) for k in ("TA", "CC", "LR", "GRA")}),
+IELTS_TASK = obj({
+    "task": {"type": "integer"}, "transcript": S, "transcriptionNote": S, "taskSeen": S,
+    "criteria": obj({k: obj({"band": {"type": "integer"}, "reason": S, "whyNotHigher": S}) for k in ("TA_TR", "CC", "LR", "GRA")}),
     "annotations": ARR(obj({"group": {"type": "string", "enum": ["vocab", "grammar", "coherence"]},
                             "kind": {"type": "string", "enum": ["error", "practice", "suggestion"]},
                             "label": S, "quote": S, "replacement": S, "explanation": S})),
-    "overall": S, "revisedText": S, "doubts": ARR(S)})
+    "overall": S, "revisedText": S})
+IELTS_SCHEMA = obj({"tasks": ARR(IELTS_TASK), "doubts": ARR(S)})
 
 
 def words(t):
@@ -68,8 +69,11 @@ def pack_for(meta):
     if meta["cls"].startswith("FIGHTER"):
         return {"pack": "TEST-FIGHTER", "item": f"KT{meta['n']:02d}", "mode": "1-diem", "schema": "fighter"}
     if meta["n"] == 1 and meta["task"] in (None, 1):
-        return {"pack": "TEST-IELTS-L1", "item": None, "mode": "ielts", "schema": "ielts", "task": 1}
-    return None
+        return {"pack": "TEST-IELTS-L1", "item": None, "mode": "ielts", "schema": "ielts", "tasks": [1]}
+    if meta["n"] in (3, 4):   # full tests: one PDF with both tasks, or one PDF per task
+        return {"pack": f"TEST-IELTS-L{meta['n']}", "item": None, "mode": "ielts", "schema": "ielts",
+                "tasks": [meta["task"]] if meta["task"] else [1, 2]}
+    return None   # lần 2 (Mix + Map) waits for its pack
 
 
 def jpeg(page, side, clip=None):
@@ -112,6 +116,9 @@ class Scans:
                 continue
             old = self.st["files"].get(f["id"])
             if old and old.get("modified") == f.get("modifiedTime"):
+                if old["status"] == "no_pack" and old.get("meta") and pack_for(old["meta"]):
+                    old["status"] = "new"   # its pack has been added since
+                    self.tick("new")
                 continue
             meta = parse_name(f["name"])
             rec = {"title": f["name"], "modified": f.get("modifiedTime"), "meta": meta, "students": {},
@@ -195,12 +202,15 @@ class Scans:
             return (f"Bài kiểm tra tự viết {spec['item']} — chủ đề {kt['topic']}. Chế độ: 1-điểm (mục 13).\n"
                     f"Đề: {kt['prompt']}\nĐộ dài: 140–160 từ; 161–170 chấp nhận; dưới 140 cần phát triển; trên 170 cần rút gọn.\n"
                     "Outline/bài mẫu riêng của đề này chưa có trong nguồn: không bắt em phải có ý của bài mẫu.")
-        return "Kiểm tra Writing lần 1 — Task 1 Có trend (pack Renewable energy). Ảnh đầu tiên là đề và biểu đồ."
+        n = spec["pack"][-1]
+        which = " và ".join(f"Task {t}" for t in spec["tasks"])
+        return (f"Kiểm tra Writing lần {n}. Chấm {which} có trong ảnh bài làm (mỗi Task một mục trong `tasks`). "
+                "Ảnh đầu tiên là đề và biểu đồ Task 1. Task 1 tối thiểu 150 từ, Task 2 tối thiểu 250 từ.")
 
     def reference_blocks(self, spec):
-        if spec["pack"] != "TEST-IELTS-L1":
+        if not spec["pack"].startswith("TEST-IELTS"):
             return []
-        q = base64.b64encode((BUNDLE / "packs/TEST-IELTS-L1/question.png").read_bytes()).decode()
+        q = base64.b64encode((BUNDLE / "packs" / spec["pack"] / "question.png").read_bytes()).decode()
         return [{"type": "text", "text": "ĐỀ VÀ BIỂU ĐỒ:"},
                 {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": q},
                  "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
@@ -262,28 +272,37 @@ class Scans:
     def checks(self, rec, res):
         """Free checks done by code: word counts, quotes really in the transcript, banned forms, class score."""
         spec = pack_for(rec["meta"])
+        if spec["schema"] == "ielts":
+            import calculate_class_score as ccs
+            for t in res.get("tasks", []):
+                qa = {"words": words(t["transcript"]), "revisionWords": words(t.get("revisedText", ""))}
+                qa["quotesNotFound"] = [x["quote"] for x in t["annotations"] if x["quote"] not in t["transcript"]]
+                qa["bannedInRevision"] = sorted({m.group(0) for m in BANNED_IELTS.finditer(t.get("revisedText", ""))})
+                op = [" ".join(x["explanation"].split()[:4]).lower() for x in t["annotations"]]
+                qa["repeatedOpenings"] = sorted({o for o in op if op.count(o) > 2})
+                bands = [t["criteria"][k]["band"] for k in ("TA_TR", "CC", "LR", "GRA")]
+                qa["classScore"] = ccs.calculate(t["task"] if t["task"] in (1, 2) else 1, qa["words"], bands)
+                t["_qa"] = qa
+            sc = {t["task"]: t["_qa"]["classScore"]["classAssessment"]["overallBand"] for t in res.get("tasks", [])}
+            if 1 in sc and 2 in sc:   # full test: Task 2 counts double (rounded to the nearest half band)
+                res["_overall"] = round(((sc[1] + 2 * sc[2]) / 3) * 2 + 1e-9) / 2
+            return res
         t = res.get("transcript", "")
         qa = {"words": words(t)}
-        items = res.get("errors") or res.get("annotations") or []
+        items = res.get("errors") or []
         qa["quotesNotFound"] = [x["quote"] for x in items if x["quote"] not in t]
-        rev = res.get("revision") or res.get("revisedText") or ""
+        rev = res.get("revision") or ""
         qa["revisionWords"] = words(rev)
-        qa["bannedInRevision"] = sorted({m.group(0) for m in (BANNED_FIGHTER if spec["schema"] == "fighter" else BANNED_IELTS).finditer(rev)})
+        qa["bannedInRevision"] = sorted({m.group(0) for m in BANNED_FIGHTER.finditer(rev)})
         openings = [" ".join(x["explanation"].split()[:4]).lower() for x in items]
         qa["repeatedOpenings"] = sorted({o for o in openings if openings.count(o) > 2})
-        if spec["schema"] == "fighter":
-            s2 = sum(1 for e in res.get("errors", []) if e["severity"] == "S2")
-            s3 = sum(1 for e in res.get("errors", []) if e["severity"] == "S3")
-            level = 3 if s2 >= 6 or s3 >= 2 else 2 if s2 >= 3 or s3 == 1 else 1
-            harsh = "Bài làm rất ẩu" in res.get("overall", "")
-            qa["level"] = level
-            qa["levelMismatch"] = harsh != (level == 3)
-            if res.get("score"):
-                qa["scoreSumOK"] = abs(sum(c["diem"] for c in res["score"]["tieuChi"]) - res["score"]["tong"]) < 1e-6
-        else:
-            import calculate_class_score as ccs
-            bands = [res["criteria"][k]["band"] for k in ("TA", "CC", "LR", "GRA")]
-            qa["classScore"] = ccs.calculate(spec.get("task", 1), qa["words"], bands)
+        s2 = sum(1 for e in items if e["severity"] == "S2")
+        s3 = sum(1 for e in items if e["severity"] == "S3")
+        level = 3 if s2 >= 6 or s3 >= 2 else 2 if s2 >= 3 or s3 == 1 else 1
+        qa["level"] = level
+        qa["levelMismatch"] = ("Bài làm rất ẩu" in res.get("overall", "")) != (level == 3)
+        if res.get("score"):
+            qa["scoreSumOK"] = abs(sum(c["diem"] for c in res["score"]["tieuChi"]) - res["score"]["tong"]) < 1e-6
         res["_qa"] = qa
         return res
 
