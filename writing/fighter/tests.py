@@ -52,5 +52,7 @@ res = dict(nb.score(u, part), kind="scored", video="ok", videoSecs=60, meaningOf
 txt, ok = f.comment(s, res, 0); assert not ok and "Thiếu 4 từ" in txt and "Nghĩa tiếng Anh" in txt, txt
 print(txt); print("---")
 txt, ok = f.comment(s, dict(nb.score(u, full), kind="scored", video="ok", videoSecs=60, meaningOff=False), 0); assert ok; print(txt); print("---")
+txt, ok = f.comment(s, dict(nb.score(u, full), kind="scored", video="ok", videoSecs=60, meaningOff=False, messy=True), 0)
+assert not ok and "cẩu thả" in txt, txt
 print(f.comment(s, {"kind": "reused", "reusedFrom": {"code": "VF2-U13"}}, 0)[0])
 print("fighter notebook offline checks: OK")

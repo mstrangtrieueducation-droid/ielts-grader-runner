@@ -40,7 +40,7 @@ MODEL = "claude-haiku-5-5"
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 3              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 4              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 40        # the status system normally marks the cell first; after this we write the status line ourselves
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -52,10 +52,11 @@ CELL = {"type": "string", "enum": ["filled", "empty", "unclear"]}
 SCHEMA = {"type": "object", "additionalProperties": False, "required": ["pages", "entries", "otherTerms", "meaningCheck"],
           "properties": {
               "pages": {"type": "array", "items": {"type": "object", "additionalProperties": False,
-                                                    "required": ["page", "kind", "readable"],
+                                                    "required": ["page", "kind", "readable", "neat"],
                                                     "properties": {"page": I,
                                                                    "kind": {"type": "string", "enum": ["handwritten", "printed_or_screen", "not_a_notebook"]},
-                                                                   "readable": {"type": "string", "enum": ["yes", "partly", "no"]}}}},
+                                                                   "readable": {"type": "string", "enum": ["yes", "partly", "no"]},
+                                                                   "neat": {"type": "string", "enum": ["neat", "acceptable", "messy"]}}}},
               "entries": {"type": "array", "items": {"type": "object", "additionalProperties": False,
                                                       "required": ["n", "term"] + [f for f, _ in FIELDS],
                                                       "properties": dict({"n": I, "term": S}, **{f: CELL for f, _ in FIELDS})}},
@@ -72,7 +73,9 @@ Bài này là {code} ({title}), gồm các mục số {first}–{last}:
 
 Việc cần làm:
 1. pages: với MỖI ảnh bài làm (không tính ảnh mẫu), theo thứ tự 1, 2, 3…: kind = handwritten (chữ viết tay trên sổ/giấy),
-   printed_or_screen (bản in, ảnh chụp màn hình/web, chữ đánh máy), not_a_notebook (ảnh khác); readable = yes / partly / no.
+   printed_or_screen (bản in, ảnh chụp màn hình/web, chữ đánh máy), not_a_notebook (ảnh khác); readable = yes / partly / no;
+   neat = neat (chữ rõ, sạch) / acceptable (bình thường) / messy (chữ quá cẩu thả, nguệch ngoạc, gạch xoá bôi bẩn nhiều,
+   viết lệch dòng lộn xộn — chỉ chọn messy khi thật sự rõ ràng; ảnh mờ do chụp KHÔNG phải messy).
 2. entries: mỗi mục từ em ĐÃ VIẾT trong sổ, một dòng: n = số thứ tự em ghi (nếu em không ghi số, lấy số của từ tương ứng
    trong danh sách trên; nhiều em tự đánh số lại từ 1 — vẫn ghi số em viết), term = từ/cụm từ tiếng Anh em viết (chép nguyên văn). Với từng cột type, ipa, vi, en, example:
    filled = có viết nội dung; empty = để trống; unclear = không nhìn rõ (ảnh mờ, bị cắt, che khuất).
@@ -357,6 +360,7 @@ class FighterNotebooks:
                 p["kind"] = "handwritten"
             if q and "no" in (p["readable"], q["readable"]) and p["readable"] != q["readable"]:
                 p["readable"] = "partly"
+            p["neat"] = "messy" if (q and p.get("neat") == q.get("neat") == "messy") else "ok"   # both reads must agree
         res = {"pages": a.get("pages", []), "entries": a.get("entries", []) + b.get("entries", []),
                "otherTerms": min(a.get("otherTerms", 0), b.get("otherTerms", 0)),
                "meaningCheck": [m for m in a.get("meaningCheck", [])
@@ -373,6 +377,7 @@ class FighterNotebooks:
             out["kind"] = "wrong_unit"
         elif pg and all(p["readable"] == "no" for p in pg):
             out["kind"] = "unreadable"
+        out["messy"] = bool(pg) and sum(p.get("neat") == "messy" for p in pg) * 2 >= len(pg)
         mc = [m for m in res.get("meaningCheck", []) if m["match"] != "unclear"]
         out["meaningOff"] = sum(m["match"] == "no" for m in mc) >= 4
         secs = self.video_seconds(s["video"]) if s.get("video") else "none"
@@ -402,6 +407,8 @@ class FighterNotebooks:
         for f, label in FIELDS:
             if res["empty"][f]:
                 lines.append(f"• Trống cột {label} ở {len(res['empty'][f])} từ: số {ranges(res['empty'][f])}.")
+        if res.get("messy"):
+            lines.append("• Chữ viết cẩu thả, bẩn, khó đọc. Con viết lại cẩn thận, rõ ràng, sạch sẽ, bám sát dòng kẻ.")
         if res.get("meaningOff"):
             lines.append("• Nhiều nghĩa tiếng Việt chép không khớp với từ; con đối chiếu lại với web học.")
         if res["video"] == "none":
@@ -410,10 +417,11 @@ class FighterNotebooks:
             lines.append(f"• Video trả từ quá ngắn ({res['videoSecs']} giây) so với {res['total']} từ; con quay lại đủ các từ.")
         else:
             lines.append("• Video trả từ: đã có.")
-        ok = res["pct"] >= PASS and res["video"] != "none"
+        ok = res["pct"] >= PASS and res["video"] != "none" and not res.get("messy")
         if not ok:
-            lines.append("→ Con bổ sung đủ các từ và các cột còn thiếu, chụp nộp lại trước buổi học tới."
-                         if res["pct"] < PASS else "→ Con quay video trả từ và nộp bổ sung trước buổi học tới.")
+            lines.append("→ Con bổ sung đủ các từ và các cột còn thiếu, chụp nộp lại trước buổi học tới." if res["pct"] < PASS
+                         else "→ Con viết lại sổ cẩn thận và nộp lại trước buổi học tới." if res.get("messy")
+                         else "→ Con quay video trả từ và nộp bổ sung trước buổi học tới.")
         return "\n".join(lines), ok
 
     # ------------------------------------------------------------ main step
