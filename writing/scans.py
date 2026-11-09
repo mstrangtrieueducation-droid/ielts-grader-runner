@@ -368,13 +368,16 @@ class Scans:
             t = unicodedata.normalize("NFC", cell(1, c)).upper()
             if "KIỂM TRA" in t and "VIẾT" in t and re.search(rf"LẦN\s*0*{meta['n']}\b", t):
                 end = next((x for x in range(c + 1, width) if cell(1, x).strip()), width)
-                out, plain = {}, []
+                out, plain, in_viet = {}, [], False
                 for x in range(c, end):
-                    lab = " ".join(cell(r, x) for r in (2, 3)).upper()
-                    m = re.search(r"VIẾT\s*\(?\s*TASK\s*([12])", lab)
-                    if m:
+                    top = unicodedata.normalize("NFC", " ".join(cell(r, x) for r in (2, 3))).upper()
+                    if top.strip():   # a new row-3/4 label starts a new group (ĐỌC, NGHE, VIẾT …); blank = merged
+                        in_viet = bool(re.search(r"\bVIẾT\b", top))
+                    lab = top + " " + unicodedata.normalize("NFC", cell(4, x)).upper()
+                    m = re.search(r"TASK\s*([12])", lab)
+                    if in_viet and m:
                         out[int(m.group(1))] = x
-                    elif re.search(r"\bVIẾT\b", lab):
+                    elif in_viet and re.search(r"\bVIẾT\b", top):
                         plain.append(x)
                 if not out and len(plain) == 1:
                     out = {0: plain[0]}
