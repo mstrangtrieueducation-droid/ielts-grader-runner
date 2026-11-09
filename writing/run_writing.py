@@ -764,7 +764,7 @@ def main():
                 scans.run(run)
             except Exception as e:
                 run.tick(f"scan_failed_{type(e).__name__}")
-        if mode in ("cycle", "fighter"):
+        if mode == "fighter":   # own workflow (fighter_notebooks.yml, every 20 min) with its own state branch
             try:   # Fighter vocabulary notebooks (Haiku reads, code scores, written straight to the tracker)
                 from fighter import notebook as fnb
                 run.discover_classes()

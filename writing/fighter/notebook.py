@@ -20,6 +20,7 @@ import datetime as dt
 import difflib
 import io
 import json
+import os
 import re
 import unicodedata
 from pathlib import Path
@@ -30,7 +31,7 @@ from run_writing import MARK, STATE_DIR, VN, col_letter, file_id, h, load_json, 
 HERE = Path(__file__).resolve().parent
 VOCAB = json.loads((HERE / "vocab.json").read_text(encoding="utf-8"))
 SAMPLE = HERE / "notebook-sample.png"
-STATE = STATE_DIR / "fighter-notebook.json"
+STATE = Path(os.environ.get("FIGHTER_STATE") or (STATE_DIR / "fighter-notebook.json"))
 FORM = "1l02Y7llw4b6QZtcSgbH2bQ0LHARxa74iLwybVGQ_D68"          # sheet "Chấm bài FIGHTER"
 TABS = {"VOCABULARY FOUNDATION 1": "VF1", "VOCABULARY FOUNDATION 2": "VF2",
         "READING 1": "RI1", "READING 2 - TỪ VỰNG": "RI2"}
@@ -474,6 +475,9 @@ class FighterNotebooks:
 
 
 def run(runner):
+    if os.environ.get("FIGHTER_STATE"):
+        cw.LEDGER = STATE.parent / "ledger.jsonl"   # cost ledger kept with the Fighter state
+    STATE.parent.mkdir(parents=True, exist_ok=True)
     fn = FighterNotebooks(runner)
     try:
         fn.run()
