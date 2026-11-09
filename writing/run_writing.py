@@ -35,7 +35,7 @@ BUNDLE = Path(os.environ.get("BUNDLE_DIR", RUNTIME / "bundle"))
 STATE_DIR = Path(os.environ.get("STATE_DIR", RUNTIME / "state"))
 WORK = RUNTIME / "work"
 MARK = "— NHẬN XÉT GV —"
-DONE = ("published", "held", "late_essay", "skipped")
+DONE = ("published", "held", "late_essay", "skipped", "no_tracker_column")
 
 
 # ---------------------------------------------------------------- helpers
@@ -210,14 +210,17 @@ class Runner:
                             files.append(f)
                 sig = h("|".join(files))
                 old = subs.get(key)
-                if old and old.get("sig") == sig:
+                if old and old.get("sig") == sig and not (old.get("status") == "no_tracker_column"
+                                                          and self.tracker(cls).column(a["code"])[0]):
                     continue
                 if old and old.get("status") == "published":
                     self.tick("changed_after_publish")
                 status = "new"
-                if not old and not self.state.get("baselined", {}).get(a["code"]):
+                if not self.tracker(cls).column(a["code"])[0]:
+                    status = "no_tracker_column"   # class tracker has no column for this week: nothing to write to
+                elif not old and not self.state.get("baselined", {}).get(a["code"]):
                     # first sight of this assignment: work already commented by the old pipeline is not regraded
-                    if self.existing_comment(cls, a["code"], name):
+                    if self.existing_comment(cls, a["code"], name) or self.too_old(cls, a["code"]):
                         status = "skipped"
                 subs[key] = {"assignment": a["code"], "className": cls, "student": name, "files": files,
                              "rows": [i["row"] for i in items], "submittedAt": items[-1]["time"],
@@ -234,6 +237,13 @@ class Runner:
             return False
         cur = tr.cell(f"{col}{row}")
         return MARK in cur and bool(cur.split(MARK, 1)[1].strip())
+
+    def too_old(self, cls, code):
+        """Weeks whose deadline passed more than 14 days ago are history: never graded on first sight."""
+        _, deadline = self.tracker(cls).column(code)
+        if deadline:
+            self.note_deadline(code, deadline)
+        return bool(deadline and now() > deadline + dt.timedelta(days=14))
 
     def unconfigured(self):
         # Form tabs for weeks that have no pack yet are reported (count only) so a pack can be prepared.
