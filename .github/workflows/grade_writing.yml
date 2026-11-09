@@ -14,6 +14,10 @@ on:
         default: ''
   schedule:
     - cron: '17 0-15/3 * * *'   # 07:17 → 22:17 Vietnam time, every 3 hours
+    - cron: '47 1,4,7,10,13 * * *'
+  workflow_run:                 # GitHub delays or drops schedules: also run after the speaking controller finishes
+    workflows: ["Continuous IELTS Speaking Queue Controller"]
+    types: [completed]
 permissions:
   contents: write
 concurrency:
