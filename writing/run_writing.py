@@ -239,6 +239,15 @@ class Runner:
     def scan(self):
         subs = self.state.setdefault("subs", {})
         self.discover_classes()
+        done = self.state.setdefault("resetDone", [])
+        for code in self.cfg.get("resetGraded", []):   # pack corrected → unpublished results of that week are regraded once
+            if code in done:
+                continue
+            for s in subs.values():
+                if s["assignment"] == code and s["status"] in ("graded", "held"):
+                    s.update(status="new", verdict=None, comment=None, tries=0)
+                    self.tick("reset_for_new_pack")
+            done.append(code)
         for a in self.cfg["assignments"]:
             if not a.get("enabled", True):  # every week stays open: late work must still get its notebook check
                 continue
