@@ -247,7 +247,7 @@ ESSAY_CONFIG = "_WRITING_ASSIGNMENTS_V1"
 ESSAY_CONFIG_HEADERS = ['class', 'assignment', 'task', 'source_spreadsheet_id', 'source_sheet_name', 'timestamp_column',
                         'name_column', 'class_column', 'essay_column', 'criteria_sha256', 'context_sha256', 'enabled']
 ESSAY_VERSION = "v3"   # v2 rows lost to v1 on publication-time order
-NB_VERSION = "v2"   # v1 rows (09/11 evening) were bound to the wrong receipt; v2 republishes them once
+NB_VERSION = "v3"   # v3: merged-PDF link read from the cell hyperlink   # v1 rows (09/11 evening) were bound to the wrong receipt; v2 republishes them once
 
 
 class Dashboard:
@@ -300,7 +300,7 @@ class Dashboard:
                 print("dashboard:", cls, type(e).__name__, str(e)[:80])
         # keep the lesson version of every published week current (a later edit of the lesson doc must not hide results)
         weeks = {(v["className"], v["assignment"]) for v in subs.values()
-                 if v.get("dashNb") == NB_VERSION and v.get("className") in self.r.cfg["classes"] and v["assignment"] in assignments}
+                 if v.get("dashNb") in (NB_VERSION, "v2") and v.get("className") in self.r.cfg["classes"] and v["assignment"] in assignments}
         if weeks and not self.known_versions:
             self.scan_configs()
         for cls, code in sorted(weeks):
@@ -316,8 +316,22 @@ class Dashboard:
         save_json(MANIFEST, manifest)
 
     def form(self, tab):
+        """Form tab display values; the merged-PDF column's hyperlinks are added as URLs (its cells only show a label)."""
         if tab not in self.forms:
-            self.forms[tab] = self.g.values(self.r.cfg["formSheet"], f"'{tab}'!A1:Z2000")
+            grid = self.g.values(self.r.cfg["formSheet"], f"'{tab}'!A1:Z2000")
+            col = next((i for i, v in enumerate(grid[0] if grid else []) if "PDF ĐÃ GHÉP TỰ ĐỘNG" in str(v)), -1)
+            if col >= 0:
+                letter = chr(65 + col)
+                try:
+                    links = self.g.links(self.r.cfg["formSheet"], f"'{tab}'!{letter}1:{letter}2000")
+                    for i, cells in enumerate(links):
+                        if i and i < len(grid) and cells and cells[0]:
+                            row = grid[i] + [""] * (col + 1 - len(grid[i]))
+                            row[col] = (str(row[col]) + " " + " ".join(cells[0])).strip()
+                            grid[i] = row
+                except Exception:
+                    self.r.tick("dash_form_links_failed")
+            self.forms[tab] = grid
         return self.forms[tab]
 
     def file_meta(self, fid):

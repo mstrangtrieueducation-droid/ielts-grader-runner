@@ -110,6 +110,26 @@ class Google:
                + urllib.parse.quote(rng, safe="") + "?valueInputOption=RAW")
         return self._req(url, "PUT", {"range": rng, "values": [row]})
 
+    def links(self, sheet_id, rng):
+        """Hyperlink targets of a range (cell link, rich-text link or literal HYPERLINK formula), row by row."""
+        url = (f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}?ranges=" + urllib.parse.quote(rng, safe="")
+               + "&fields=" + urllib.parse.quote("sheets.data.rowData.values(hyperlink,textFormatRuns.format.link.uri,userEnteredValue.formulaValue)", safe=""))
+        rows = (((self._req(url).get("sheets") or [{}])[0].get("data") or [{}])[0].get("rowData") or [])
+        out = []
+        for r in rows:
+            cells = []
+            for c in r.get("values", []) or []:
+                found = [c["hyperlink"]] if c.get("hyperlink") else []
+                found += [t["format"]["link"]["uri"] for t in c.get("textFormatRuns", []) or [] if t.get("format", {}).get("link", {}).get("uri")]
+                f = (c.get("userEnteredValue") or {}).get("formulaValue") or ""
+                import re as _re
+                m = _re.match(r'^\s*=\s*HYPERLINK\s*\(\s*"((?:[^"]|"")*)"', f, _re.I)
+                if m:
+                    found.append(m.group(1).replace('""', '"'))
+                cells.append(found)
+            out.append(cells)
+        return out
+
     def sheet_titles(self, sheet_id):
         r = self._req(f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}?fields=sheets.properties.title")
         return [x["properties"]["title"] for x in r.get("sheets", [])]
