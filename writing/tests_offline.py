@@ -37,6 +37,7 @@ class G:
             for a1, v in s.cells.items():
                 m = re.match(r"([A-Z]+)(\d+)$", a1); g[int(m.group(2)) - 1][ord(m.group(1)) - 65] = v
             return g
+        if re.search(r"![A-Z]+4$", rng): return [["Mã: IELTS-WRITING-W01\nHạn: Thứ Bảy, " + DUE]] if rng.endswith("!C4") else [[""]]
         return [[s.cells.get(rng.split("!")[1], "")]]
     def set_cell(s, sid, rng, text): s.cells[rng.split("!")[1]] = text; s.writes.append(rng)
     def download(s, f): return PDF
@@ -66,12 +67,12 @@ r.collect(); assert all(s["status"] == "graded" for s in st["subs"].values() if 
 r.publish(set()); assert not g.writes, "nothing is written before approval"
 r.publish("all")
 assert g.cells["C7"].endswith("— NHẬN XÉT GV —\nĐã ghi nhận vở — Đạt yêu cầu.") and g.cells["C7"].startswith("✅ ĐÃ NỘP"), "prefix kept"
-assert "Cô đã chấm.\n\n【Lần nộp 01/01/2026】\nĐã ghi nhận vở — Đạt yêu cầu." in g.cells["C8"], "teacher comment kept, new result added below"
+assert g.cells["C8"].endswith("Cô đã chấm.") and next(x for x in st["subs"].values() if x["student"] == "BÌNH")["hold"] == "result_already_given", "a cell that already has a result is left alone"
 assert g.cells["C9"].startswith("✅ ĐÃ NỘP\n01/01/2026 12:00\n\n— NHẬN XÉT GV —\nĐã ghi nhận"), "unmarked submission gets its status + result"
 assert next(s for s in st["subs"].values() if s["student"] == "DŨNG")["status"] == "not_in_roster"
 r.counts = {}; r.scan(); assert "new" not in r.counts, "unchanged work is not regraded"
 g.rows.append(ROW("BÌNH", "02/01/2026 09:00:00", "E")); r.counts = {}; r.scan()
-assert "new" not in r.counts and r.counts.get("resubmission_not_regraded") == 1, "a resubmission after a result is not regraded"
+assert "new" not in r.counts, "a resubmission after a result is not regraded"
 # baseline: first sight of an assignment skips work already commented by the old pipeline
 st2 = {"subs": {}, "batches": {}}; g2 = G(); r2 = rw.Runner(g2, cfg, st2); r2.scan()
 assert sorted(s["status"] for s in st2["subs"].values()) == ["new", "new", "not_in_roster", "skipped"]

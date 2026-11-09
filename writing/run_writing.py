@@ -576,9 +576,13 @@ class Runner:
         return bool(start and now() >= start)
 
     def publish(self, approve):
+        for tr in self.trackers.values():   # columns move when new weeks are inserted: never write with an old header
+            tr._hdr = None
+            tr._grid = None
+        self.revert_appended()
         for k, s in self.state.get("subs", {}).items():
-            retry = (s["status"] == "held" and (s.get("approved") or approve == "all" or k in approve)
-                     and s.get("hold") in ("tracker_cell_not_found", "status_prefix_not_ready"))
+            retry = (s["status"] == "held" and (s.get("approved") or approve == "all" or k in approve or self.auto_publish())
+                     and s.get("hold") in ("tracker_cell_not_found", "status_prefix_not_ready", "readback_mismatch"))
             if s["status"] != "graded" and not retry:
                 continue
             manual = f"{s['className']}|{s['assignment']}" in self.cfg.get("manualReview", [])
@@ -598,6 +602,11 @@ class Runner:
                 self.tick("held")
                 continue
             a1 = f"{col}{row}"
+            if not re.search(r"Mã:\s*IELTS-WRITING-W?0*" + s["assignment"].split("W")[-1].lstrip("0") + r"\b",
+                             tr.cell(f"{col}4")):
+                s.update(status="held", hold="readback_mismatch")   # header moved: retried next cycle
+                self.tick("held")
+                continue
             cur = tr.cell(a1)
             sub_t = parse_vn_time(s["submittedAt"])
             if cur.startswith("⛔") or MARK not in cur:
@@ -627,10 +636,10 @@ class Runner:
             elif prev and prev in existing:   # regrade of a resubmission: replace only our own earlier result
                 blk = (tag + comment) if prev.startswith("【") else comment
                 body = existing.replace(prev, blk)
-            else:                             # someone else's comment stays; the new result is added below it
-                blk = tag + comment
-                body = existing + "\n\n" + blk
-                self.tick("appended")
+            else:   # a result was already given here (Cô 09/11: no second grading) → leave the cell as it is
+                s.update(status="skipped", hold="result_already_given", cell=a1)
+                self.tick("result_already_given")
+                continue
             new = prefix.rstrip() + "\n\n" + MARK + "\n" + body
             tr.write(a1, new)
             if tr.cell(a1) != new:
@@ -640,6 +649,22 @@ class Runner:
             s.update(status="published", cell=a1, publishedComment=comment, publishedBlock=blk,
                      publishedAt=now().isoformat(), hold=None)
             self.tick("published")
+
+    def revert_appended(self):
+        if self.state.get("revertAppendedDone"):
+            return
+        for k, s in self.state.get("subs", {}).items():
+            blk = s.get("publishedBlock") or ""
+            if s["status"] != "published" or not blk.startswith("【Lần nộp"):
+                continue
+            tr = self.tracker(s["className"])
+            cur = tr.cell(s["cell"])
+            if blk in cur:
+                new = cur.replace("\n\n" + blk, "").replace(blk, "").rstrip()
+                tr.write(s["cell"], new)
+                self.tick("reverted_duplicate")
+            s.update(status="skipped", hold="result_already_given")
+        self.state["revertAppendedDone"] = True
 
     # ---------------- shadow comparison (no tracker writes, no status changes)
     def shadow(self, model, think="off", limit=120):
