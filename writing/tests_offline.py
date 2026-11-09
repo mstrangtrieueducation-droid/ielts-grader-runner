@@ -24,7 +24,8 @@ class G:
     def __init__(s):
         s.cells = {"C7": "✅ ĐÃ NỘP\n01/01/2026\n\n— NHẬN XÉT GV —\n", "C8": "✅ ĐÃ NỘP\n\n— NHẬN XÉT GV —\nCô đã chấm.",
                    "C9": "⛔ QUÁ HẠN\n— CHƯA GHI NHẬN\n\n— NHẬN XÉT GV —"}
-        s.rows = [ROW("an", "01/01/2026 10:00:00", "A"), ROW("BÌNH", "01/01/2026 10:00:00", "B"), ROW("an", "01/01/2026 11:00:00", "D")]
+        s.rows = [ROW("an", "01/01/2026 10:00:00", "A"), ROW("BÌNH", "01/01/2026 10:00:00", "B"), ROW("an", "01/01/2026 11:00:00", "D"),
+                  ROW("CHI", "01/01/2026 12:00:00", "C"), ROW("DŨNG", "01/01/2026 12:00:00", "E")]
         s.writes = []
     def values(s, sid, rng):
         if "W01" in rng: return s.rows
@@ -59,20 +60,33 @@ r = rw.Runner(g, cfg, st)
 r.scan()
 an = next(s for s in st["subs"].values() if s["student"] == "AN")
 assert an["files"] == ["A" * 24, "D" * 24] and an["rows"] == [2, 4], "two submissions of one student are combined"
-r.submit(); assert len(B.reqs) == 2
-r.collect(); assert all(s["status"] == "graded" for s in st["subs"].values())
+assert next(s for s in st["subs"].values() if s["student"] == "DŨNG")["status"] == "not_in_roster", "not on the class list → not graded"
+r.submit(); assert len(B.reqs) == 3, "students off the class list cost nothing"
+r.collect(); assert all(s["status"] == "graded" for s in st["subs"].values() if s["student"] != "DŨNG")
 r.publish(set()); assert not g.writes, "nothing is written before approval"
 r.publish("all")
 assert g.cells["C7"].endswith("— NHẬN XÉT GV —\nĐã ghi nhận vở — Đạt yêu cầu.") and g.cells["C7"].startswith("✅ ĐÃ NỘP"), "prefix kept"
-assert g.cells["C8"].endswith("Cô đã chấm."), "teacher comment is never overwritten"
-assert next(s for s in st["subs"].values() if s["student"] == "BÌNH")["hold"] == "teacher_comment_exists"
+assert "Cô đã chấm.\n\n【Lần nộp 01/01/2026】\nĐã ghi nhận vở — Đạt yêu cầu." in g.cells["C8"], "teacher comment kept, new result added below"
+assert g.cells["C9"].startswith("✅ ĐÃ NỘP\n01/01/2026 12:00\n\n— NHẬN XÉT GV —\nĐã ghi nhận"), "unmarked submission gets its status + result"
+assert next(s for s in st["subs"].values() if s["student"] == "DŨNG")["status"] == "not_in_roster"
 r.counts = {}; r.scan(); assert "new" not in r.counts, "unchanged work is not regraded"
 g.rows.append(ROW("BÌNH", "02/01/2026 09:00:00", "E")); r.scan(); assert r.counts.get("new") == 1, "resubmission is regraded"
 # baseline: first sight of an assignment skips work already commented by the old pipeline
 st2 = {"subs": {}, "batches": {}}; g2 = G(); r2 = rw.Runner(g2, cfg, st2); r2.scan()
-assert sorted(s["status"] for s in st2["subs"].values()) == ["new", "skipped"]
+assert sorted(s["status"] for s in st2["subs"].values()) == ["new", "new", "not_in_roster", "skipped"]
 assert cfg["classes"].get("IELTS 53") == "T53" and cfg["classes"].get("FIGHTER 10") == "F10" and len(cfg["classes"]) == 3, "new classes discovered, template ignored"
-import datetime as _dt
-st2["lastDeadline"] = {"IELTS-WRITING-W01": (rw.now() - _dt.timedelta(days=20)).isoformat()}
-r2.counts = {}; r2.scan(); assert "IELTS-WRITING-W01" in st2["closedWeeks"], "old week closed"
+# failures: one regrade, then a clear message instead of no result
+fk, fs = next((k, s) for k, s in st2["subs"].items() if s["status"] == "new")
+r2.finish(fk, fs, "notebook", {"state": "validation_failed"}, None, None); assert fs["status"] == "new" and fs["tries"] == 1
+r2.finish(fk, fs, "notebook", {"state": "validation_failed"}, None, None)
+assert fs["status"] == "graded" and fs["fallback"] == "unclear" and "nộp lại" in fs["comment"], "every student gets a result"
+# header codes written without W / class names typed loosely
+class H(G):
+    def values(s, sid, rng): return [["", "Mã: IELTS-WRITING-25\nHạn: Thứ Hai, 12/10/2026"]] if "A4" in rng else G.values(s, sid, rng)
+assert rw.Tracker(H(), "x", "t").column("IELTS-WRITING-W25")[0] == "B" and rw.Tracker(H(), "x", "t").column("IELTS-WRITING-W02")[0] is None
+assert r2.class_of(" ielts50 ") == "IELTS 50" and r2.class_of("Lớp FIGHTER 09") == "FIGHTER 9"
+# duplicate names on one list are never guessed
+class Dup(G):
+    def values(s, sid, rng): return [[]] * 6 + [["AN"], ["AN"]] if "B1:B200" in rng else G.values(s, sid, rng)
+assert rw.Tracker(Dup(), "x", "t").row_of("AN") is None
 print("writing offline tests OK")
