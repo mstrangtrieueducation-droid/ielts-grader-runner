@@ -28,7 +28,7 @@ class G:
                   ROW("CHI", "01/01/2026 12:00:00", "C"), ROW("DŨNG", "01/01/2026 12:00:00", "E")]
         s.writes = []
     def values(s, sid, rng):
-        if "W01" in rng: return s.rows
+        if "W01" in rng: return [["Dấu thời gian", "Họ và tên", "Lớp", "Ảnh vở chép", "Ảnh bổ sung", "PDF ĐÃ GHÉP TỰ ĐỘNG", "TRẠNG THÁI GHÉP PDF"]] + s.rows
         if "A4:ZZ4" in rng: return [["", "", "Mã: IELTS-WRITING-W01\nHạn: Thứ Bảy, " + DUE]]
         if "B1:B200" in rng: return [[]] * 6 + [["AN"], ["BÌNH"], ["CHI"]]
         if "A1:ZZ200" in rng:

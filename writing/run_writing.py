@@ -81,6 +81,35 @@ def to_jpeg(data: bytes) -> bytes:
     return out.getvalue()
 
 
+def form_columns(header):
+    """Form tabs differ per week: find notebook photo/PDF columns, the merged PDF and typed essays by header text."""
+    H = [unicodedata.normalize("NFC", str(x or "")).upper() for x in header]
+    merged = next((i for i, x in enumerate(H) if "PDF ĐÃ GHÉP" in x), None)
+    status = next((i for i, x in enumerate(H) if "TRẠNG THÁI GHÉP" in x), None)
+    photos = [i for i, x in enumerate(H) if i > 2 and i != merged and "TRẠNG THÁI" not in x and "BÀI VIẾT" not in x
+              and any(k in x for k in ("ẢNH", "FILE SCAN", "PDF", "VỞ", "DÀN Ý"))]
+    essays = [i for i, x in enumerate(H) if x.startswith("BÀI VIẾT")]
+    return {"merged": merged, "status": status, "photos": photos, "essays": essays,
+            "essayNames": {i: str(header[i]).strip() for i in essays}}
+
+
+def form_files(row, cols):
+    """All notebook files of one form row. The auto-merged PDF is used only when it holds every uploaded image."""
+    singles = []
+    for i in cols["photos"]:
+        for u in re.split(r"[,\s]+", row[i] if i < len(row) else ""):
+            f = file_id(u)
+            if f and f not in singles:
+                singles.append(f)
+    m = cols["merged"]
+    merged = file_id(row[m]) if m is not None and m < len(row) else None
+    st = row[cols["status"]] if cols["status"] is not None and cols["status"] < len(row) else ""
+    k = re.search(r"(\d+)\s*ẢNH", unicodedata.normalize("NFC", str(st)).upper())
+    if merged and "HOÀN TẤT" in unicodedata.normalize("NFC", str(st)).upper() and k and int(k.group(1)) >= len(singles):
+        return [merged]
+    return singles or ([merged] if merged else [])
+
+
 def file_id(url):
     m = re.search(r"(?:id=|/d/)([A-Za-z0-9_-]{20,})", str(url or ""))
     return m.group(1) if m else None
@@ -251,18 +280,22 @@ class Runner:
         for a in self.cfg["assignments"]:
             if not a.get("enabled", True):  # every week stays open: late work must still get its notebook check
                 continue
-            rows = self.g.values(self.cfg["formSheet"], f"'{a['formTab']}'!A2:G2000")
+            table = self.g.values(self.cfg["formSheet"], f"'{a['formTab']}'!A1:Z2000")
+            if not table:
+                continue
+            cols = form_columns(table[0])
             grouped = {}
-            for n, r in enumerate(rows, start=2):
-                r = r + [""] * (7 - len(r))
+            for n, r in enumerate(table[1:], start=2):
+                r = r + [""] * (len(table[0]) + 2 - len(r))
                 cls, name = self.class_of(r[2]), norm(r[1])
                 if not name or cls not in self.cfg["classes"] or (a["classes"] != "*" and cls not in a["classes"]):
                     continue
-                fid = file_id(r[5]) or file_id(r[3])
-                if not fid:
+                files = form_files(r, cols)
+                if not files:
                     continue
-                grouped.setdefault((cls, name), []).append({"row": n, "time": r[0], "fileId": fid,
-                                                            "extra": [x for x in (file_id(u) for u in re.split(r",\s*", r[4])) if x]})
+                grouped.setdefault((cls, name), []).append({"row": n, "time": r[0], "fileId": files[0], "extra": files[1:],
+                                                            "essays": {cols["essayNames"][i]: r[i].strip() for i in cols["essays"]
+                                                                       if r[i].strip()}})
             for (cls, name), items in grouped.items():
                 items.sort(key=lambda x: parse_vn_time(x["time"]) or now())
                 key = f"{a['code']}|{cls}|{h(name, 10)}"
@@ -274,7 +307,15 @@ class Runner:
                 sig = h("|".join(files))
                 old = subs.get(key)
                 waiting = old and old.get("status") in ("no_tracker_column", "not_in_roster", "ambiguous_name")
+                essays = {}
+                for it in items:          # latest typed essay of each task wins
+                    essays.update(it.get("essays") or {})
+                if old and old.get("status") == "skipped":   # history stays history, even if its file list is re-read
+                    old.update(sig=sig, files=files, essays=essays)
+                    continue
                 if old and old.get("sig") == sig and not waiting:
+                    if essays and not old.get("essays"):
+                        old["essays"] = essays
                     continue
                 if old and old.get("status") == "published":
                     self.tick("changed_after_publish")
@@ -292,7 +333,7 @@ class Runner:
                         status = "skipped"
                 if waiting and old.get("status") == status:
                     continue
-                subs[key] = {"assignment": a["code"], "className": cls, "student": name, "files": files,
+                subs[key] = {"assignment": a["code"], "className": cls, "student": name, "files": files, "essays": essays,
                              "rows": [i["row"] for i in items], "submittedAt": items[-1]["time"],
                              "firstAt": items[0]["time"], "sig": sig, "status": status, "at": now().isoformat()}
                 self.tick(status)
