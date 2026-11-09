@@ -31,10 +31,13 @@ def request(a, s):
         content.append({"type": "text", "text": f"ẢNH ĐỀ {i + 1}:"})
         content.append({"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
                                                      "data": base64.b64encode((pack / f).read_bytes()).decode()}})
-    content[-1] = {**content[-1], "cache_control": {"type": "ephemeral", "ttl": "1h"}}
+    if content:
+        content[-1] = {**content[-1], "cache_control": {"type": "ephemeral", "ttl": "1h"}}
     texts = []
     for i, (label, txt) in enumerate(sorted(s.get("essays", {}).items())):
         n = de_number(label, i)
+        if str(n) not in meta["labels"]:   # only the essays this lesson asked for
+            continue
         texts.append(f"=== ĐỀ {n} ({meta['labels'].get(str(n), label)}) — bài em đánh máy ===\n{txt}")
     content.append({"type": "text", "text": f"Học sinh {s['student']} · lớp {s['className']}. Chấm và chữa các bài sau "
                                             f"(mỗi bài tối thiểu {meta['minWords']} từ):\n\n" + "\n\n".join(texts)})
@@ -47,7 +50,8 @@ def request(a, s):
 def checks(a, s, res):
     import calculate_class_score as ccs
     meta = json.loads((BUNDLE / "packs" / a["essayPack"] / "meta.json").read_text(encoding="utf-8"))
-    by_de = {de_number(lbl, i): txt for i, (lbl, txt) in enumerate(sorted(s.get("essays", {}).items()))}
+    by_de = {de_number(lbl, i): txt for i, (lbl, txt) in enumerate(sorted(s.get("essays", {}).items()))
+             if str(de_number(lbl, i)) in meta["labels"]}
     for e in res.get("essays", []):
         txt = by_de.get(e["de"], "")
         qa = {"words": scans.words(txt), "revisionWords": scans.words(e.get("revisedText", ""))}
