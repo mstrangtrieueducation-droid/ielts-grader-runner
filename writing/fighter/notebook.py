@@ -296,8 +296,9 @@ Các từ của phần A:
 
 Trả kết quả DUY NHẤT qua công cụ record."""
 DOCS_VERSION = 1            # lecture split + reference picture; kept stable so a notebook is judged the same way each time
-PAINT_VERSION = 2           # raise when only the cell colours/sizes change: published cells are repainted, not re-read
-BODY_SIZE = 18              # Cô 10/11: the comment after NHẬN XÉT GV twice as big
+PAINT_VERSION = 3           # raise when only the cell colours/sizes change: published cells are repainted, not re-read
+BODY_SIZE = 9               # comment text size (Cô 10/11: keep 9, make the row twice as tall instead)
+ROW_FACTOR = 2              # rows holding our comments: twice the class sheet's own row height
 REGRADE = {"GF", "AP"}      # programmes whose reading rules changed in this VERSION; others are only re-styled
 FLAG = "LỖI: ❌ CẦN NỘP LẠI"   # cell note prefix of our own "redo" mark
 STATUS_RANK = {"missing": 0, "partly": 1, "unclear": 2, "full": 3}
@@ -1169,11 +1170,34 @@ class FighterNotebooks:
             if not ok:
                 cell["userEnteredFormat"] = {"backgroundColor": rgb("#f4cccc")}
                 fields += ",userEnteredFormat.backgroundColor"
-            self.g._req(f"https://sheets.googleapis.com/v4/spreadsheets/{tr.id}:batchUpdate", "POST", {"requests": [{"updateCells": {
+            reqs = [{"updateCells": {
                 "range": {"sheetId": sid, "startRowIndex": row - 1, "endRowIndex": row, "startColumnIndex": col - 1, "endColumnIndex": col},
-                "rows": [{"values": [cell]}], "fields": fields}}]})
+                "rows": [{"values": [cell]}], "fields": fields}}]
+            h = self.row_height(tr, sid, row)
+            if h:
+                reqs.append({"updateDimensionProperties": {"range": {"sheetId": sid, "dimension": "ROWS", "startIndex": row - 1, "endIndex": row},
+                                                           "properties": {"pixelSize": h}, "fields": "pixelSize"}})
+            self.g._req(f"https://sheets.googleapis.com/v4/spreadsheets/{tr.id}:batchUpdate", "POST", {"requests": reqs})
         except Exception as e:
             self.tick("paint_error_" + type(e).__name__)
+
+    def row_height(self, tr, sid, row):
+        """Height to set for this row (ROW_FACTOR x the row's own height, remembered the first time), or None if already tall enough."""
+        try:
+            import urllib.parse
+            key = f"{tr.id}|{tr.tab}|{row}"
+            base = self.st.setdefault("rowBase", {})
+            rng = urllib.parse.quote(f"'{tr.tab}'!A{row}")
+            meta = self.g._req(f"https://sheets.googleapis.com/v4/spreadsheets/{tr.id}?ranges={rng}&includeGridData=true"
+                               "&fields=sheets.data.rowMetadata.pixelSize")
+            cur = meta["sheets"][0]["data"][0]["rowMetadata"][0].get("pixelSize", 21)
+            if key not in base:
+                base[key] = cur
+            want = base[key] * ROW_FACTOR
+            return want if cur < want else None
+        except Exception as e:
+            self.tick("row_height_error_" + type(e).__name__)
+            return None
 
     def cell_ref(self, tr, a1):
         m = re.match(r"([A-Z]+)(\d+)$", a1)
