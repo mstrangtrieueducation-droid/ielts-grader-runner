@@ -150,7 +150,7 @@ class Scans:
             "(trang đầu một bài); nameRead = tên đọc được (rỗng nếu không có); rosterName = tên khớp DUY NHẤT trong danh sách "
             "lớp dưới đây (chép đúng như danh sách), rỗng nếu không chắc; sure = true chỉ khi chắc chắn.\n"
             "Danh sách lớp:\n" + "\n".join(roster)})
-        resp = cw.call_api(self.cl, {"model": MODEL, "max_tokens": 4000, "thinking": {"type": "between_tools"},
+        resp = cw.call_api(self.cl, {"model": MODEL, "max_tokens": 16000, "thinking": {"type": "between_tools"},
                                      "output_config": {"format": {"type": "json_schema", "schema": SEGMENT_SCHEMA}},
                                      "messages": [{"role": "user", "content": content}]})
         resp = resp if isinstance(resp, dict) else resp.model_dump()
@@ -582,6 +582,9 @@ def run(runner, only=None, limit_files=None):
         if runner.auto_publish():
             sc.publish()
         sc.discover()
+        for rec in sc.st["files"].values():   # a long scan could overflow the page-reading answer: retry once
+            if rec["status"] == "error" and rec.get("error") == "JSONDecodeError" and not rec.get("retried"):
+                rec.update(status="new", retried=True, students={})
         for fid in runner.cfg.get("scanApprovedOld") or []:   # papers from before go-live that Cô asked to grade
             rec = sc.st["files"].get(fid)
             if rec and not rec.get("approvedOld") and rec.get("meta") and rec["meta"].get("cls") in runner.cfg["classes"]:
