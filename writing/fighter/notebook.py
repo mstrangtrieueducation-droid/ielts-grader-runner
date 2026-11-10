@@ -51,7 +51,7 @@ MODEL = "claude-haiku-5-5"
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 4              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 5              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 40        # the status system normally marks the cell first; after this we write the status line ourselves
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -557,7 +557,7 @@ class FighterNotebooks:
                                                                      book="SỔ LUYỆN ĐỀ" if s["prog"] == "PT" else "VỞ CHỮA BÀI")})
         cat = f"{s['cls']} · {KIND_NAME[s['prog']].capitalize()} · {s['code']}"
         with cf.ThreadPoolExecutor(2) as ex:
-            a, b = ex.map(lambda _: self.call(content, READING_SCHEMA, cat, 9000), range(2))
+            a, b = ex.map(lambda _: self.call(content, READING_SCHEMA, cat, 20000), range(2))
         vocab = score({"entries": ref["words"]}, {"entries": a.get("entries", []) + b.get("entries", [])})
         key = {q["n"]: q for q in ref["questions"]}
         ans = {}
@@ -601,13 +601,16 @@ class FighterNotebooks:
         d = (m.get("videoMediaMetadata") or {}).get("durationMillis")
         return round(int(d) / 1000) if d else None
 
-    def call(self, content, schema, category, max_tokens=6000):
+    def call(self, content, schema, category, max_tokens=12000):
         r = self.cl.messages.create(model=MODEL, max_tokens=max_tokens, thinking={"type": "disabled"},
                                     tools=[{"name": "record", "description": "Ghi lại kết quả", "input_schema": schema}],
                                     tool_choice={"type": "tool", "name": "record"},
                                     messages=[{"role": "user", "content": content}])
         u = r.usage.model_dump()
         c = cw.cost_usd(MODEL, u)
+        if r.stop_reason == "max_tokens":   # a cut-off read would look like "nothing written": never publish it
+            self.r.tick("fnb_cost_vnd", round(c * cw.USD_VND))
+            raise RuntimeError("READ_TRUNCATED")
         cw.ledger({"at": cw.now_iso(), "category": category, "step": "fighter-notebook", "model": MODEL,
                    "usage": u, "usd": c, "vnd": round(c * cw.USD_VND)})
         self.r.tick("fnb_cost_vnd", round(c * cw.USD_VND))
@@ -652,12 +655,14 @@ class FighterNotebooks:
         content.append({"type": "text", "text": PROMPT.format(code=s["code"], title=unit["title"], first=ents[0]["n"],
                                                               last=ents[-1]["n"], listing=listing, spot=", ".join(map(str, spot)))})
         def read():
-            r = self.cl.messages.create(model=MODEL, max_tokens=6000, thinking={"type": "disabled"},
+            r = self.cl.messages.create(model=MODEL, max_tokens=12000, thinking={"type": "disabled"},
                                         tools=[{"name": "record", "description": "Ghi lại những gì đọc được", "input_schema": SCHEMA}],
                                         tool_choice={"type": "tool", "name": "record"},
                                         messages=[{"role": "user", "content": content}])
             u = r.usage.model_dump()
             c = cw.cost_usd(MODEL, u)
+            if r.stop_reason == "max_tokens":
+                raise RuntimeError("READ_TRUNCATED")
             cw.ledger({"at": cw.now_iso(), "category": f"{s['cls']} · Sổ từ vựng · {s['code']}", "step": "fighter-notebook",
                        "model": MODEL, "usage": u, "usd": c, "vnd": round(c * cw.USD_VND)})
             return json.loads(json.dumps(next(b.input for b in r.content if b.type == "tool_use"))), c
