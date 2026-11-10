@@ -51,7 +51,7 @@ MODEL = "claude-haiku-5-5"
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 13              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 14              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 40        # the status system normally marks the cell first; after this we write the status line ourselves
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -798,6 +798,7 @@ class FighterNotebooks:
                     continue
             if not text:
                 raise RuntimeError("LECTURE_NOT_READABLE")
+            text = re.sub(r"!\[[^\]]*\]\(data:[^)]*\)|^\[[^\]]+\]:\s*<?data:\S+", "", text, flags=re.M)   # inline images (base64)
             text = re.sub(r"\\([*\[\]_#])", r"\1", text)[:14000]
             parts = self.call([{"type": "text", "text": OUTLINE_PROMPT.format(doc=text)}], OUTLINE_SCHEMA, "Fighter · Chia phần bài giảng", 2000)["parts"]
             docs[doc] = {"text": text, "parts": parts[:12]}
