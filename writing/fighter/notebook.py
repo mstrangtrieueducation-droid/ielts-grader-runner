@@ -37,11 +37,15 @@ TABS = {"VOCABULARY FOUNDATION 1": "VF1", "VOCABULARY FOUNDATION 2": "VF2",
         "READING 1": "RI1", "READING 2 - TỪ VỰNG": "RI2",
         "GRAMMAR FOUNDATION": "GF", "ĐOẠN VĂN HỌC THUẬT": "AP",
         "READING 2 - VỞ CHỮA": "RC2", "READING 1 - VỞ CHỮA": "RC1"}
+PT_FORM = "111wsgqFHovbArNS-KuZaxTHh1nOQzZewcWWjWRNU8Wo"   # "LUYỆN ĐỀ - NỘP SỔ LUYỆN ĐỀ & SỔ TỪ VỰNG"
+SOURCES = [(FORM, tab, prog) for tab, prog in TABS.items()] + [(PT_FORM, "Câu trả lời biểu mẫu 1", "PT")]
+PRACTICE = json.loads((HERE / "practice.json").read_text(encoding="utf-8"))   # PTn → lesson-site pages (answer key, words)
 READING = json.loads((HERE / "reading.json").read_text(encoding="utf-8"))   # code → lesson-site pages (test answers, correction words)
 SITE = "https://mstrangtrieueducation-droid.github.io/vocabulary-reading-web/"
 COPY = {"GF": json.loads((HERE / "grammar.json").read_text(encoding="utf-8")),      # vở chép lí thuyết ngữ pháp
         "AP": json.loads((HERE / "paragraph.json").read_text(encoding="utf-8"))}    # vở chép bài giảng đoạn văn (Buổi 1–15)
-KIND_NAME = {"GF": "vở chép lí thuyết", "AP": "vở chép bài giảng", "RC1": "vở chữa Reading", "RC2": "vở chữa Reading"}
+KIND_NAME = {"GF": "vở chép lí thuyết", "AP": "vở chép bài giảng", "RC1": "vở chữa Reading", "RC2": "vở chữa Reading",
+             "PT": "sổ luyện đề"}
 START = dt.datetime(2026, 11, 8, 0, 0, tzinfo=VN)
 MODEL = "claude-haiku-5-5"
 SIDE = 1568
@@ -54,7 +58,7 @@ FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng
 PROGRAM_HEAD = {"VF1": r"Vocabulary Foundation 1", "VF2": r"Vocabulary Foundation 2",
                 "RI1": r"READING 1\s*-\s*TỪ VỰNG", "RI2": r"READING 2\s*-\s*TỪ VỰNG",
                 "GF": r"Grammar Foundation", "AP": r"ĐOẠN VĂN HỌC THUẬT",
-                "RC2": r"READING 2\s*-\s*VỞ CHỮA", "RC1": r"READING 1\s*-\s*VỞ CHỮA"}
+                "RC2": r"READING 2\s*-\s*VỞ CHỮA", "RC1": r"READING 1\s*-\s*VỞ CHỮA", "PT": r"LUYỆN ĐỀ"}
 
 S, I = {"type": "string"}, {"type": "integer"}
 CELL = {"type": "string", "enum": ["filled", "empty", "unclear"]}
@@ -140,7 +144,7 @@ READING_SCHEMA = {"type": "object", "additionalProperties": False, "required": [
                                  "answers": {"type": "array", "items": ANS}}}
 READING_PROMPT = """Bạn đọc ảnh bài nộp của một học sinh cho bài chữa {title}. Bạn KHÔNG chấm, KHÔNG nhận xét; chỉ ghi lại đúng những gì nhìn thấy.
 Bài nộp gồm 2 phần: (A) SỔ TỪ VỰNG các từ cô in đỏ — mỗi từ 7 cột: STT · Từ/cụm từ · Từ loại · Phiên âm · Nghĩa tiếng Việt ·
-Nghĩa tiếng Anh · Ví dụ; (B) VỞ CHỮA BÀI — học sinh làm lại {total} câu của đề vào vở và viết giải thích cho từng câu.
+Nghĩa tiếng Anh · Ví dụ; (B) {book} — học sinh làm lại {total} câu của đề vào vở và viết giải thích cho từng câu.
 
 Các từ của phần A:
 {listing}
@@ -201,6 +205,9 @@ def unit_code(prog, raw):
     if prog == "GF":   # GF1-U04.1-LT, "Unit 4.1"
         m = re.search(r"U(?:nit)?\s*0*(\d+)(?:\.(\d))?", raw, re.I) or re.search(r"(\d+)(?:\.(\d))?", raw)
         return f"GF1-U{int(m.group(1)):02d}{'.' + m.group(2) if m.group(2) else ''}-LT" if m else None
+    if prog == "PT":   # "PRACTICE TEST 4"
+        m = re.search(r"(\d+)", raw)
+        return f"PT{int(m.group(1))}" if m else None
     if prog in ("RC1", "RC2"):   # RI2-C07, "Test 11"
         m = re.search(r"(\d+)\s*$", raw) or re.search(r"(\d+)", raw)
         return f"RI{prog[-1]}-C{int(m.group(1)):02d}" if m else None
@@ -215,6 +222,8 @@ def unit_label(code):
     """Text used in the tracker header and in the comment: 'Unit 14', 'Unit 4.1', 'Buổi 7'."""
     if code.startswith("AP-B"):
         return "Buổi", str(int(code[4:]))
+    if code.startswith("PT"):
+        return "Practice Test", code[2:]
     m = re.search(r"[UC]0*(\d+(?:\.\d)?)", code)
     return "Unit", m.group(1)
 
@@ -224,6 +233,8 @@ def family(prog):
 
 
 def known(prog, code):
+    if prog == "PT":
+        return {"test", "words"} <= set(PRACTICE.get(code, {}))
     if prog in ("RC1", "RC2"):
         return {"test", "correction"} <= set(READING.get(code, {}))
     return code in (COPY[prog] if prog in COPY else VOCAB)
@@ -294,9 +305,9 @@ class FighterNotebooks:
     # ------------------------------------------------------------ scan the form
     def scan(self):
         rows = []
-        for tab, prog in TABS.items():
+        for sheet, tab, prog in SOURCES:
             try:
-                table = self.g.values(FORM, f"'{tab}'!A1:J3000")
+                table = self.g.values(sheet, f"'{tab}'!A1:J3000")
             except Exception:
                 self.tick("form_read_failed")
                 continue
@@ -386,7 +397,7 @@ class FighterNotebooks:
                 group = v2
             v3 = str(r3[i]) if i < len(r3) else ""
             if (re.search(PROGRAM_HEAD[s["prog"]], group, re.I) and re.search(unit_re, group, re.I)
-                    and (re.match(r"\s*Hạn", v3, re.I)
+                    and ((re.search(r"sổ luyện đề\s*&\s*sổ từ vựng", v3, re.I) if s["prog"] == "PT" else re.match(r"\s*Hạn", v3, re.I))
                          or (re.search(r"VỞ CHỮA|TỪ VỰNG", group, re.I) and v2.strip() and "làm lại" not in v3.lower()))):
                 hits.append(i)
         if len(hits) != 1:
@@ -482,8 +493,29 @@ class FighterNotebooks:
             pages[d] = urllib.request.urlopen(req, timeout=30).read().decode("utf-8", "replace")
         return pages[d]
 
+    def practice_ref(self, code):
+        dec = json.JSONDecoder()
+        pg = PRACTICE[code]
+        page = self.site(pg["test"])
+        i = page.find("const APP = ")
+        test = dec.raw_decode(page[i + len("const APP = "):])[0]["test"]
+        words = None
+        for x in re.findall(r"<script[^>]*>(\{\"(?:test|title)\".*?)</script>", self.site(pg["words"]), re.S):
+            d = json.loads(x)
+            if d.get("words"):
+                words = d["words"]
+        if not words or not test.get("answers"):
+            raise RuntimeError("PRACTICE_REFERENCE_INCOMPLETE")
+        qs = [{"n": int(a["globalNumber"]), "answer": str(a.get("displayAnswer") or (a.get("acceptedAnswers") or [""])[0]),
+               "choices": bool(re.fullmatch(r"[A-Da-d]", str(a.get("displayAnswer") or "").strip()))} for a in test["answers"]]
+        return {"title": test.get("title") or f"Practice Test {code[2:]}", "total": int(test.get("total") or len(qs)),
+                "words": [{"n": k, "term": w.get("term", ""), "type": w.get("meta", ""), "vi": w.get("meaning", "")}
+                          for k, w in enumerate(words, 1)], "questions": qs}
+
     def reading_ref(self, code):
         ref = self.st.setdefault("readingRefs", {})
+        if code not in ref and code.startswith("PT"):
+            ref[code] = self.practice_ref(code)
         if code not in ref:
             import html as H
             pg = READING[code]
@@ -521,8 +553,9 @@ class FighterNotebooks:
         reused = self.reused_pages(sid, s, hashes)
         listing = "\n".join(f"{w['n']}. {w['term']} ({w['type']}) — {w['vi']}" for w in ref["words"])
         content = [{"type": "text", "text": f"Bài nộp ({len(imgs)} ảnh):"}] + [img_block(b) for b in imgs]
-        content.append({"type": "text", "text": READING_PROMPT.format(title=ref["title"], total=ref["total"], listing=listing)})
-        cat = f"{s['cls']} · Vở chữa Reading · {s['code']}"
+        content.append({"type": "text", "text": READING_PROMPT.format(title=ref["title"], total=ref["total"], listing=listing,
+                                                                     book="SỔ LUYỆN ĐỀ" if s["prog"] == "PT" else "VỞ CHỮA BÀI")})
+        cat = f"{s['cls']} · {KIND_NAME[s['prog']].capitalize()} · {s['code']}"
         with cf.ThreadPoolExecutor(2) as ex:
             a, b = ex.map(lambda _: self.call(content, READING_SCHEMA, cat, 9000), range(2))
         vocab = score({"entries": ref["words"]}, {"entries": a.get("entries", []) + b.get("entries", [])})
@@ -599,7 +632,7 @@ class FighterNotebooks:
         return docs[doc]
 
     def grade(self, sid, s):
-        if s["prog"] in ("RC1", "RC2"):
+        if s["prog"] in ("RC1", "RC2", "PT"):
             return self.grade_reading(sid, s)
         if s["prog"] in COPY:
             return self.grade_copy(sid, s)
@@ -690,7 +723,7 @@ class FighterNotebooks:
             for f, lab in FIELDS:
                 if v["empty"][f]:
                     lines.append(f"• Trống cột {lab} ở {len(v['empty'][f])} từ: số {ranges(v['empty'][f])}.")
-            lines.append(f"Vở chữa bài: {res['work']}% (làm lại {res['total'] - len(res['notAnswered'])}/{res['total']} câu, "
+            lines.append(f"{'Sổ luyện đề' if s['prog'] == 'PT' else 'Vở chữa bài'}: {res['work']}% (làm lại {res['total'] - len(res['notAnswered'])}/{res['total']} câu, "
                          f"có giải thích {res['total'] - len(res['notAnswered']) - len(res['notExplained'])}/{res['total']} câu).")
             if res["notAnswered"]:
                 lines.append(f"• Chưa làm lại câu: {ranges(res['notAnswered'])}.")
@@ -702,7 +735,7 @@ class FighterNotebooks:
                 lines.append("• Chữ viết cẩu thả, bẩn, khó đọc. Con viết lại cẩn thận, rõ ràng, sạch sẽ.")
             ok = v["pct"] >= PASS and res["work"] >= PASS and not res.get("messy")
             if not ok:
-                lines.append("→ Con bổ sung đầy đủ sổ từ vựng và vở chữa, chụp nộp lại trước buổi học tới.")
+                lines.append(f"→ Con bổ sung đầy đủ sổ từ vựng và {'sổ luyện đề' if s['prog'] == 'PT' else 'vở chữa'}, chụp nộp lại trước buổi học tới.")
             return "\n".join(lines), ok
         if res.get("type") == "copy":
             lines = [f"Mức hoàn thành {KIND_NAME[s['prog']]}: {res['pct']}% "

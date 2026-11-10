@@ -1,0 +1,158 @@
+{
+"PT1": {
+"test": "fa97457ce278f90f476964841b89eb44",
+"words": "d7410acf3a3890aca6471be77ba75c22"
+},
+"PT10": {
+"test": "fe17d9f7677fc09b80957691f171b4da",
+"words": "130c02e50fdacbde02ddd56d463017b2"
+},
+"PT11": {
+"test": "1077a534569612aa7e6d4c485c86fb4d",
+"words": "8a8d227cb49a2adb4b001618b26e612d"
+},
+"PT12": {
+"test": "4e0f7cfdc60d4e606983832cffdb27ff",
+"words": "f666447c3faf641570aefc3ff5a953d6"
+},
+"PT13": {
+"test": "2a573db1afa00b51994ea77e01b13996",
+"words": "15c83c6ae2f6f3f2d242d19869668ca2"
+},
+"PT14": {
+"test": "9695c5f04b791fba5aaca9df21523471",
+"words": "d18a3993d28d63dedd522e1f333f28a9"
+},
+"PT15": {
+"test": "c7bdb0be85ba606e89406e76b21e635d",
+"words": "c0f7f4893f0458ca5c4c8c3ffa1e4314"
+},
+"PT16": {
+"test": "5e92097f1ce6a73916bfcd269b478971",
+"words": "d97432034472bba4839aada1c2ce114c"
+},
+"PT17": {
+"test": "ee550d2454dae4a9ed61975d68f37418",
+"words": "c1febbd2e063f0d32bb122a7e9afe26a"
+},
+"PT18": {
+"test": "2d07453f3500ffc7564f3024df80a0b6",
+"words": "f9f975dc6f725b40f493439c719d77f7"
+},
+"PT19": {
+"test": "1142857671696be0571445103e6b52e5",
+"words": "3193bd81bbb73d3e50264cc4f08505b6"
+},
+"PT2": {
+"test": "e89033ab50733a7997403905b7a4f467",
+"words": "7698699ab01270deacf705fc4c325693"
+},
+"PT20": {
+"test": "380ad731ab474a110c50bc3db375fb94",
+"words": "23c862310531dd057aecb14e97157bfc"
+},
+"PT21": {
+"test": "7bdf98ea75e7e32c25783d943451e352",
+"words": "24f7f1765f9a5b31174ac0d88ff40c27"
+},
+"PT22": {
+"test": "252418d119139d1ec6a0569c74eaa764",
+"words": "59fa93cfcddc5fe9065d22a2e21de915"
+},
+"PT23": {
+"test": "624b09243714baeabc3624be00cbe605",
+"words": "2f5ec2b4de3c40ff59bc7dd9bd93f94a"
+},
+"PT24": {
+"test": "dda9a1336bb01d1adc42d1beef1b8451",
+"words": "3698264e946037a5f4317cf9544a3503"
+},
+"PT25": {
+"test": "63da8e3344bf9ed9e6bbdf55ae1a64fa",
+"words": "698d35402e79180f9d32d3d61216cbe1"
+},
+"PT26": {
+"test": "47602605ce8f64d20741b3652038dd70",
+"words": "a39d9e4a81ca2b6a2b04579ddb6b08ed"
+},
+"PT27": {
+"test": "f79e395dd9ccb8bdef03217f702d5043",
+"words": "ee415f128e199b5c416dee018865fcac"
+},
+"PT28": {
+"test": "c90a92121765d820397cd1d42ca91282",
+"words": "f78297d4d86712f5d7dedb8282de05f4"
+},
+"PT29": {
+"test": "40fd6c297137f854c7498f20ec774024",
+"words": "add0778b481478b08fd42a77586e229c"
+},
+"PT3": {
+"test": "526b4c6c7f3932132a71e85bc2f651bd",
+"words": "6244b09b8d02f9a208b61f1a29a26c6a"
+},
+"PT30": {
+"test": "1bbec548b8b4e6577ef83176548f95d1",
+"words": "fd57b9a4a0c1f4c7478a6a293424f08c"
+},
+"PT31": {
+"test": "ab293ef6fc3201124891f4fc895d05d8",
+"words": "6a4abf22b1c9fcbc6026af50242b812e"
+},
+"PT32": {
+"test": "8449c1fb247e1d31580f5b8e0e671c5f",
+"words": "1c82f8bf538c352ae3ff5d9abb0d18d7"
+},
+"PT33": {
+"test": "a78448e21bdc86e7f01c65e6c557fa05",
+"words": "a1d553319abebaa8b320638da61505da"
+},
+"PT34": {
+"test": "f8f53e8366ed72cda0f3cf0a3b8a6749",
+"words": "4da4cc1b45b5ca8bfe9e3b127c1e2c10"
+},
+"PT35": {
+"test": "a184aca601547a28caea3ed1be789bdc",
+"words": "09202b7be9c184b1b8ccdff0092ed70b"
+},
+"PT36": {
+"test": "5538a9230be7536ff530f5d96a854aec",
+"words": "92ddfc91abbd4ac683a2510f032d4351"
+},
+"PT37": {
+"test": "7f06c166c27784d044f4391c3abaee09",
+"words": "ac454546cca4e9ca6db5b1aecfb23199"
+},
+"PT38": {
+"test": "7d9cdf8c9e68d4d366be2192daf917a0",
+"words": "f96cf7e5ace9d4641330223f67f518f5"
+},
+"PT39": {
+"test": "cbb79cdee2d623b05d33f9c67d10a22c",
+"words": "c753ba9345225cc6b274a3c2236cd7f0"
+},
+"PT4": {
+"test": "d5d87362691f486e9b798966cf29e64f",
+"words": "b0c35aeebf7f4144a77a4f7741a0f109"
+},
+"PT5": {
+"test": "6146c1523cfb20b4391f119344dbbd4b",
+"words": "80f6ebf0c535a3a0b4969dbed1d52b8b"
+},
+"PT6": {
+"test": "5fc615d6329eba10b771f2067f62eb71",
+"words": "ca4f33896c15ee040912d15ae26265e0"
+},
+"PT7": {
+"test": "a263aefd99d4a002594bb310e77acdb0",
+"words": "fb0e6ebc690ae5081edffc238ae0ddd8"
+},
+"PT8": {
+"test": "da3b71bd10337269627680d8a80dfc2d",
+"words": "8b61d53ec9bcb66793c43073e32973bf"
+},
+"PT9": {
+"test": "c4bf7120ae1bb20886f9233aaa5746bc",
+"words": "a6ce36edb91e8829d8ae25789b621207"
+}
+}

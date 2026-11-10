@@ -76,4 +76,7 @@ assert f.cell_for({"cls": "FIGHTER 5", "student": "Nguyễn Kim Ngân", "code": 
 res = {"type": "reading", "kind": "scored", "vocab": dict(nb.score(u, part)), "total": 64, "work": 80, "notAnswered": [60, 61, 62, 63, 64],
        "notExplained": [1, 2, 3], "wrong": [7], "messy": False}
 txt, ok = f.comment({"code": "RI2-C04", "prog": "RC2"}, res, 0); assert not ok and "Chưa làm lại câu: 60–64" in txt; print(txt)
+assert nb.unit_code("PT", "PRACTICE TEST 4") == "PT4" and nb.unit_label("PT4") == ("Practice Test", "4") and nb.known("PT", "PT4")
+r2[61] = "LUYỆN ĐỀ\nPractice Test 4"; r3[61] = "* sổ luyện đề & sổ từ vựng\nHạn: Chủ nhật, 15/11/2026"
+assert f.cell_for({"cls": "FIGHTER 5", "student": "Nguyễn Kim Ngân", "code": "PT4", "prog": "PT"})[0] == "BJ7"
 print("fighter notebook offline checks: OK")
