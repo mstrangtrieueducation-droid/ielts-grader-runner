@@ -349,6 +349,20 @@ def main():
     mode = os.environ.get("POLISH_MODE", "survey")
     if mode == "pt":
         return polish_pt()
+    if mode == "apdiag":   # layout flags of the Academic Paragraph lecture docs (no content printed)
+        import unicodedata
+        import notebook as nb
+        dg = gapi.Google(json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"]))
+        for code, v in sorted(json.loads((HERE / "paragraph.json").read_text()).items()):
+            raw = dg._req(f"https://www.googleapis.com/drive/v3/files/{v['doc']}/export?mimeType=text/markdown", raw=True).decode("utf-8", "replace")
+            t = re.sub(r"!\[[^\]]*\]\(data:[^)]*\)|^\[[^\]]+\]:\s*<?data:\S+", "", raw, flags=re.M)
+            t = unicodedata.normalize("NFC", re.sub(r"\\([*\[\]_#])", r"\1", t))
+            low = t.lower()
+            j = low.find("từ vựng và cụm từ"); i = low.rfind("bài mẫu", 0, j) if j > 0 else -1
+            print(code, "raw", len(raw), "clean", len(t), "i", i, "j", j, "bold-paren", len(re.findall(r"\*\*([^*]{2,60}?)\*\*\s*\(", t[j:] if j > 0 else "")),
+                  "paren-any", len(re.findall(r"\(\s*(?:TT|ĐT|DT|cụm|TrT)", t)), "PT", "PHÂN TÍCH" in t, "ok", bool(nb.ap_reference(t)),
+                  "sample-shape", re.sub(r"[A-Za-zÀ-ỹ0-9]", "a", t[j + 17:j + 60]) if j > 0 else "")
+        return
     sel = os.environ.get("DOCS", "all")
     codes = [k for k in READING if k.startswith("RI2")] + list(EXTRA) if sel == "all" else [c.strip() for c in sel.split(",") if c.strip()]
     st = json.loads(STATE.read_text()) if STATE.exists() else {}
