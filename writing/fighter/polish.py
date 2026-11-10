@@ -145,10 +145,11 @@ Ví dụ Cô đã duyệt:
 Các ô cần viết lại (JSON, mỗi ô có id, đáp án, nội dung gốc):
 {items}
 
-Trả về bằng công cụ record: mỗi ô một mục {{"id", "text", "extra"}} (extra = "" nếu không có)."""
+Trả về bằng công cụ record: mỗi ô một mục {{"id", "text", "extra"}}; extra là danh sách các dòng ghi chú (giữ nguyên từng dòng như bản gốc), [] nếu không có."""
 
 SCHEMA = {"type": "object", "properties": {"items": {"type": "array", "items": {
-    "type": "object", "properties": {"id": {"type": "integer"}, "text": {"type": "string"}, "extra": {"type": "string"}},
+    "type": "object", "properties": {"id": {"type": "integer"}, "text": {"type": "string"},
+                                       "extra": {"type": "array", "items": {"type": "string"}}},
     "required": ["id", "text", "extra"]}}}, "required": ["items"]}
 
 
@@ -256,7 +257,7 @@ Ví dụ:
 Các giải thích (JSON, mỗi mục id, đáp án, nội dung):
 {items}
 
-Trả về bằng công cụ record: mỗi mục {{"id", "text", "extra"}} với extra = ""."""
+Trả về bằng công cụ record: mỗi mục {{"id", "text", "extra"}} với extra = []."""
 
 
 def practice_texts():
@@ -332,9 +333,19 @@ def main():
                 print("  cell count changed since polish: restore by hand from version history")
                 bad += 1
                 continue
-            reqs = edit_requests(cells, old["cells"], None)
+            reqs = []
+            if old.get("extra"):
+                t0 = next(t for t in tabs(d) if t["tabProperties"]["tabId"] == cells[-1]["tab"])
+                body = t0["documentTab"]["body"]["content"]
+                head = next((e for e in reversed(body) if e.get("paragraph") and
+                             "".join(x.get("textRun", {}).get("content", "") for x in e["paragraph"]["elements"]).strip() == "Từ vựng thêm"), None)
+                if head:
+                    reqs.append({"deleteContentRange": {"range": {"startIndex": head["startIndex"] - 1, "endIndex": body[-1]["endIndex"] - 1,
+                                                                  "tabId": cells[-1]["tab"]}}})
+            reqs += edit_requests(cells, old["cells"], None)
             g.call(doc, "POST", {"requests": reqs, "writeControl": {"requiredRevisionId": d["revisionId"]}}, ":batchUpdate")
             print("  restored")
+            st.pop(code, None)
             continue
         if code in st:
             print("  already polished (restore first to redo)")
@@ -342,7 +353,9 @@ def main():
         items = [{"id": i, "answer": c["answer"], "text": cell_marked(c["cell"])} for i, c in enumerate(cells)]
         res = rewrite(cl, items)
         new = [res[i]["text"].strip() or items[i]["text"] for i in range(len(items))]
-        extra = [res[i]["extra"].strip() for i in range(len(items)) if res[i]["extra"].strip()]
+        def lines(x):
+            return [l.strip() for l in (x if isinstance(x, list) else str(x or "").split("\n")) if str(l).strip()]
+        extra = [l for i in range(len(items)) for l in lines(res[i].get("extra"))]
         nw = [words(t) for t in new]
         print(f"  → words median={statistics.median(nw)} max={max(nw)} · extra notes moved={len(extra)}")
         extras_at = None
