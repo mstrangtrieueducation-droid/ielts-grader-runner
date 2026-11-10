@@ -51,7 +51,7 @@ MODEL = "claude-haiku-5-5"
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 6              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 7              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 40        # the status system normally marks the cell first; after this we write the status line ourselves
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -87,8 +87,9 @@ Bài này là {code} ({title}), gồm các mục số {first}–{last}:
 Việc cần làm:
 1. pages: với MỖI ảnh bài làm (không tính ảnh mẫu), theo thứ tự 1, 2, 3…: kind = handwritten (chữ viết tay trên sổ/giấy),
    printed_or_screen (bản in, ảnh chụp màn hình/web, chữ đánh máy), not_a_notebook (ảnh khác); readable = yes / partly / no;
-   neat = neat (chữ rõ, sạch) / acceptable (bình thường) / messy (chữ quá cẩu thả, nguệch ngoạc, gạch xoá bôi bẩn nhiều,
-   viết lệch dòng lộn xộn — chỉ chọn messy khi thật sự rõ ràng; ảnh mờ do chụp KHÔNG phải messy).
+   neat = neat / acceptable / messy. CHỈ chọn messy khi trang thật sự ẩu: nét chữ nguệch ngoạc khó đọc, gạch xoá hoặc bôi
+   bẩn nhiều chỗ, trang lem nhem, viết tràn lộn xộn không theo cột/dòng. Chữ nghiêng, chữ nối, chữ nhỏ, chữ không đẹp nhưng
+   đọc được đều là acceptable. Ảnh mờ/tối do chụp KHÔNG phải messy. Phân vân thì chọn acceptable.
 2. entries: mỗi mục từ em ĐÃ VIẾT trong sổ, một dòng: n = số thứ tự em ghi (nếu em không ghi số, lấy số của từ tương ứng
    trong danh sách trên; nhiều em tự đánh số lại từ 1 — vẫn ghi số em viết), term = từ/cụm từ tiếng Anh em viết (chép nguyên văn). Với từng cột type, ipa, vi, en, example:
    filled = có viết nội dung; empty = để trống; unclear = không nhìn rõ (ảnh mờ, bị cắt, che khuất).
@@ -126,8 +127,9 @@ Học sinh phải chép tay đầy đủ tài liệu bài giảng ({title}) dư�
 {parts}
 
 1. pages: với MỖI ảnh, theo thứ tự 1, 2, 3…: kind = handwritten / printed_or_screen (bản in, ảnh chụp màn hình, chữ đánh máy,
-   dán tài liệu in) / not_a_notebook; readable = yes / partly / no; neat = neat / acceptable / messy (chữ quá cẩu thả, nguệch ngoạc,
-   gạch xoá bôi bẩn nhiều, lộn xộn — chỉ chọn messy khi thật sự rõ ràng; ảnh mờ do chụp KHÔNG phải messy).
+   dán tài liệu in) / not_a_notebook; readable = yes / partly / no; neat = neat / acceptable / messy (CHỈ messy khi nét chữ
+   nguệch ngoạc khó đọc, gạch xoá/bôi bẩn nhiều, trang lem nhem lộn xộn; chữ không đẹp nhưng đọc được là acceptable;
+   ảnh mờ do chụp KHÔNG phải messy; phân vân thì chọn acceptable).
 2. parts: với MỖI phần ở trên (id theo số thứ tự): full = đã chép đủ nội dung chính của phần đó; partly = chỉ chép một phần
    (thiếu rõ ràng nhiều ý/ví dụ); missing = không thấy phần đó trong vở; unclear = không nhìn rõ để kết luận.
    Đối chiếu với nội dung tài liệu bên dưới; không đòi chép giống từng chữ, không bắt lỗi chính tả.
@@ -150,8 +152,8 @@ Các từ của phần A:
 {listing}
 
 1. pages: với MỖI ảnh, theo thứ tự 1, 2, 3…: kind = handwritten / printed_or_screen (bản in, ảnh chụp màn hình, chữ đánh máy) /
-   not_a_notebook; readable = yes / partly / no; neat = neat / acceptable / messy (chữ quá cẩu thả, nguệch ngoạc, gạch xoá bôi bẩn
-   nhiều — chỉ chọn messy khi thật sự rõ ràng; ảnh mờ do chụp KHÔNG phải messy).
+   not_a_notebook; readable = yes / partly / no; neat = neat / acceptable / messy (CHỈ messy khi nét chữ nguệch ngoạc khó đọc,
+   gạch xoá/bôi bẩn nhiều, trang lem nhem lộn xộn; chữ không đẹp nhưng đọc được là acceptable; phân vân thì chọn acceptable).
 2. entries (phần A): mỗi mục từ em ĐÃ VIẾT trong sổ: n = số của từ đó trong danh sách trên, term = từ em viết (nguyên văn);
    type, ipa, vi, en, example = filled / empty / unclear. KHÔNG liệt kê từ em không viết; không chắc thì unclear.
 3. answers (phần B): mỗi câu em ĐÃ LÀM LẠI trong vở: n = số câu, answer = đáp án em viết (nguyên văn, ngắn), explained = yes
@@ -471,7 +473,7 @@ class FighterNotebooks:
         out = {"type": "copy", "kind": "scored", "pct": pct, "pages": len(imgs), "hashes": hashes,
                "missing": [les["parts"][i - 1]["name"] for i, v in status.items() if v == "missing"],
                "partly": [les["parts"][i - 1]["name"] for i, v in status.items() if v == "partly"], "total": n,
-               "messy": bool(pg) and sum(p["messy"] for p in pg) * 2 >= len(pg)}
+               "messy": bool(pg) and sum(p["messy"] for p in pg) * 3 >= len(pg) * 2}
         if pg and sum(p["kind"] == "printed_or_screen" for p in pg) * 2 > len(pg):
             out["kind"] = "printed"
         elif reused and len(reused) * 2 >= len(imgs):
@@ -580,7 +582,7 @@ class FighterNotebooks:
                        "messy": p.get("neat") == q.get("neat") == "messy"})
         out = {"type": "reading", "kind": "scored", "pages": len(imgs), "hashes": hashes, "vocab": vocab, "total": total,
                "work": work, "notAnswered": [n for n in key if n not in ans], "notExplained": [n for n in answered if n not in explained],
-               "wrong": wrong, "messy": bool(pg) and sum(p["messy"] for p in pg) * 2 >= len(pg)}
+               "wrong": wrong, "messy": bool(pg) and sum(p["messy"] for p in pg) * 3 >= len(pg) * 2}
         out["pct"] = min(vocab["pct"], work)
         if pg and sum(p["kind"] == "printed_or_screen" for p in pg) * 2 > len(pg):
             out["kind"] = "printed"
@@ -692,7 +694,7 @@ class FighterNotebooks:
             out["kind"] = "wrong_unit"
         elif pg and all(p["readable"] == "no" for p in pg):
             out["kind"] = "unreadable"
-        out["messy"] = bool(pg) and sum(p.get("neat") == "messy" for p in pg) * 2 >= len(pg)
+        out["messy"] = bool(pg) and sum(p.get("neat") == "messy" for p in pg) * 3 >= len(pg) * 2
         mc = [m for m in res.get("meaningCheck", []) if m["match"] != "unclear"]
         out["meaningOff"] = sum(m["match"] == "no" for m in mc) >= 4
         secs = self.video_seconds(s["video"]) if s.get("video") else "none"
