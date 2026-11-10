@@ -51,7 +51,7 @@ MODEL = "claude-haiku-5-5"
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 18              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 19              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 40        # the status system normally marks the cell first; after this we write the status line ourselves
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -890,16 +890,16 @@ class FighterNotebooks:
         OWED = "⛔ Bài chưa đạt nên vẫn tính là CHƯA NỘP BÀI cho tới khi con nộp lại đạt yêu cầu."
         # The tracker's receipt sync may put its own "✅ ĐÃ NỘP" line back on top; this line keeps the dashboard
         # ("Cần bổ sung", counted as owed) and the class web app ("CẦN NỘP LẠI") right whatever the first line says.
-        FLAG = "GHI CHÚ GV: ❌ CẦN NỘP LẠI — bài nộp thiếu, chưa đạt yêu cầu."
+        FLAG = "GHI CHÚ GV: ❌ CẦN NỘP LẠI{} — bài nộp thiếu, chưa đạt yêu cầu."
 
         def refuse(why, ask):
-            return (f"Chất lượng: Chưa đạt (Yêu cầu nộp lại).\n• Lý do yêu cầu nộp lại: {why}\n{OWED}\n→ Yêu cầu: {ask}\n{FLAG}"), False, None
+            return (f"Chất lượng: Chưa đạt (Yêu cầu nộp lại).\n• Lý do yêu cầu nộp lại: {why}\n{OWED}\n→ Yêu cầu: {ask}\n{FLAG.format('')}"), False, None
 
         def head(pct, ok):
             return (f"Chất lượng: đạt {pct}% — {'Đạt yêu cầu.' if ok else f'CHƯA ĐẠT (yêu cầu từ {PASS}%).'}")
 
-        def ending(ok, ask):
-            return [] if ok else [OWED, "→ Yêu cầu: " + ask, FLAG]
+        def ending(ok, ask, pct=None):
+            return [] if ok else [OWED, "→ Yêu cầu: " + ask, FLAG.format(f" · {pct}%" if pct is not None else "")]
 
         if res["kind"] == "no_photos":
             return refuse(f"cô không mở được ảnh/tệp {book} con gửi.", f"con chụp rõ, đủ các trang {book} và NỘP LẠI ngay.")
@@ -937,7 +937,7 @@ class FighterNotebooks:
                 lines.append(f"• Đáp án làm lại vẫn sai ở câu: {ranges(res['wrong'])} — con đối chiếu lại phần chữa đề.")
             if res.get("messy"):
                 lines.append(messy)
-            lines += ending(ok, f"con bổ sung đủ các mục trên vào sổ từ vựng và {name.lower()}, chụp lại toàn bộ và NỘP LẠI trước buổi học tới.")
+            lines += ending(ok, pct=pct, ask=f"con bổ sung đủ các mục trên vào sổ từ vựng và {name.lower()}, chụp lại toàn bộ và NỘP LẠI trước buổi học tới.")
             return "\n".join(lines), ok, pct
         if res.get("type") == "ap":
             pct = res["pct"]
@@ -955,7 +955,7 @@ class FighterNotebooks:
                          + (" — thiếu: " + "; ".join(res["vocabLack"]) + "." if res["vocabLack"] else "."))
             if res.get("messy"):
                 lines.append(messy)
-            lines += ending(ok, "con bổ sung ĐỦ các mục còn thiếu ở trên vào vở, chụp lại toàn bộ và NỘP LẠI trước buổi học tới.")
+            lines += ending(ok, pct=pct, ask="con bổ sung ĐỦ các mục còn thiếu ở trên vào vở, chụp lại toàn bộ và NỘP LẠI trước buổi học tới.")
             return "\n".join(lines), ok, pct
         if res.get("type") == "copy":
             pct = res["pct"]
@@ -968,7 +968,7 @@ class FighterNotebooks:
                 lines.append("• Chép thiếu: " + "; ".join(res["partly"]) + ".")
             if res.get("messy"):
                 lines.append(messy)
-            lines += ending(ok, ("con chép bổ sung ĐỦ các phần trên theo bài giảng trên web, chụp lại toàn bộ và NỘP LẠI trước buổi học tới."
+            lines += ending(ok, pct=pct, ask=("con chép bổ sung ĐỦ các phần trên theo bài giảng trên web, chụp lại toàn bộ và NỘP LẠI trước buổi học tới."
                                  if pct < PASS else "con chép lại cẩn thận và NỘP LẠI trước buổi học tới."))
             return "\n".join(lines), ok, pct
         pct = res["pct"]
@@ -990,7 +990,7 @@ class FighterNotebooks:
             lines.append(f"• Video trả từ quá ngắn ({res['videoSecs']} giây) so với {res['total']} từ — con quay lại đủ các từ.")
         else:
             lines.append("• Video trả từ: đã có.")
-        lines += ending(ok, ("con bổ sung đủ các từ và các cột còn thiếu, chụp lại và NỘP LẠI trước buổi học tới." if pct < PASS
+        lines += ending(ok, pct=pct, ask=("con bổ sung đủ các từ và các cột còn thiếu, chụp lại và NỘP LẠI trước buổi học tới." if pct < PASS
                              else "con viết lại sổ cẩn thận và NỘP LẠI trước buổi học tới." if res.get("messy")
                              else "con quay video trả từ và NỘP LẠI trước buổi học tới."))
         return "\n".join(lines), ok, pct
