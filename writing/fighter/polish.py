@@ -354,13 +354,17 @@ def main():
         import notebook as nb
         dg = gapi.Google(json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"]))
         for code, v in sorted(json.loads((HERE / "paragraph.json").read_text()).items()):
-            raw = dg._req(f"https://www.googleapis.com/drive/v3/files/{v['doc']}/export?mimeType=text/markdown", raw=True).decode("utf-8", "replace")
+            try:
+                raw = dg._req(f"https://www.googleapis.com/drive/v3/files/{v['doc']}/export?mimeType=text/markdown", raw=True).decode("utf-8", "replace")
+            except Exception as e:
+                print(code, e)
+                continue
             t = re.sub(r"!\[[^\]]*\]\(data:[^)]*\)|^\[[^\]]+\]:\s*<?data:\S+", "", raw, flags=re.M)
             t = unicodedata.normalize("NFC", re.sub(r"\\([*\[\]_#])", r"\1", t))
             low = t.lower()
             j = low.find("từ vựng và cụm từ"); i = low.rfind("bài mẫu", 0, j) if j > 0 else -1
             print(code, "raw", len(raw), "clean", len(t), "i", i, "j", j, "bold-paren", len(re.findall(r"\*\*([^*]{2,60}?)\*\*\s*\(", t[j:] if j > 0 else "")),
-                  "paren-any", len(re.findall(r"\(\s*(?:TT|ĐT|DT|cụm|TrT)", t)), "PT", "PHÂN TÍCH" in t, "ok", bool(nb.ap_reference(t)),
+                  "paren-any", len(re.findall(r"\(\s*(?:TT|ĐT|DT|cụm|TrT)", t)), "PT", "PHÂN TÍCH" in t, "ok", bool(nb.ap_reference(t)), "vocab", len((nb.ap_reference(t) or {}).get("vocab", [])),
                   "sample-shape", re.sub(r"[A-Za-zÀ-ỹ0-9]", "a", t[j + 17:j + 60]) if j > 0 else "")
         return
     sel = os.environ.get("DOCS", "all")
