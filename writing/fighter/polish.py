@@ -26,7 +26,8 @@ STATE = Path(os.environ["FIGHTER_STATE"]).with_name("polish-docs.json")
 MODEL = "claude-sonnet-5-5"
 EXTRA = {"RI1-VO": "1s0DrBhfaLaDDnbLkrf4MqXC2RtSsz9XnEHKsPEI2rF0"}   # "VỞ CHỮA BÀI - READING 1 (đáp án giải thích)": all 12 tests
 DOC_OF = {**{k: v["doc"] for k, v in READING.items()}, **EXTRA}
-ALLOWED = set(DOC_OF.values())
+AP_DOCS = {k: v["doc"] for k, v in json.loads((HERE / "paragraph.json").read_text(encoding="utf-8")).items()}
+ALLOWED = set(DOC_OF.values()) | set(AP_DOCS.values())
 
 
 class Docs(gapi.Google):
@@ -349,6 +350,15 @@ def main():
     mode = os.environ.get("POLISH_MODE", "survey")
     if mode == "pt":
         return polish_pt()
+    if mode == "apread":   # can the Docs API read the lecture docs? (sizes only)
+        for code, doc in sorted(AP_DOCS.items()):
+            try:
+                d = g.get(doc)
+                body = sum(len(json.dumps(t.get("documentTab", {}).get("body", {}))) for t in tabs(d))
+                print(code, "ok", body, "inline", len(json.dumps([t.get("documentTab", {}).get("inlineObjects", {}) for t in tabs(d)])))
+            except Exception as e:
+                print(code, e)
+        return
     if mode == "apdiag":   # layout flags of the Academic Paragraph lecture docs (no content printed)
         import unicodedata
         import notebook as nb
