@@ -244,8 +244,27 @@ def edit_requests(cells, new, extras_at):
     return reqs
 
 
-def write_grouped(g, doc, d, cells, new, extras_at):
-    """One guarded batch per table, last table first; the doc is re-read before each batch."""
+def block_requests(tab, at, lines):
+    """'Từ vựng thêm' + lines as normal paragraphs inserted at `at` (start of the paragraph after a table)."""
+    text = "Từ vựng thêm\n" + "\n".join(lines) + "\n"
+    n = len(text.encode("utf-16-le")) // 2
+    return [{"insertText": {"location": {"index": at, "tabId": tab}, "text": text}},
+            {"updateParagraphStyle": {"range": {"startIndex": at, "endIndex": at + n, "tabId": tab},
+                                      "paragraphStyle": {"namedStyleType": "NORMAL_TEXT"}, "fields": "namedStyleType"}},
+            {"updateTextStyle": {"range": {"startIndex": at, "endIndex": at + n, "tabId": tab},
+                                 "textStyle": {"bold": False}, "fields": "bold"}},
+            {"updateTextStyle": {"range": {"startIndex": at, "endIndex": at + len("Từ vựng thêm"), "tabId": tab},
+                                 "textStyle": {"bold": True}, "fields": "bold"}}]
+
+
+def table_end(d, tab, ti):
+    t0 = next(t for t in tabs(d) if t["tabProperties"]["tabId"] == tab)
+    return t0["documentTab"]["body"]["content"][ti]["endIndex"]
+
+
+def write_grouped(g, doc, d, cells, new, extras_at, per_table=None):
+    """One guarded batch per table, last table first; the doc is re-read before each batch.
+    per_table: {cell index: [note lines]} → a 'Từ vựng thêm' block right after that cell's table."""
     groups = sorted({(c["tab"], c["table"]) for c in cells}, key=lambda k: (k[0], k[1]), reverse=True)
     first = True
     for key in groups:
@@ -253,7 +272,11 @@ def write_grouped(g, doc, d, cells, new, extras_at):
             d = g.get(doc)
             cells = expl_tables(d)
         idx = [i for i, c in enumerate(cells) if (c["tab"], c["table"]) == key]
-        reqs = edit_requests([cells[i] for i in idx], [new[i] for i in idx], extras_at if first else None)
+        reqs = []
+        lines = [l for i in idx for l in (per_table or {}).get(i, [])]
+        if lines:
+            reqs += block_requests(key[0], table_end(d, *key), lines)
+        reqs += edit_requests([cells[i] for i in idx], [new[i] for i in idx], extras_at if first else None)
         g.call(doc, "POST", {"requests": reqs, "writeControl": {"requiredRevisionId": d["revisionId"]}}, ":batchUpdate")
         first = False
 
@@ -355,14 +378,24 @@ def main():
                 bad += 1
                 continue
             reqs = []
-            if old.get("extra"):
-                t0 = next(t for t in tabs(d) if t["tabProperties"]["tabId"] == cells[-1]["tab"])
-                body = t0["documentTab"]["body"]["content"]
-                head = next((e for e in reversed(body) if e.get("paragraph") and
-                             "".join(x.get("textRun", {}).get("content", "") for x in e["paragraph"]["elements"]).strip() == "Từ vựng thêm"), None)
-                if head:
-                    reqs.append({"deleteContentRange": {"range": {"startIndex": head["startIndex"] - 1, "endIndex": body[-1]["endIndex"] - 1,
-                                                                  "tabId": cells[-1]["tab"]}}})
+            if old.get("extra"):   # remove every 'Từ vựng thêm' block we added (heading + its note lines), bottom first
+                for t0 in tabs(d):
+                    body = t0["documentTab"]["body"]["content"]
+                    tid = t0["tabProperties"]["tabId"]
+                    ptext = lambda e: "".join(x.get("textRun", {}).get("content", "") for x in e["paragraph"]["elements"]).strip()
+                    heads = [k for k, e in enumerate(body) if e.get("paragraph") and ptext(e) == "Từ vựng thêm"]
+                    for k in reversed(heads):
+                        if not old.get("perTable"):   # end-of-doc block: up to the end
+                            reqs.append({"deleteContentRange": {"range": {"startIndex": body[k]["startIndex"] - 1,
+                                                                          "endIndex": body[-1]["endIndex"] - 1, "tabId": tid}}})
+                            continue
+                        j = k + 1
+                        while j < len(body) and body[j].get("paragraph") and ptext(body[j]) and not body[j]["paragraph"].get("paragraphStyle", {}).get("namedStyleType", "NORMAL_TEXT").startswith("HEADING"):
+                            if ptext(body[j]) == "Từ vựng thêm" or "TEST" in ptext(body[j]):
+                                break
+                            j += 1
+                        reqs.append({"deleteContentRange": {"range": {"startIndex": body[k]["startIndex"],
+                                                                      "endIndex": body[j - 1]["endIndex"], "tabId": tid}}})
             if reqs:
                 g.call(doc, "POST", {"requests": reqs, "writeControl": {"requiredRevisionId": d["revisionId"]}}, ":batchUpdate")
                 d = g.get(doc)
@@ -381,13 +414,16 @@ def main():
         extra = [l for i in range(len(items)) for l in lines(res[i].get("extra"))]
         nw = [words(t) for t in new]
         print(f"  → words median={statistics.median(nw)} max={max(nw)} · extra notes moved={len(extra)}")
-        extras_at = None
-        if extra:
+        extras_at, per_table = None, None
+        if len({(c["tab"], c["table"]) for c in cells}) > 1:   # several tests in one doc: notes stay with their test
+            per_table = {i: [re.sub(r"\*\*", "", l) for l in lines(res[i].get("extra"))] for i in range(len(items))}
+            per_table = {i: v for i, v in per_table.items() if v}
+        elif extra:
             t0 = next(t for t in tabs(d) if t["tabProperties"]["tabId"] == cells[-1]["tab"])
             end = t0["documentTab"]["body"]["content"][-1]["endIndex"] - 1
             extras_at = (cells[-1]["tab"], end, [re.sub(r"\*\*", "", x) for x in extra])
-        st[code] = {"doc": doc, "cells": [it["text"] for it in items], "new": new, "extra": extra}
-        write_grouped(g, doc, d, cells, new, extras_at)
+        st[code] = {"doc": doc, "cells": [it["text"] for it in items], "new": new, "extra": extra, "perTable": bool(per_table)}
+        write_grouped(g, doc, d, cells, new, extras_at, per_table)
         STATE.write_text(json.dumps(st, ensure_ascii=False))
         print("  written")
     STATE.parent.mkdir(parents=True, exist_ok=True)
