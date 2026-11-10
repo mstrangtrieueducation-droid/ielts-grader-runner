@@ -24,7 +24,9 @@ import gapi  # noqa: E402
 READING = json.loads((HERE / "reading.json").read_text(encoding="utf-8"))
 STATE = Path(os.environ["FIGHTER_STATE"]).with_name("polish-docs.json")
 MODEL = "claude-sonnet-5-5"
-ALLOWED = {v["doc"] for v in READING.values()}
+EXTRA = {"RI1-VO": "1s0DrBhfaLaDDnbLkrf4MqXC2RtSsz9XnEHKsPEI2rF0"}   # "VỞ CHỮA BÀI - READING 1 (đáp án giải thích)": all 12 tests
+DOC_OF = {**{k: v["doc"] for k, v in READING.items()}, **EXTRA}
+ALLOWED = set(DOC_OF.values())
 
 
 class Docs(gapi.Google):
@@ -102,7 +104,7 @@ def expl_tables(d):
     found = []
     for t in tabs(d):
         tid = t["tabProperties"]["tabId"]
-        for el in t.get("documentTab", {}).get("body", {}).get("content", []):
+        for ti, el in enumerate(t.get("documentTab", {}).get("body", {}).get("content", [])):
             tb = el.get("table")
             if not tb:
                 continue
@@ -121,7 +123,7 @@ def expl_tables(d):
                 if col and not ans:   # a notes row with no answer (Cô's vocabulary list): leave it as it is
                     continue
                 if col < len(cs) and cell_text(cs[col]).strip():
-                    found.append({"tab": tid, "tabTitle": t["tabProperties"].get("title", ""), "cell": cs[col], "answer": ans})
+                    found.append({"tab": tid, "table": ti, "tabTitle": t["tabProperties"].get("title", ""), "cell": cs[col], "answer": ans})
     return found
 
 
@@ -134,6 +136,7 @@ Quy tắc viết lại từng ô:
    "trích dẫn tiếng Anh ngắn (giữ nguyên chữ, rút bằng …)" → lí do ngắn bằng tiếng Việt. Hoặc dạng "X = Y" cho câu từ đồng nghĩa / đại từ.
    Tối đa khoảng 20 chữ. Trích dẫn phải là chữ có trong bản gốc, không bịa.
 3. Câu ngữ pháp / điền từ: nêu đúng quy tắc quyết định đáp án, ≤ 15 chữ.
+   Nếu bản gốc là bản dịch cả câu: chỉ giữ nghĩa cụm có chứa đáp án (vd "**Good communication** = giao tiếp tốt").
 4. Ô đã ngắn (≤ 12 chữ) và rõ: giữ nguyên.
 5. Ghi chú từ vựng lạc chỗ, không liên quan trực tiếp tới câu đó: chuyển nguyên văn sang trường "extra", không đưa vào "text".
 6. Dùng **…** để in đậm từ khoá như bản gốc (từ vựng chính, đáp án). Không thêm emoji, không xuống dòng.
@@ -241,6 +244,20 @@ def edit_requests(cells, new, extras_at):
     return reqs
 
 
+def write_grouped(g, doc, d, cells, new, extras_at):
+    """One guarded batch per table, last table first; the doc is re-read before each batch."""
+    groups = sorted({(c["tab"], c["table"]) for c in cells}, key=lambda k: (k[0], k[1]), reverse=True)
+    first = True
+    for key in groups:
+        if not first:
+            d = g.get(doc)
+            cells = expl_tables(d)
+        idx = [i for i, c in enumerate(cells) if (c["tab"], c["table"]) == key]
+        reqs = edit_requests([cells[i] for i in idx], [new[i] for i in idx], extras_at if first else None)
+        g.call(doc, "POST", {"requests": reqs, "writeControl": {"requiredRevisionId": d["revisionId"]}}, ":batchUpdate")
+        first = False
+
+
 def words(s):
     return len(re.sub(r"\*\*", "", s).split())
 
@@ -310,12 +327,12 @@ def main():
     if mode == "pt":
         return polish_pt()
     sel = os.environ.get("DOCS", "all")
-    codes = list(READING) if sel == "all" else [c.strip() for c in sel.split(",") if c.strip()]
+    codes = [k for k in READING if k.startswith("RI2")] + list(EXTRA) if sel == "all" else [c.strip() for c in sel.split(",") if c.strip()]
     st = json.loads(STATE.read_text()) if STATE.exists() else {}
     cl = cw.client() if mode == "apply" else None
     bad = 0
     for code in codes:
-        doc = READING[code]["doc"]
+        doc = DOC_OF[code]
         try:
             d = g.get(doc)
         except Exception as e:
@@ -346,8 +363,10 @@ def main():
                 if head:
                     reqs.append({"deleteContentRange": {"range": {"startIndex": head["startIndex"] - 1, "endIndex": body[-1]["endIndex"] - 1,
                                                                   "tabId": cells[-1]["tab"]}}})
-            reqs += edit_requests(cells, old["cells"], None)
-            g.call(doc, "POST", {"requests": reqs, "writeControl": {"requiredRevisionId": d["revisionId"]}}, ":batchUpdate")
+            if reqs:
+                g.call(doc, "POST", {"requests": reqs, "writeControl": {"requiredRevisionId": d["revisionId"]}}, ":batchUpdate")
+                d = g.get(doc)
+            write_grouped(g, doc, d, expl_tables(d), old["cells"], None)
             print("  restored")
             st.pop(code, None)
             continue
@@ -367,9 +386,8 @@ def main():
             t0 = next(t for t in tabs(d) if t["tabProperties"]["tabId"] == cells[-1]["tab"])
             end = t0["documentTab"]["body"]["content"][-1]["endIndex"] - 1
             extras_at = (cells[-1]["tab"], end, [re.sub(r"\*\*", "", x) for x in extra])
-        reqs = edit_requests(cells, new, extras_at)
         st[code] = {"doc": doc, "cells": [it["text"] for it in items], "new": new, "extra": extra}
-        g.call(doc, "POST", {"requests": reqs, "writeControl": {"requiredRevisionId": d["revisionId"]}}, ":batchUpdate")
+        write_grouped(g, doc, d, cells, new, extras_at)
         STATE.write_text(json.dumps(st, ensure_ascii=False))
         print("  written")
     STATE.parent.mkdir(parents=True, exist_ok=True)
