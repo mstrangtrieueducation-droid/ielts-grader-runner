@@ -153,6 +153,9 @@ SCHEMA = {"type": "object", "properties": {"items": {"type": "array", "items": {
 
 
 def rewrite(cl, items):
+    import anthropic
+    global anthropic_bad
+    anthropic_bad = anthropic.BadRequestError
     out = {}
     for k in range(0, len(items), 40):
         chunk = items[k:k + 40]
@@ -160,9 +163,13 @@ def rewrite(cl, items):
             try:
                 r = cl.messages.create(model=MODEL, max_tokens=16000,
                                        tools=[{"name": "record", "description": "Ghi kết quả", "input_schema": SCHEMA}],
-                                       tool_choice={"type": "tool", "name": "record"},
-                                       messages=[{"role": "user", "content": PROMPT.format(items=json.dumps(chunk, ensure_ascii=False))}])
+                                       tool_choice={"type": "auto"},
+                                       messages=[{"role": "user", "content": PROMPT.format(items=json.dumps(chunk, ensure_ascii=False)) + "\n\nBắt buộc gọi công cụ record đúng một lần với toàn bộ các mục."}])
+                if not any(b.type == "tool_use" for b in r.content):
+                    raise RuntimeError("NO_TOOL_USE")
                 break
+            except anthropic_bad as e:
+                raise
             except Exception as e:   # overload / network: wait and try again (nothing was billed for a failed call)
                 if attempt == 3:
                     raise
