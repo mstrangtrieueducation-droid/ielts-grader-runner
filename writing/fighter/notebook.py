@@ -51,7 +51,7 @@ MODEL = "claude-haiku-5-5"
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 21              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 22              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 40        # the status system normally marks the cell first; after this we write the status line ourselves
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -123,8 +123,10 @@ starts = vài chữ đầu của phần đó. Trả kết quả qua công cụ r
 
 TÀI LIỆU:
 {doc}"""
-AP_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["pages", "outline", "model", "vocab", "otherLesson"],
+AP_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["pages", "outline", "model", "vocab", "revised", "otherLesson"],
              "properties": {"pages": {"type": "array", "items": PAGE},
+                            "revised": {"type": "object", "additionalProperties": False, "required": ["present", "words"],
+                                        "properties": {"present": {"type": "string", "enum": ["yes", "no", "unclear"]}, "words": I}},
                             "outline": {"type": "object", "additionalProperties": False, "required": ["status", "lacking"],
                                         "properties": {"status": {"type": "string", "enum": ["full", "partly", "missing", "unclear"]},
                                                        "lacking": S}},
@@ -132,7 +134,7 @@ AP_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["page
                                       "properties": {"present": {"type": "string", "enum": ["yes", "no", "unclear"]}, "lastSentence": I}},
                             "vocab": {"type": "array", "items": S}, "otherLesson": {"type": "boolean"}}}
 AP_PROMPT = """Bạn đọc ảnh VỞ ĐOẠN VĂN HỌC THUẬT viết tay của một học sinh ({title}). Bạn KHÔNG chấm, KHÔNG nhận xét; chỉ ghi lại đúng
-những gì nhìn thấy. Học sinh phải chép: sơ đồ OUTLINE của bài, BÀI MẪU (thường ở ô BÀI MẪU THAM KHẢO) và các từ/cụm từ (có thể ghi ở lề,
+những gì nhìn thấy. Học sinh phải có: đoạn REVISED VERSION tự viết lại sau khi được chữa, sơ đồ OUTLINE của bài, BÀI MẪU (thường ở ô BÀI MẪU THAM KHẢO) và các từ/cụm từ (có thể ghi ở lề,
 đầu trang hoặc cuối trang, viết nhỏ, nghiêng) — nhìn kỹ cả lề, đầu/cuối trang và các trang sau.
 
 1. pages: với MỖI ảnh, theo thứ tự 1, 2, 3…: kind = handwritten / printed_or_screen / not_a_notebook; readable = yes / partly / no;
@@ -140,6 +142,8 @@ những gì nhìn thấy. Học sinh phải chép: sơ đồ OUTLINE của bài,
 2. outline: học sinh đã chép SƠ ĐỒ OUTLINE (luận điểm, ý chính – ý phụ) của bài chưa, so với ẢNH OUTLINE MẪU (nếu có):
    status = full (đủ các nhánh chính) / partly (thiếu rõ ràng một số nhánh/ý) / missing (không có) / unclear;
    lacking: CHỈ khi partly — ghi ngắn (≤ 15 chữ) nhánh/ý còn thiếu; còn lại "".
+2b. revised: present = yes nếu có đoạn REVISED VERSION — đoạn văn học sinh TỰ VIẾT LẠI sau khi được cô chữa (thường ở ô
+   REVISED VERSION, cùng đề bài, khác bài mẫu); words = số chữ ước lượng (0 nếu không có).
 3. model: present = yes nếu có chép bài mẫu; lastSentence = SỐ THỨ TỰ câu cuối cùng của bài mẫu (đánh số bên dưới) mà học sinh
    đã chép tới (đọc hết ô Bài mẫu tham khảo, kể cả dòng cuối trang và trang sau). Chép hết → số câu cuối cùng; không chép → 0.
 4. vocab: danh sách các từ/cụm từ tiếng Anh học sinh đã ghi (mục từ vựng ở bất kỳ chỗ nào trên trang), mỗi mục một chuỗi, nguyên văn.
@@ -567,7 +571,9 @@ class FighterNotebooks:
         have = [v for v in ref["vocab"] if any(sim(v, w) >= 0.8 for w in seen)]
         lack = [v for v in ref["vocab"] if v not in have]
         model_full = got >= len(sents)
-        pct = round(100 * (outline + (1 if model_full else reach) + len(have) / len(ref["vocab"])) / 3)
+        revised = any(r["revised"]["present"] in ("yes", "unclear") and (r["revised"]["words"] >= 60 or r["revised"]["present"] == "unclear")
+                      for r in reads)
+        pct = round(100 * ((1 if revised else 0) + outline + (1 if model_full else reach) + len(have) / len(ref["vocab"])) / 4)
         pg = []
         pb = {p["page"]: p for p in reads[1].get("pages", [])}
         for p in reads[0].get("pages", []):
@@ -575,7 +581,7 @@ class FighterNotebooks:
             pg.append({"kind": p["kind"] if p["kind"] == q["kind"] else "handwritten",
                        "readable": p["readable"] if p["readable"] == q["readable"] else "partly",
                        "messy": p.get("neat") == q.get("neat") == "messy"})
-        out = {"type": "ap", "kind": "scored", "pct": pct, "pages": len(imgs), "hashes": hashes, "outline": outline, "outlineLack": outline_lack,
+        out = {"type": "ap", "kind": "scored", "pct": pct, "pages": len(imgs), "hashes": hashes, "revised": revised, "outline": outline, "outlineLack": outline_lack,
                "modelFull": model_full, "modelGot": got, "modelTotal": len(sents),
                "modelNext": " ".join(sents[got].split()[:6]) if not model_full and got < len(sents) else "", "vocabHave": len(have), "vocabTotal": len(ref["vocab"]), "vocabLack": lack,
                "messy": bool(pg) and sum(p["messy"] for p in pg) * 3 >= len(pg) * 2}
@@ -954,6 +960,7 @@ class FighterNotebooks:
             pct = res["pct"]
             ok = pct >= PASS and not res.get("messy")
             lines = [head(pct, ok)]
+            lines.append("• Revised version (đoạn văn con viết lại sau khi chữa): " + ("đã có." if res["revised"] else "CHƯA CÓ."))
             lines.append("• Outline: " + ("đã chép đủ." if res["outline"] >= 1 else
                                           f"chép thiếu — {res['outlineLack']}." if res["outline"] and res["outlineLack"] else
                                           "chép thiếu." if res["outline"] else "CHƯA CHÉP."))
@@ -1037,9 +1044,7 @@ class FighterNotebooks:
         tr.write(a1, new)
         if tr.cell(a1) != new:
             return "readback_mismatch"
-        self.set_flag(tr, a1, None if ok else
-                      f"{FLAG} · {pct}% — bài nộp thiếu, chưa đạt yêu cầu. Xem nhận xét chi tiết." if pct is not None else
-                      f"{FLAG} — bài nộp chưa hợp lệ. Xem nhận xét chi tiết.")
+        self.set_flag(tr, a1, None)   # Cô 10/11: no cell notes — the comment itself says CẦN NỘP LẠI; clear our old ones
         return "ok"
 
     def set_flag(self, tr, a1, text):

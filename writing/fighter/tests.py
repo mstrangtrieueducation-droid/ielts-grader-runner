@@ -114,12 +114,12 @@ _f.g, _f.st = _G(), {}
 _s = {"cls": "FIGHTER 5", "submittedAt": "09/11/2026 23:51:00"}
 assert _f.write(_s, "BQ4", None, "Chất lượng: đạt 17% — CHƯA ĐẠT", False, 17) == "ok"
 assert _t.v.startswith("✅ ĐÃ NỘP\n09/11/2026 23:51\n\n" + nb.MARK), _t.v
-assert _notes[-1].startswith("LỖI: ❌ CẦN NỘP LẠI · 17%"), _notes
+assert not _notes or _notes[-1] == "", _notes   # no cell notes any more
 _s["published"] = "Chất lượng: đạt 17% — CHƯA ĐẠT"
 _s2 = {"cls": "FIGHTER 5", "submittedAt": "10/11/2026 20:00:00", "published": _s["published"]}
 assert _f.write(_s2, "BQ4", None, "Chất lượng: đạt 95% — Đạt yêu cầu.", True, 95) == "ok"
 assert _t.v.startswith("✅ ĐÃ NỘP\n09/11/2026 23:51\n\n" + nb.MARK + "\nChất lượng: đạt 95%"), _t.v
-assert _notes[-1] == "", _notes   # passed later: our note is cleared
+assert not _notes or _notes[-1] == "", _notes
 print("status line ok")
 
 _W = [f"{chr(97 + i // 26)}{chr(97 + i % 26)}q" for i in range(100)]
