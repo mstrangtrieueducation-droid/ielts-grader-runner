@@ -671,6 +671,8 @@ class FighterNotebooks:
                 src = self.st["subs"].get(owner["sid"], {})
                 if (src.get("result") or {}).get("kind") == "wrong_unit":   # pupil sent this notebook under the wrong unit first
                     continue
+                if src.get("submittedAt") and parse_vn_time(src["submittedAt"]) >= parse_vn_time(s["submittedAt"]):
+                    continue   # only an EARLIER submission can have been reused
                 if owner["sid"] != sid and (owner["student"] != bare(s["student"]) or owner["code"] != s["code"]) and ham(hx, other) <= 60:
                     reused.append(owner)
                     break
@@ -1343,6 +1345,13 @@ class FighterNotebooks:
     def run(self):
         self.scan()
         subs = self.st["subs"]
+        for s in subs.values():   # "reused" against a later submission (the pupil sent it under another unit first): read again
+            src = (s.get("result") or {}).get("reusedFrom") or {}
+            o = subs.get(src.get("sid"), {})
+            if s["status"] == "published" and (s.get("result") or {}).get("kind") == "reused" and o.get("submittedAt") \
+                    and parse_vn_time(o["submittedAt"]) >= parse_vn_time(s["submittedAt"]):
+                s.update(status="new", tries=0, regrade=True)
+                self.tick("regrade_reuse_order")
         for s in subs.values():
             if s["status"] == "published" and s.get("ver", 1) < VERSION:
                 m = re.search(r"đạt (\d+)%", s.get("published") or "")
