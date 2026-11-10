@@ -51,7 +51,11 @@ class Docs(gapi.Google):
             with self.opener.open(req, timeout=300) as r:
                 return json.loads(r.read() or b"{}")
         except urllib.error.HTTPError as e:
-            raise RuntimeError(f"DOCS_HTTP_{e.code}") from None
+            try:
+                why = json.loads(e.read()).get("error", {}).get("message", "")[:160]
+            except Exception:
+                why = ""
+            raise RuntimeError(f"DOCS_HTTP_{e.code} {why}") from None
 
     def get(self, doc):
         return self.call(doc, suffix="?includeTabsContent=true")
