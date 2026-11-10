@@ -115,6 +115,8 @@ def expl_tables(d):
                 continue
             for r in rows[1:]:
                 cs = r.get("tableCells", [])
+                if cs and "từ vựng" in cell_text(cs[0]).lower():   # Cô's own "TỪ VỰNG CẦN NHỚ" row: leave it as it is
+                    continue
                 if col < len(cs) and cell_text(cs[col]).strip():
                     ans = cell_text(cs[col - 1]).strip() if col else ""
                     found.append({"tab": tid, "tabTitle": t["tabProperties"].get("title", ""), "cell": cs[col], "answer": ans})
