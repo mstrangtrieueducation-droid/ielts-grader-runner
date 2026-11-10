@@ -49,10 +49,10 @@ assert f.cell_for({"cls": "FIGHTER 5", "student": "X Y", "code": "VF2-U14", "pro
 
 s = {"code": "VF2-U14", "prog": "VF2"}
 res = dict(nb.score(u, part), kind="scored", video="ok", videoSecs=60, meaningOff=False)
-txt, ok = f.comment(s, res, 0); assert not ok and "Thiếu 4 từ" in txt and "Nghĩa tiếng Anh" in txt, txt
+txt, ok, _pct = f.comment(s, res, 0); assert not ok and "Thiếu 4 từ" in txt and "Nghĩa tiếng Anh" in txt, txt
 print(txt); print("---")
-txt, ok = f.comment(s, dict(nb.score(u, full), kind="scored", video="ok", videoSecs=60, meaningOff=False), 0); assert ok; print(txt); print("---")
-txt, ok = f.comment(s, dict(nb.score(u, full), kind="scored", video="ok", videoSecs=60, meaningOff=False, messy=True), 0)
+txt, ok, _pct = f.comment(s, dict(nb.score(u, full), kind="scored", video="ok", videoSecs=60, meaningOff=False), 0); assert ok; print(txt); print("---")
+txt, ok, _pct = f.comment(s, dict(nb.score(u, full), kind="scored", video="ok", videoSecs=60, meaningOff=False, messy=True), 0)
 assert not ok and "cẩu thả" in txt, txt
 print(f.comment(s, {"kind": "reused", "reusedFrom": {"code": "VF2-U13"}}, 0)[0])
 assert nb.unit_code("GF", "GF1-U04.1-LT") == "GF1-U04.1-LT" and nb.unit_code("GF", "Unit 10") == "GF1-U10-LT"
@@ -65,9 +65,9 @@ assert f.cell_for({"cls": "FIGHTER 5", "student": "Nguyễn Kim Ngân", "code": 
 assert f.cell_for({"cls": "FIGHTER 5", "student": "Nguyễn Kim Ngân", "code": "GF1-U04-LT", "prog": "GF"})[0] == "BQ7", "Unit 4 ≠ Unit 4.1"
 assert f.cell_for({"cls": "FIGHTER 5", "student": "Nguyễn Kim Ngân", "code": "AP-B07", "prog": "AP"})[0] == "BR7"
 g = {"code": "GF1-U10-LT", "prog": "GF"}
-txt, ok = f.comment(g, {"type": "copy", "kind": "scored", "pct": 70, "total": 5, "missing": ["IV. Countable – Uncountable Nouns"],
+txt, ok, _pct = f.comment(g, {"type": "copy", "kind": "scored", "pct": 70, "total": 5, "missing": ["IV. Countable – Uncountable Nouns"],
                         "partly": ["VI. Articles"], "messy": True}, 0)
-assert not ok and "Chưa chép: IV." in txt and "cẩu thả" in txt; print(txt); print("---")
+assert not ok and "Chưa chép phần: IV." in txt and "cẩu thả" in txt; print(txt); print("---")
 print(f.comment({"code": "AP-B07", "prog": "AP"}, {"kind": "printed"}, 0)[0])
 assert nb.unit_code("RC2", "Test 11") == "RI2-C11" and nb.unit_code("RC2", "RI2-C07") == "RI2-C07"
 assert nb.unit_label("RI2-C07") == ("Unit", "7") and nb.known("RC2", "RI2-C07")
@@ -75,7 +75,7 @@ r2[60] = "READING 2 - VỞ CHỮA\nUnit 4"; r3[60] = "Hạn 04/11/2026"
 assert f.cell_for({"cls": "FIGHTER 5", "student": "Nguyễn Kim Ngân", "code": "RI2-C04", "prog": "RC2"})[0] == "BI7"
 res = {"type": "reading", "kind": "scored", "vocab": dict(nb.score(u, part)), "total": 64, "work": 80, "notAnswered": [60, 61, 62, 63, 64],
        "notExplained": [1, 2, 3], "wrong": [7], "messy": False}
-txt, ok = f.comment({"code": "RI2-C04", "prog": "RC2"}, res, 0); assert not ok and "Chưa làm lại câu: 60–64" in txt; print(txt)
+txt, ok, _pct = f.comment({"code": "RI2-C04", "prog": "RC2"}, res, 0); assert not ok and "Chưa làm lại câu: 60–64" in txt; print(txt)
 assert nb.unit_code("PT", "PRACTICE TEST 4") == "PT4" and nb.unit_label("PT4") == ("Practice Test", "4") and nb.known("PT", "PT4")
 r2[61] = "LUYỆN ĐỀ\nPractice Test 4"; r3[61] = "* sổ luyện đề & sổ từ vựng\nHạn: Chủ nhật, 15/11/2026"
 assert f.cell_for({"cls": "FIGHTER 5", "student": "Nguyễn Kim Ngân", "code": "PT4", "prog": "PT"})[0] == "BJ7"
@@ -92,3 +92,20 @@ from notebook import test_section
 _d = "# **CHỮA ĐỀ**\n# **TEST 1**\n| a |\n# **TEST 2**\n| b |\n"
 assert "| b |" in test_section(_d, 2) and "| a |" not in test_section(_d, 2) and test_section(_d, 3) == ""
 print("test_section ok")
+
+# status line: not ok → "❌ CẦN NỘP LẠI · N% · time" (dashboard/web app count it as owed); ok again → a receipt line
+class _T:
+    def __init__(self, v): self.v = v
+    def cell(self, a1): return self.v
+    def write(self, a1, t): self.v = t
+_t = _T("✅ ĐÃ NỘP\n09/11/2026 23:51")
+_f = nb.FighterNotebooks.__new__(nb.FighterNotebooks)
+_f.r = type("R", (), {"tracker": lambda self, c: _t})()
+_s = {"cls": "FIGHTER 5", "submittedAt": "09/11/2026 23:51:00"}
+assert _f.write(_s, "BQ4", None, "Chất lượng: đạt 17% — CHƯA ĐẠT", False, 17) == "ok"
+assert _t.v.startswith("❌ CẦN NỘP LẠI · 17% · 09/11/2026 23:51\n\n" + nb.MARK), _t.v
+_s["published"] = "Chất lượng: đạt 17% — CHƯA ĐẠT"
+_s2 = {"cls": "FIGHTER 5", "submittedAt": "10/11/2026 20:00:00", "published": _s["published"]}
+assert _f.write(_s2, "BQ4", None, "Chất lượng: đạt 95% — Đạt yêu cầu.", True, 95) == "ok"
+assert _t.v.startswith("✅ ĐÃ NỘP\n10/11/2026 20:00\n\n" + nb.MARK + "\nChất lượng: đạt 95%"), _t.v
+print("status line ok")

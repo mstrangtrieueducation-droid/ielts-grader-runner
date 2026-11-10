@@ -51,7 +51,7 @@ MODEL = "claude-haiku-5-5"
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 9              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 10              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 40        # the status system normally marks the cell first; after this we write the status line ourselves
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -112,8 +112,9 @@ OUTLINE_SCHEMA = {"type": "object", "additionalProperties": False, "required": [
 COPY_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["pages", "parts", "otherLesson"],
                "properties": {"pages": {"type": "array", "items": PAGE},
                               "parts": {"type": "array", "items": {"type": "object", "additionalProperties": False,
-                                                                    "required": ["id", "status"],
-                                                                    "properties": {"id": I, "status": {"type": "string", "enum": ["full", "partly", "missing", "unclear"]}}}},
+                                                                    "required": ["id", "status", "lacking"],
+                                                                    "properties": {"id": I, "status": {"type": "string", "enum": ["full", "partly", "missing", "unclear"]},
+                                                                                   "lacking": S}}},
                               "otherLesson": {"type": "boolean"}}}
 OUTLINE_PROMPT = """Dưới đây là TÀI LIỆU BÀI GIẢNG mà học sinh phải chép tay vào vở. Hãy chia tài liệu thành các PHẦN CHÍNH (4–12 phần)
 theo đúng thứ tự trong tài liệu, để giáo viên kiểm tra học sinh đã chép đủ chưa. Dùng các đề mục có sẵn (I, II, 1, 2…, Outline,
@@ -132,6 +133,8 @@ Học sinh phải chép tay đầy đủ tài liệu bài giảng ({title}) dư�
    ảnh mờ do chụp KHÔNG phải messy; phân vân thì chọn acceptable).
 2. parts: với MỖI phần ở trên (id theo số thứ tự): full = đã chép đủ nội dung chính của phần đó; partly = chỉ chép một phần
    (thiếu rõ ràng nhiều ý/ví dụ); missing = không thấy phần đó trong vở; unclear = không nhìn rõ để kết luận.
+   lacking: CHỈ khi partly — ghi cụ thể, ngắn (≤ 20 chữ) phần còn thiếu so với tài liệu, gọi theo tên/ý trong tài liệu
+   (vd "thiếu ý 2 và 3 của thân đoạn", "bài mẫu mới chép đến câu 4/9", "thiếu 3 cụm cuối: …"); các trường hợp khác để "".
    Đối chiếu với nội dung tài liệu bên dưới; không đòi chép giống từng chữ, không bắt lỗi chính tả.
 3. otherLesson = true nếu vở chủ yếu là nội dung của một bài khác (không phải tài liệu này).
 
@@ -478,9 +481,11 @@ class FighterNotebooks:
         with cf.ThreadPoolExecutor(2) as ex:
             a, b = ex.map(lambda _: self.call(content, COPY_SCHEMA, cat), range(2))
         # merged in the pupil's favour: a part is missing only if both reads say so
-        best = {}
+        best, lack = {}, {}
         for x in a.get("parts", []) + b.get("parts", []):
             if 1 <= x["id"] <= len(les["parts"]) and STATUS_RANK[x["status"]] >= STATUS_RANK.get(best.get(x["id"]), -1):
+                if STATUS_RANK[x["status"]] > STATUS_RANK.get(best.get(x["id"]), -1) or not lack.get(x["id"]):
+                    lack[x["id"]] = str(x.get("lacking") or "").strip().rstrip(".")
                 best[x["id"]] = x["status"]
         n = len(les["parts"])
         status = {i: best.get(i, "missing") for i in range(1, n + 1)}
@@ -494,7 +499,8 @@ class FighterNotebooks:
                        "messy": p.get("neat") == q.get("neat") == "messy"})
         out = {"type": "copy", "kind": "scored", "pct": pct, "pages": len(imgs), "hashes": hashes,
                "missing": [les["parts"][i - 1]["name"] for i, v in status.items() if v == "missing"],
-               "partly": [les["parts"][i - 1]["name"] for i, v in status.items() if v == "partly"], "total": n,
+               "partly": [les["parts"][i - 1]["name"] + (f" ({lack[i]})" if lack.get(i) else "")
+                          for i, v in status.items() if v == "partly"], "total": n,
                "messy": bool(pg) and sum(p["messy"] for p in pg) * 3 >= len(pg) * 2}
         if pg and sum(p["kind"] == "printed_or_screen" for p in pg) * 2 > len(pg):
             out["kind"] = "printed"
@@ -751,84 +757,101 @@ class FighterNotebooks:
 
     # ------------------------------------------------------------ feedback text
     def comment(self, s, res, count_incomplete):
+        """(text, ok, pct). Same look as KIDS: a quality line the dashboard reads ("Chất lượng: đạt N%"), the reasons,
+        then a firm request. Not ok → the cell's status line becomes "❌ CẦN NỘP LẠI", so the dashboard and the class
+        web app count it as homework still owed until a good notebook comes in."""
         label, unit = unit_label(s["code"])
-        what = KIND_NAME[s["prog"]].upper() if s["prog"] in KIND_NAME else "SỔ TỪ VỰNG"
+        what = KIND_NAME.get(s["prog"], "sổ từ vựng")
         book = "vở" if s["prog"] in KIND_NAME else "sổ"
+        OWED = "⛔ Bài chưa đạt nên vẫn tính là CHƯA NỘP BÀI cho tới khi con nộp lại đạt yêu cầu."
+
+        def refuse(why, ask):
+            return (f"Chất lượng: Chưa đạt (Yêu cầu nộp lại).\n• Lý do yêu cầu nộp lại: {why}\n{OWED}\n→ Yêu cầu: {ask}"), False, None
+
+        def head(pct, ok):
+            return (f"Chất lượng: đạt {pct}% — {'Đạt yêu cầu.' if ok else f'CHƯA ĐẠT (yêu cầu từ {PASS}%).'}")
+
+        def ending(ok, ask):
+            return [] if ok else [OWED, "→ Yêu cầu: " + ask]
+
         if res["kind"] == "no_photos":
-            return f"⛔ CHƯA GHI NHẬN {what}\n• Không mở được ảnh/tệp {book} con gửi.\n→ Con chụp rõ, đủ các trang {book} và nộp lại nhé.", False
+            return refuse(f"cô không mở được ảnh/tệp {book} con gửi.", f"con chụp rõ, đủ các trang {book} và NỘP LẠI ngay.")
         if res["kind"] == "unreadable":
-            return (f"⛔ CHƯA GHI NHẬN {what}\n• Ảnh {book} quá mờ/bị cắt nên không đọc được.\n"
-                    "→ Con chụp lại rõ nét, đủ sáng, đủ các trang và nộp lại nhé."), False
+            return refuse(f"ảnh {book} quá mờ hoặc bị cắt, cô không đọc được.", "con chụp lại rõ nét, đủ sáng, đủ các trang và NỘP LẠI ngay.")
         if res["kind"] in ("printed", "reused", "wrong_unit"):
             prev = res.get("reusedFrom", {}).get("code")
-            why = {"printed": f"{book.capitalize()} nộp là bản in/ảnh chụp màn hình, không phải chép tay.",
-                   "reused": f"Ảnh {book} trùng với bài đã nộp trước đó" + (f" ({' '.join(unit_label(prev))})" if prev else "") + ".",
-                   "wrong_unit": (f"Các từ trong sổ không phải từ của {label} {unit}." if s["prog"] not in COPY
-                                  else f"Nội dung trong vở không phải bài giảng của {label} {unit}.")}[res["kind"]]
-            return f"⛔ KHÔNG ĐƯỢC GHI NHẬN\n• {why}\n→ Con chép tay đúng {label} {unit} vào {book} và nộp lại.", False
+            why = {"printed": f"{book} nộp là bản in/ảnh chụp màn hình, không phải chép tay — cô không chấp nhận.",
+                   "reused": f"ảnh {book} trùng với bài đã nộp trước đó" + (f" ({' '.join(unit_label(prev))})" if prev else "")
+                             + " — mỗi bài phải là ảnh chụp mới của chính bài đó.",
+                   "wrong_unit": (f"các từ trong sổ không phải từ của {label} {unit}." if s["prog"] not in COPY
+                                  else f"nội dung trong vở không phải bài giảng của {label} {unit}.")}[res["kind"]]
+            return refuse(why, f"con chép tay đúng {label} {unit} vào {book} và NỘP LẠI trước buổi học tới.")
+        messy = "• Chữ viết cẩu thả, bẩn, khó đọc — cô không chấp nhận cách trình bày này; con viết lại rõ ràng, sạch sẽ."
         if res.get("type") == "reading":
             v = res["vocab"]
-            lines = [f"Sổ từ vựng (từ cô in đỏ): {v['pct']}% ({v['total'] - len(v['missing'])}/{v['total']} từ)."]
+            name = "Sổ luyện đề" if s["prog"] == "PT" else "Vở chữa bài"
+            pct = min(v["pct"], res["work"])
+            ok = v["pct"] >= PASS and res["work"] >= PASS and not res.get("messy")
+            need = res.get("needWhy", res["total"])
+            lines = [head(pct, ok),
+                     f"• Sổ từ vựng (từ cô in đỏ): {v['pct']}% — có {v['total'] - len(v['missing'])}/{v['total']} từ.",
+                     f"• {name}: {res['work']}% — làm lại {res['total'] - len(res['notAnswered'])}/{res['total']} câu, "
+                     f"giải thích {need - len(res['notAnswered']) - len(res['notExplained'])}/{need} câu cần giải thích."]
             if v["missing"]:
                 lines.append(f"• Thiếu {len(v['missing'])} từ: số {ranges(v['missing'])}.")
             for f, lab in FIELDS:
                 if v["empty"][f]:
-                    lines.append(f"• Trống cột {lab} ở {len(v['empty'][f])} từ: số {ranges(v['empty'][f])}.")
-            lines.append(f"{'Sổ luyện đề' if s['prog'] == 'PT' else 'Vở chữa bài'}: {res['work']}% (làm lại {res['total'] - len(res['notAnswered'])}/{res['total']} câu, "
-                         f"có giải thích {res.get('needWhy', res['total']) - len([n for n in res['notAnswered']]) - len(res['notExplained'])}"
-                         f"/{res.get('needWhy', res['total'])} câu cần giải thích).")
+                    lines.append(f"• Bỏ trống cột {lab} ở {len(v['empty'][f])} từ: số {ranges(v['empty'][f])}.")
             if res["notAnswered"]:
                 lines.append(f"• Chưa làm lại câu: {ranges(res['notAnswered'])}.")
             if res["notExplained"]:
-                lines.append(f"• Chưa giải thích câu: {ranges(res['notExplained'])}.")
+                lines.append(f"• Chưa chép giải thích câu: {ranges(res['notExplained'])}.")
             if res["wrong"]:
-                lines.append(f"• Đáp án làm lại vẫn sai ở câu: {ranges(res['wrong'])}; con đối chiếu lại phần chữa đề.")
+                lines.append(f"• Đáp án làm lại vẫn sai ở câu: {ranges(res['wrong'])} — con đối chiếu lại phần chữa đề.")
             if res.get("messy"):
-                lines.append("• Chữ viết cẩu thả, bẩn, khó đọc. Con viết lại cẩn thận, rõ ràng, sạch sẽ.")
-            ok = v["pct"] >= PASS and res["work"] >= PASS and not res.get("messy")
-            if not ok:
-                lines.append(f"→ Con bổ sung đầy đủ sổ từ vựng và {'sổ luyện đề' if s['prog'] == 'PT' else 'vở chữa'}, chụp nộp lại trước buổi học tới.")
-            return "\n".join(lines), ok
+                lines.append(messy)
+            lines += ending(ok, f"con bổ sung đủ các mục trên vào sổ từ vựng và {name.lower()}, chụp lại toàn bộ và NỘP LẠI trước buổi học tới.")
+            return "\n".join(lines), ok, pct
         if res.get("type") == "copy":
-            lines = [f"Mức hoàn thành {KIND_NAME[s['prog']]}: {res['pct']}% "
-                     f"({res['total'] - len(res['missing']) - len(res['partly'])}/{res['total']} phần chép đủ)."]
+            pct = res["pct"]
+            ok = pct >= PASS and not res.get("messy")
+            full = res["total"] - len(res["missing"]) - len(res["partly"])
+            lines = [head(pct, ok), f"• {what.capitalize()}: mới chép đủ {full}/{res['total']} phần của bài giảng."]
             if res["missing"]:
-                lines.append("• Chưa chép: " + "; ".join(res["missing"]) + ".")
+                lines.append("• Chưa chép phần: " + "; ".join(res["missing"]) + ".")
             if res["partly"]:
-                lines.append("• Chép thiếu nội dung: " + "; ".join(res["partly"]) + ".")
+                lines.append("• Chép thiếu: " + "; ".join(res["partly"]) + ".")
             if res.get("messy"):
-                lines.append("• Chữ viết cẩu thả, bẩn, khó đọc. Con viết lại cẩn thận, rõ ràng, sạch sẽ.")
-            ok = res["pct"] >= PASS and not res.get("messy")
-            if not ok:
-                lines.append("→ Con chép bổ sung đầy đủ các phần còn thiếu, chụp nộp lại trước buổi học tới." if res["pct"] < PASS
-                             else "→ Con chép lại cẩn thận và nộp lại trước buổi học tới.")
-            return "\n".join(lines), ok
-        lines = [f"Mức hoàn thành sổ từ vựng: {res['pct']}% ({res['total'] - len(res['missing'])}/{res['total']} từ"
-                 + (", đủ 7 cột)." if res["pct"] >= 100 else ").")]
+                lines.append(messy)
+            lines += ending(ok, ("con chép bổ sung ĐỦ các phần trên theo bài giảng trên web, chụp lại toàn bộ và NỘP LẠI trước buổi học tới."
+                                 if pct < PASS else "con chép lại cẩn thận và NỘP LẠI trước buổi học tới."))
+            return "\n".join(lines), ok, pct
+        pct = res["pct"]
+        ok = pct >= PASS and res["video"] != "none" and not res.get("messy")
+        lines = [head(pct, ok), f"• Sổ từ vựng: có {res['total'] - len(res['missing'])}/{res['total']} từ"
+                 + (", đủ 7 cột." if pct >= 100 else ".")]
         if res["missing"]:
             lines.append(f"• Thiếu {len(res['missing'])} từ: số {ranges(res['missing'])}.")
-        for f, label in FIELDS:
+        for f, lab in FIELDS:
             if res["empty"][f]:
-                lines.append(f"• Trống cột {label} ở {len(res['empty'][f])} từ: số {ranges(res['empty'][f])}.")
+                lines.append(f"• Bỏ trống cột {lab} ở {len(res['empty'][f])} từ: số {ranges(res['empty'][f])}.")
         if res.get("messy"):
-            lines.append("• Chữ viết cẩu thả, bẩn, khó đọc. Con viết lại cẩn thận, rõ ràng, sạch sẽ, bám sát dòng kẻ.")
+            lines.append(messy)
         if res.get("meaningOff"):
-            lines.append("• Nhiều nghĩa tiếng Việt chép không khớp với từ; con đối chiếu lại với web học.")
+            lines.append("• Nhiều nghĩa tiếng Việt chép không khớp với từ — con đối chiếu lại với web học.")
         if res["video"] == "none":
             lines.append("• Chưa có video trả từ.")
         elif res["video"] == "short":
-            lines.append(f"• Video trả từ quá ngắn ({res['videoSecs']} giây) so với {res['total']} từ; con quay lại đủ các từ.")
+            lines.append(f"• Video trả từ quá ngắn ({res['videoSecs']} giây) so với {res['total']} từ — con quay lại đủ các từ.")
         else:
             lines.append("• Video trả từ: đã có.")
-        ok = res["pct"] >= PASS and res["video"] != "none" and not res.get("messy")
-        if not ok:
-            lines.append("→ Con bổ sung đủ các từ và các cột còn thiếu, chụp nộp lại trước buổi học tới." if res["pct"] < PASS
-                         else "→ Con viết lại sổ cẩn thận và nộp lại trước buổi học tới." if res.get("messy")
-                         else "→ Con quay video trả từ và nộp bổ sung trước buổi học tới.")
-        return "\n".join(lines), ok
+        lines += ending(ok, ("con bổ sung đủ các từ và các cột còn thiếu, chụp lại và NỘP LẠI trước buổi học tới." if pct < PASS
+                             else "con viết lại sổ cẩn thận và NỘP LẠI trước buổi học tới." if res.get("messy")
+                             else "con quay video trả từ và NỘP LẠI trước buổi học tới."))
+        return "\n".join(lines), ok, pct
 
     # ------------------------------------------------------------ main step
-    def write(self, s, a1, deadline, text):
+    def write(self, s, a1, deadline, text, ok=True, pct=None):
         tr = self.r.tracker(s["cls"])
         cur = tr.cell(a1)
         sub_t = parse_vn_time(s["submittedAt"])
@@ -843,6 +866,11 @@ class FighterNotebooks:
             existing = existing.strip()
         else:
             prefix, existing = cur, ""
+        receipt = ("⚠️ ĐÃ NỘP MUỘN" if deadline and sub_t > deadline else "✅ ĐÃ NỘP") + "\n" + sub_t.strftime("%d/%m/%Y %H:%M")
+        if prefix.strip().startswith("❌ CẦN NỘP LẠI"):   # our own line for an earlier notebook: back to a receipt
+            prefix = receipt
+        if not ok:   # KIDS look: the dashboard and the class web app count this homework as still owed
+            prefix = "❌ CẦN NỘP LẠI · " + (f"{pct}% · " if pct is not None else "") + sub_t.strftime("%d/%m/%Y %H:%M")
         prev = s.get("published")
         if "GHI CHÚ GV" in prefix.upper() or (existing and existing != prev and not (prev and prev in existing)):
             return "teacher_comment"   # a note Cô/staff wrote is never overwritten
@@ -917,14 +945,14 @@ class FighterNotebooks:
             earlier = sorted({x["code"] for x in subs.values() if (x["cls"], bare(norm(x["student"]))) == key
                               and x["status"] == "published" and not x.get("ok") and x["code"] != s["code"]
                               and family(x["prog"]) == family(s["prog"])})
-            text, ok = self.comment(s, res, len(earlier))
+            text, ok, pct = self.comment(s, res, len(earlier))
             if not ok and len(earlier) >= 2:
                 label = unit_label(s["code"])[0]
                 units = ", ".join(unit_label(c)[1] for c in earlier + [s["code"]])
                 book = KIND_NAME.get(s["prog"], "sổ từ vựng")
-                text += f"\n• Đây là lần thứ {len(earlier) + 1} con nộp {book} chưa đầy đủ ({label} {units})."
+                text += f"\n• ĐÂY LÀ LẦN THỨ {len(earlier) + 1} con nộp {book} chưa đạt ({label} {units}) — con cần nghiêm túc hơn."
             dl = dt.datetime.fromisoformat(s["deadline"]) if s.get("deadline") else None
-            w = self.write(s, s["cell"], dl, text)
+            w = self.write(s, s["cell"], dl, text, ok, pct)
             if w == "wait":
                 self.tick("waiting_status_line")
                 continue
