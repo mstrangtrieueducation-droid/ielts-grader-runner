@@ -421,7 +421,7 @@ class Scans:
         given before); a test without its tracker column waits until the column exists."""
         cut = self.r.cfg.get("scanBaselineBefore") or ""
         for fid, rec in self.st["files"].items():
-            if (rec.get("modified") or "") < cut:   # trials on papers from before go-live are never published
+            if (rec.get("modified") or "") < cut and not rec.get("approvedOld"):   # pre-go-live trials stay unpublished
                 continue
             todo = [s for s in rec["students"].values() if s["status"] in ("graded", "held") and s.get("name")]
             if not todo:
@@ -440,8 +440,8 @@ class Scans:
             for s in todo:
                 row = tr.row_of(s["name"])
                 if not row:
-                    s.update(status="held", hold="not_in_roster")
-                    self.tick("held_not_in_roster")
+                    s.update(status="dropped", hold="not_in_roster")   # Cô 10/11: not on the class list → dropped
+                    self.tick("dropped_not_in_roster")
                     continue
                 done = True
                 for task, c in cols.items():
@@ -482,6 +482,12 @@ def run(runner, only=None, limit_files=None):
         if runner.auto_publish():
             sc.publish()
         sc.discover()
+        for fid in runner.cfg.get("scanApprovedOld") or []:   # papers from before go-live that Cô asked to grade
+            rec = sc.st["files"].get(fid)
+            if rec and not rec.get("approvedOld") and rec.get("meta") and rec["meta"].get("cls") in runner.cfg["classes"]:
+                rec.update(status="new" if pack_for(rec["meta"]) else "no_pack", students={}, approvedOld=True)
+                rec.pop("baseline", None)
+                sc.tick("approved_old")
         for fid in (only or []):   # trial re-run of a named file
             rec = sc.st["files"].get(fid)
             if (rec and rec["status"] == "graded" and runner.cfg.get("scanRegrade") == fid
