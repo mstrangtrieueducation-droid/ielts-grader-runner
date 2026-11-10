@@ -1,0 +1,86 @@
+{
+"RI1-C01": {
+"correction": "c16171509bdeb76456f56b1806f3db16"
+},
+"RI1-C02": {
+"correction": "935069ec5887d60236f12322f3698e60"
+},
+"RI1-C03": {
+"correction": "2a509119cbfe61714bdfcd742530b7ac"
+},
+"RI1-C04": {
+"correction": "b028d4b35aeb678e5988c7ffb2252172"
+},
+"RI1-C05": {
+"correction": "50540c4f39674ae4043d96afc938d217"
+},
+"RI1-C06": {
+"correction": "d097d194dd8c93323267443ed4b8ca16"
+},
+"RI1-C07": {
+"correction": "60fb302a295a1bb87a0ec3370f4ffe82"
+},
+"RI1-C08": {
+"correction": "a1cfa6d79aab4bf23c01e822d84e19e1"
+},
+"RI1-C09": {
+"correction": "a766e2226d6375ebef548464ac3549fe"
+},
+"RI1-C10": {
+"correction": "7f94ed6b8007d69f9bb1b0b5f7dd8583"
+},
+"RI1-C11": {
+"correction": "86ada2cdc9f327f35e4a1a53ddfc1e4e"
+},
+"RI1-C12": {
+"correction": "e5bc21eeef468b7827f438d302aff1ec"
+},
+"RI2-C01": {
+"correction": "e5d15763c67f8f707c722df540533a5f",
+"test": "6e19b33aed49e5d2eb6ee1cf6231338a"
+},
+"RI2-C02": {
+"correction": "7223ebfda789dabf364a783ecbc51a7f",
+"test": "89bcf6d8e99ab2a7f34e9c2a8117a2ce"
+},
+"RI2-C03": {
+"correction": "dc4fabe4cf4192edce7e9250e8c79226",
+"test": "44c1efa662c19efbcc90f203901da1cc"
+},
+"RI2-C04": {
+"correction": "0ac6415d89c538e9ae621b3ef75897ad",
+"test": "96dc1e6ccf3c7bbb1eda5904c8de1e36"
+},
+"RI2-C05": {
+"correction": "866c5854ed282e8e229321b539a3b084",
+"test": "894049f576dc9610e41e7fa8d5dea5f6"
+},
+"RI2-C06": {
+"correction": "2e857c83a0e0b55d76baaf109b1d23fc",
+"test": "86db0b4abab3a34fecc3f57a9813e1b2"
+},
+"RI2-C07": {
+"correction": "79c785f0c20627c4c4aa4cbc05a7f3c0",
+"test": "954599bc395f00d1e1145c0e679b8676"
+},
+"RI2-C08": {
+"correction": "4db82300540844ef3c2257e10c0cae42",
+"test": "06350cab52a045da9d71f6f1b8a3366b"
+},
+"RI2-C09": {
+"correction": "21306d55bbfddd71514b460324a47c4f",
+"test": "94a64df802fe09dd9e756c3050becd22"
+},
+"RI2-C10": {
+"correction": "f2691c77dc87ddb6cc459ae6316cdae9",
+"test": "3f0f9793a25cd3934fc58b5a97afbbde"
+},
+"RI2-C11": {
+"correction": "2bb8abde5d51edf21a56dde388530615",
+"test": "9cde77f5a88342a09bc425d104905056"
+},
+"RI2-C12": {
+"correction": "121e137c945d0b925d5a82bbc6cdd83b",
+"test": "e8e06d317047504fce0108b6d190329c"
+}
+}

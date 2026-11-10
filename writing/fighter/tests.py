@@ -69,4 +69,11 @@ txt, ok = f.comment(g, {"type": "copy", "kind": "scored", "pct": 70, "total": 5,
                         "partly": ["VI. Articles"], "messy": True}, 0)
 assert not ok and "Chưa chép: IV." in txt and "cẩu thả" in txt; print(txt); print("---")
 print(f.comment({"code": "AP-B07", "prog": "AP"}, {"kind": "printed"}, 0)[0])
+assert nb.unit_code("RC2", "Test 11") == "RI2-C11" and nb.unit_code("RC2", "RI2-C07") == "RI2-C07"
+assert nb.unit_label("RI2-C07") == ("Unit", "7") and nb.known("RC2", "RI2-C07")
+r2[60] = "READING 2 - VỞ CHỮA\nUnit 4"; r3[60] = "Hạn 04/11/2026"
+assert f.cell_for({"cls": "FIGHTER 5", "student": "Nguyễn Kim Ngân", "code": "RI2-C04", "prog": "RC2"})[0] == "BI7"
+res = {"type": "reading", "kind": "scored", "vocab": dict(nb.score(u, part)), "total": 64, "work": 80, "notAnswered": [60, 61, 62, 63, 64],
+       "notExplained": [1, 2, 3], "wrong": [7], "messy": False}
+txt, ok = f.comment({"code": "RI2-C04", "prog": "RC2"}, res, 0); assert not ok and "Chưa làm lại câu: 60–64" in txt; print(txt)
 print("fighter notebook offline checks: OK")
