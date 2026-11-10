@@ -51,7 +51,7 @@ MODEL = "claude-haiku-5-5"
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 22              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 23              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 40        # the status system normally marks the cell first; after this we write the status line ourselves
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -156,6 +156,63 @@ TỪ VỰNG CỦA BÀI:
 {vocab}
 
 Trả kết quả DUY NHẤT qua công cụ record."""
+
+
+def docs_api_text(g, doc):
+    """(text, outline picture) of a Google Doc through the Docs API (service account, documents.readonly)."""
+    import urllib.request
+    try:
+        old = gapi_scopes = None
+        import gapi
+        old = gapi.SCOPES
+        gapi.SCOPES = "https://www.googleapis.com/auth/documents.readonly https://www.googleapis.com/auth/drive.readonly"
+        tok = gapi.Google(g.account).token()
+        gapi.SCOPES = old
+        req = urllib.request.Request(f"https://docs.googleapis.com/v1/documents/{doc}?includeTabsContent=true",
+                                     headers={"Authorization": "Bearer " + tok})
+        d = json.loads(urllib.request.urlopen(req, timeout=120).read())
+    except Exception:
+        if old:
+            import gapi
+            gapi.SCOPES = old
+        return None, None
+    out, pics = [], []
+
+    def para(p):
+        return "".join(e.get("textRun", {}).get("content", "") for e in p.get("elements", []))
+
+    def walk(content):
+        for el in content or []:
+            if "paragraph" in el:
+                out.append(para(el["paragraph"]))
+            elif "table" in el:
+                for row in el["table"].get("tableRows", []):
+                    cells = []
+                    for c in row.get("tableCells", []):
+                        cells.append("\n".join(para(x["paragraph"]) for x in c.get("content", []) if "paragraph" in x))
+                    out.append(" | ".join(cells) + "\n")
+
+    def tabs(ts):
+        for t in ts or []:
+            dt_ = t.get("documentTab", {})
+            walk(dt_.get("body", {}).get("content"))
+            for o in (dt_.get("inlineObjects") or {}).values():
+                emb = o.get("inlineObjectProperties", {}).get("embeddedObject", {})
+                uri = emb.get("imageProperties", {}).get("contentUri")
+                size = emb.get("size", {})
+                if uri:
+                    area = (size.get("width", {}).get("magnitude", 0) or 0) * (size.get("height", {}).get("magnitude", 0) or 0)
+                    pics.append((area, uri))
+            tabs(t.get("childTabs"))
+    tabs(d.get("tabs"))
+    figure = None
+    for _, uri in sorted(pics, reverse=True)[:1]:
+        try:
+            raw = urllib.request.urlopen(urllib.request.Request(uri, headers={"Authorization": "Bearer " + tok}), timeout=60).read()
+            figure = img_block(to_jpeg(raw))["source"]["data"]
+        except Exception:
+            figure = None
+    return "".join(out), figure
 
 
 def ap_reference(text):
@@ -816,10 +873,12 @@ class FighterNotebooks:
                     break
                 except Exception:
                     continue
+            figure = None
+            if not text:   # export blocked (viewers may not download): read it through the Docs API instead
+                text, figure = docs_api_text(self.g, doc)
             if not text:
                 raise RuntimeError("LECTURE_NOT_READABLE")
             imgs = sorted(re.findall(r"data:image/[a-z+]+;base64,([A-Za-z0-9+/=]+)", text), key=len, reverse=True)
-            figure = None
             if imgs and 20000 < len(imgs[0]) < 6000000:   # the outline diagram of the lesson (largest picture)
                 try:
                     figure = img_block(to_jpeg(base64.b64decode(imgs[0])))["source"]["data"]
@@ -910,10 +969,10 @@ class FighterNotebooks:
         book = "vở" if s["prog"] in KIND_NAME else "sổ"
         OWED = "⛔ Bài chưa đạt nên vẫn tính là CHƯA NỘP BÀI cho tới khi con nộp lại đạt yêu cầu."
         def refuse(why, ask):
-            return (f"Chất lượng: Chưa đạt — CẦN NỘP LẠI.\n• Lý do yêu cầu nộp lại: {why}\n{OWED}\n→ Yêu cầu: {ask}"), False, None
+            return (f"❌ Chất lượng: Chưa đạt — CẦN NỘP LẠI.\n• Lý do yêu cầu nộp lại: {why}\n{OWED}\n→ Yêu cầu: {ask}"), False, None
 
         def head(pct, ok):
-            return (f"Chất lượng: đạt {pct}% — {'Đạt yêu cầu.' if ok else f'CHƯA ĐẠT, CẦN NỘP LẠI (yêu cầu từ {PASS}%).'}")
+            return (f"{'✅' if ok else '❌'} Chất lượng: đạt {pct}% — {'Đạt yêu cầu.' if ok else f'CHƯA ĐẠT, CẦN NỘP LẠI (yêu cầu từ {PASS}%).'}")
 
         def ending(ok, ask, pct=None):
             return [] if ok else [OWED, "→ Yêu cầu: " + ask]
@@ -1045,7 +1104,50 @@ class FighterNotebooks:
         if tr.cell(a1) != new:
             return "readback_mismatch"
         self.set_flag(tr, a1, None)   # Cô 10/11: no cell notes — the comment itself says CẦN NỘP LẠI; clear our old ones
+        self.paint(tr, a1, new, ok)
         return "ok"
+
+    def paint(self, tr, a1, text, ok):
+        """Same colours as the class sync: status block green/orange, the marker blue; our verdict green when passed,
+        red (cell background red too) when the notebook must be redone, so staff see it at a glance."""
+        try:
+            sid, row, col = self.cell_ref(tr, a1)
+            u = lambda t: len(t.encode("utf-16-le")) // 2
+            rgb = lambda h: {"red": int(h[1:3], 16) / 255, "green": int(h[3:5], 16) / 255, "blue": int(h[5:7], 16) / 255}
+            fmt = lambda h, b=True, size=None: {"foregroundColor": rgb(h), "bold": b, **({"fontSize": size} if size else {})}
+            at = text.find(MARK)
+            head = text[:at]
+            runs = [{"startIndex": 0, "format": fmt("#b45f06" if "MUỘN" in head.split("\n")[0] else "#274e13", True, 8)},
+                    {"startIndex": u(text[:at]), "format": fmt("#1c4587", True, 10)}]
+            pos = at + len(MARK)
+            for line in text[pos:].split("\n"):
+                if line.strip():
+                    strong = line.startswith(("❌", "✅", "⛔", "→", "• ĐÂY LÀ"))
+                    color = ("#274e13" if ok else "#990000") if strong else "#000000"
+                    runs.append({"startIndex": u(text[:pos]), "format": fmt(color, strong, 9)})
+                pos += len(line) + 1
+            cell = {"textFormatRuns": runs}
+            fields = "textFormatRuns"
+            if not ok:
+                cell["userEnteredFormat"] = {"backgroundColor": rgb("#f4cccc")}
+                fields += ",userEnteredFormat.backgroundColor"
+            self.g._req(f"https://sheets.googleapis.com/v4/spreadsheets/{tr.id}:batchUpdate", "POST", {"requests": [{"updateCells": {
+                "range": {"sheetId": sid, "startRowIndex": row - 1, "endRowIndex": row, "startColumnIndex": col - 1, "endColumnIndex": col},
+                "rows": [{"values": [cell]}], "fields": fields}}]})
+        except Exception as e:
+            self.tick("paint_error_" + type(e).__name__)
+
+    def cell_ref(self, tr, a1):
+        m = re.match(r"([A-Z]+)(\d+)$", a1)
+        col = 0
+        for ch in m.group(1):
+            col = col * 26 + ord(ch) - 64
+        sid = self.st.setdefault("sheetIds", {}).get(f"{tr.id}|{tr.tab}")
+        if sid is None:
+            meta = self.g._req(f"https://sheets.googleapis.com/v4/spreadsheets/{tr.id}?fields=sheets.properties(sheetId,title)")
+            sid = next(x["properties"]["sheetId"] for x in meta["sheets"] if x["properties"]["title"] == tr.tab)
+            self.st["sheetIds"][f"{tr.id}|{tr.tab}"] = sid
+        return sid, int(m.group(2)), col
 
     def set_flag(self, tr, a1, text):
         """Cell note, the staff's own way to mark homework to redo ("LỖI: …"): the class sync shows it in red in the cell,
