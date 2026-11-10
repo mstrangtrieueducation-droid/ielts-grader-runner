@@ -1,9 +1,12 @@
 name: Fighter notebooks (Haiku)
 run-name: Fighter notebooks ${{ github.event_name }}
 # Fighter vocabulary notebooks: runs on demand and whenever the Fighter grading code changes,
-# so new rules are applied at once; on schedule every 20 minutes 07:00–23:59 (results within the hour).
+# so new rules are applied at once. GitHub's own timer often skips runs, so a "loop" run grades every 20 minutes
+# for about an hour and then hands over to the next loop itself (07:00–23:59 Vietnam time); the timer is only a backup.
 on:
   workflow_dispatch:
+    inputs:
+      mode: {description: 'loop | once', default: loop}
   schedule:
     - cron: '7,27,47 0-16 * * *'   # every 20 min, 07:07 → 23:47 Vietnam time
   push:
@@ -11,6 +14,7 @@ on:
     paths: ['writing/fighter/**']
 permissions:
   contents: write
+  actions: write
 concurrency:
   group: fighter-notebooks
   cancel-in-progress: false
@@ -18,7 +22,7 @@ jobs:
   fighter:
     if: github.repository == 'mstrangtrieueducation-droid/ielts-grader-runner'
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 120
     env:
       RUNTIME_DIR: ${{ github.workspace }}/.runtime/writing
       FIGHTER_STATE: ${{ github.workspace }}/.runtime/fighter/fighter-notebook.json
@@ -46,7 +50,28 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           WRITING_BUNDLE_KEY: ${{ secrets.WRITING_BUNDLE_KEY }}
-        run: python writing/run_writing.py
+          RUN_MODE: ${{ github.event_name == 'push' && 'once' || inputs.mode || 'loop' }}
+        run: |
+          save_state() {
+            d="$(dirname "$FIGHTER_STATE")"; [ -f "$FIGHTER_STATE" ] || return 0
+            python writing/vault.py pack "$d" "$RUNTIME_DIR/fighter.enc"
+            tmp=$(mktemp -d); cp "$RUNTIME_DIR/fighter.enc" "$tmp/"
+            ( cd "$tmp" && git init -q -b fighter-state && git add fighter.enc &&
+              git -c user.name=writing-runner -c user.email=writing-runner@users.noreply.github.com commit -qm "fighter state" &&
+              git push -fq "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" fighter-state )
+          }
+          if [ "$RUN_MODE" != loop ]; then python writing/run_writing.py; exit $?; fi
+          end=$((SECONDS + 3300))
+          while :; do
+            hour=$(TZ=Asia/Ho_Chi_Minh date +%H)
+            if [ "$hour" -ge 7 ]; then
+              git fetch -q origin main && git checkout -q origin/main -- writing   # newest rules each cycle
+              python writing/run_writing.py || echo "cycle failed; next one in 20 min"
+              save_state
+            fi
+            [ $((SECONDS + 1200)) -lt $end ] || break
+            sleep 1200
+          done
       - name: Save state (encrypted)
         if: always()
         env:
@@ -58,3 +83,16 @@ jobs:
           git init -q -b fighter-state && git add fighter.enc
           git -c user.name=writing-runner -c user.email=writing-runner@users.noreply.github.com commit -qm "fighter state"
           git push -fq "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" fighter-state
+      - name: Keep the loop going
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          api="https://api.github.com/repos/${{ github.repository }}/actions/workflows/fighter_notebooks.yml"
+          others=$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" "$api/runs?per_page=20" \
+            | python3 -c "import json,sys; r=json.load(sys.stdin)['workflow_runs']; print(sum(1 for x in r if x['status'] in ('queued','in_progress','waiting','pending') and x['id'] != ${{ github.run_id }}))")
+          if [ "$others" = "0" ]; then
+            curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" "$api/dispatches" -d '{"ref":"main","inputs":{"mode":"loop"}}' && echo "next loop dispatched"
+          else
+            echo "another run is already queued or running ($others)"
+          fi
