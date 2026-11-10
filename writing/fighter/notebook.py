@@ -507,7 +507,8 @@ class FighterNotebooks:
         if not words or not test.get("answers"):
             raise RuntimeError("PRACTICE_REFERENCE_INCOMPLETE")
         qs = [{"n": int(a["globalNumber"]), "answer": str(a.get("displayAnswer") or (a.get("acceptedAnswers") or [""])[0]),
-               "choices": bool(re.fullmatch(r"[A-Da-d]", str(a.get("displayAnswer") or "").strip()))} for a in test["answers"]]
+               "choices": bool(re.fullmatch(r"[A-Da-d]", str(a.get("displayAnswer") or "").strip())),
+               "needsWhy": bool(str(a.get("explanation") or "").strip())} for a in test["answers"]]
         return {"title": test.get("title") or f"Practice Test {code[2:]}", "total": int(test.get("total") or len(qs)),
                 "words": [{"n": k, "term": w.get("term", ""), "type": w.get("meta", ""), "vi": w.get("meaning", "")}
                           for k, w in enumerate(words, 1)], "questions": qs}
@@ -537,7 +538,8 @@ class FighterNotebooks:
             for sec in (test or {}).get("sections", []):
                 qlist = sec["questions"] if isinstance(sec["questions"], list) else []
                 for q in qlist:
-                    qs.append({"n": int(q["number"]), "answer": str(q.get("answer", "")), "choices": bool(sec.get("choices"))})
+                    qs.append({"n": int(q["number"]), "answer": str(q.get("answer", "")), "choices": bool(sec.get("choices")),
+                               "needsWhy": bool(str(q.get("explanation") or "").strip())})
             if not words or not qs:
                 raise RuntimeError("READING_REFERENCE_INCOMPLETE")
             ref[code] = {"title": (test or {}).get("title", code), "total": int((test or {}).get("total") or len(qs)),
@@ -565,7 +567,9 @@ class FighterNotebooks:
             if x["n"] in key:
                 ans.setdefault(x["n"], []).append(x)
         answered = sorted(ans)
-        explained = sorted(n for n, xs in ans.items() if any(x["explained"] != "no" for x in xs))
+        # Cô's rule: every question that has an explanation in the correction must be explained (more is fine)
+        need_why = {n for n, q in key.items() if q.get("needsWhy", True)} or set(key)
+        explained = sorted(n for n, xs in ans.items() if n not in need_why or any(x["explained"] != "no" for x in xs))
         norm_a = lambda v: re.sub(r"[^a-z0-9]", "", bare(v))
         wrong = sorted(n for n, xs in ans.items()   # only clear single-letter answers, both reads agreeing
                        if key[n]["choices"] and re.fullmatch(r"[A-Za-z]", key[n]["answer"].strip()) and len(xs) == 2
@@ -573,6 +577,7 @@ class FighterNotebooks:
                        and norm_a(xs[0]["answer"]) != norm_a(key[n]["answer"]))
         total = ref["total"]
         work = round(100 * (len(answered) + len(explained)) / (2 * total)) if total else 0
+        explained = [n for n in explained if n in need_why]
         pb = {p["page"]: p for p in b.get("pages", [])}
         pg = []
         for p in a.get("pages", []):
@@ -581,7 +586,8 @@ class FighterNotebooks:
                        "readable": p["readable"] if p["readable"] == q["readable"] else "partly",
                        "messy": p.get("neat") == q.get("neat") == "messy"})
         out = {"type": "reading", "kind": "scored", "pages": len(imgs), "hashes": hashes, "vocab": vocab, "total": total,
-               "work": work, "notAnswered": [n for n in key if n not in ans], "notExplained": [n for n in answered if n not in explained],
+               "work": work, "notAnswered": [n for n in key if n not in ans],
+               "notExplained": [n for n in answered if n in need_why and n not in explained], "needWhy": len(need_why),
                "wrong": wrong, "messy": bool(pg) and sum(p["messy"] for p in pg) * 3 >= len(pg) * 2}
         out["pct"] = min(vocab["pct"], work)
         if pg and sum(p["kind"] == "printed_or_screen" for p in pg) * 2 > len(pg):
@@ -729,7 +735,8 @@ class FighterNotebooks:
                 if v["empty"][f]:
                     lines.append(f"• Trống cột {lab} ở {len(v['empty'][f])} từ: số {ranges(v['empty'][f])}.")
             lines.append(f"{'Sổ luyện đề' if s['prog'] == 'PT' else 'Vở chữa bài'}: {res['work']}% (làm lại {res['total'] - len(res['notAnswered'])}/{res['total']} câu, "
-                         f"có giải thích {res['total'] - len(res['notAnswered']) - len(res['notExplained'])}/{res['total']} câu).")
+                         f"có giải thích {res.get('needWhy', res['total']) - len([n for n in res['notAnswered']]) - len(res['notExplained'])}"
+                         f"/{res.get('needWhy', res['total'])} câu cần giải thích).")
             if res["notAnswered"]:
                 lines.append(f"• Chưa làm lại câu: {ranges(res['notAnswered'])}.")
             if res["notExplained"]:
