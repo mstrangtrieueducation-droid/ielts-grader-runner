@@ -51,7 +51,7 @@ MODEL = "claude-haiku-5-5"
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 16              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 17              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 40        # the status system normally marks the cell first; after this we write the status line ourselves
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -888,15 +888,18 @@ class FighterNotebooks:
         what = KIND_NAME.get(s["prog"], "sổ từ vựng")
         book = "vở" if s["prog"] in KIND_NAME else "sổ"
         OWED = "⛔ Bài chưa đạt nên vẫn tính là CHƯA NỘP BÀI cho tới khi con nộp lại đạt yêu cầu."
+        # The tracker's receipt sync may put its own "✅ ĐÃ NỘP" line back on top; this line keeps the dashboard
+        # ("Cần bổ sung", counted as owed) and the class web app ("CẦN NỘP LẠI") right whatever the first line says.
+        FLAG = "GHI CHÚ GV: ❌ CẦN NỘP LẠI — bài nộp thiếu, chưa đạt yêu cầu."
 
         def refuse(why, ask):
-            return (f"Chất lượng: Chưa đạt (Yêu cầu nộp lại).\n• Lý do yêu cầu nộp lại: {why}\n{OWED}\n→ Yêu cầu: {ask}"), False, None
+            return (f"Chất lượng: Chưa đạt (Yêu cầu nộp lại).\n• Lý do yêu cầu nộp lại: {why}\n{OWED}\n→ Yêu cầu: {ask}\n{FLAG}"), False, None
 
         def head(pct, ok):
             return (f"Chất lượng: đạt {pct}% — {'Đạt yêu cầu.' if ok else f'CHƯA ĐẠT (yêu cầu từ {PASS}%).'}")
 
         def ending(ok, ask):
-            return [] if ok else [OWED, "→ Yêu cầu: " + ask]
+            return [] if ok else [OWED, "→ Yêu cầu: " + ask, FLAG]
 
         if res["kind"] == "no_photos":
             return refuse(f"cô không mở được ảnh/tệp {book} con gửi.", f"con chụp rõ, đủ các trang {book} và NỘP LẠI ngay.")
@@ -1092,7 +1095,9 @@ class FighterNotebooks:
                 label = unit_label(s["code"])[0]
                 units = ", ".join(unit_label(c)[1] for c in earlier + [s["code"]])
                 book = KIND_NAME.get(s["prog"], "sổ từ vựng")
-                text += f"\n• ĐÂY LÀ LẦN THỨ {len(earlier) + 1} con nộp {book} chưa đạt ({label} {units}) — con cần nghiêm túc hơn."
+                rep = f"• ĐÂY LÀ LẦN THỨ {len(earlier) + 1} con nộp {book} chưa đạt ({label} {units}) — con cần nghiêm túc hơn."
+                head_, sep_, flag_ = text.rpartition("\nGHI CHÚ GV:")
+                text = (head_ + "\n" + rep + sep_ + flag_) if sep_ else text + "\n" + rep
             dl = dt.datetime.fromisoformat(s["deadline"]) if s.get("deadline") else None
             w = self.write(s, s["cell"], dl, text, ok, pct)
             if w == "wait":
