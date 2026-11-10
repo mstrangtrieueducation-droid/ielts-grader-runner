@@ -1045,7 +1045,7 @@ class FighterNotebooks:
             pct = res["pct"]
             ok = pct >= PASS and not res.get("messy")
             full = res["total"] - len(res["missing"]) - len(res["partly"])
-            lines = [head(pct, ok), f"• {what.capitalize()}: mới chép đủ {full}/{res['total']} phần của bài giảng."]
+            lines = [head(pct, ok), f"• {what.capitalize()}: {'đã' if full >= res['total'] else 'mới'} chép đủ {full}/{res['total']} phần của bài giảng."]
             if res["missing"]:
                 lines.append("• Chưa chép phần: " + "; ".join(res["missing"]) + ".")
             if res["partly"]:
