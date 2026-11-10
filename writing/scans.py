@@ -186,7 +186,11 @@ class Scans:
         eng = [n for n in names if any(set(words(a)) and set(words(a)) <= tokens for a in aliases[n])]
         if len(eng) == 1:
             return eng[0]
-        part = [n for n in names if tokens and tokens <= set(words(n))]
+        w = words(read)   # Vietnamese order: the given name is the LAST word → a short name matches the end of the full name
+        tail = [n for n in names if w and words(n)[-len(w):] == w]
+        if len(tail) == 1:
+            return tail[0]
+        part = [n for n in names if tokens and tokens <= set(words(n)) and words(n)[-1] in tokens]
         return part[0] if len(part) == 1 else None
 
     def build(self, fid, rec, pdf_bytes, only=None):
@@ -244,10 +248,10 @@ class Scans:
         """Papers left unidentified (English or short name on the paper): match them again with column C names."""
         reqs, mapping = [], {}
         for fid, rec in self.st["files"].items():
-            if rec.get("rescued") or rec["status"] not in ("graded", "submitted") or not rec.get("meta"):
+            if rec.get("rescued") == 2 or rec["status"] not in ("graded", "submitted") or not rec.get("meta"):
                 continue
             unk = [x for x in rec["students"].values() if x["status"] == "unidentified"]
-            rec["rescued"] = True
+            rec["rescued"] = 2
             if not unk:
                 continue
             aliases = self.roster_aliases(rec["meta"]["cls"])
