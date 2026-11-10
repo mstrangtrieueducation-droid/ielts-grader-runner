@@ -51,7 +51,7 @@ MODEL = "claude-haiku-5-5"
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 19              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 21              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 40        # the status system normally marks the cell first; after this we write the status line ourselves
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -123,21 +123,23 @@ starts = vài chữ đầu của phần đó. Trả kết quả qua công cụ r
 
 TÀI LIỆU:
 {doc}"""
-AP_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["pages", "revised", "model", "vocab", "otherLesson"],
+AP_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["pages", "outline", "model", "vocab", "otherLesson"],
              "properties": {"pages": {"type": "array", "items": PAGE},
-                            "revised": {"type": "object", "additionalProperties": False, "required": ["present", "words"],
-                                        "properties": {"present": {"type": "string", "enum": ["yes", "no", "unclear"]}, "words": I}},
+                            "outline": {"type": "object", "additionalProperties": False, "required": ["status", "lacking"],
+                                        "properties": {"status": {"type": "string", "enum": ["full", "partly", "missing", "unclear"]},
+                                                       "lacking": S}},
                             "model": {"type": "object", "additionalProperties": False, "required": ["present", "lastSentence"],
                                       "properties": {"present": {"type": "string", "enum": ["yes", "no", "unclear"]}, "lastSentence": I}},
                             "vocab": {"type": "array", "items": S}, "otherLesson": {"type": "boolean"}}}
 AP_PROMPT = """Bạn đọc ảnh VỞ ĐOẠN VĂN HỌC THUẬT viết tay của một học sinh ({title}). Bạn KHÔNG chấm, KHÔNG nhận xét; chỉ ghi lại đúng
-những gì nhìn thấy. Trang vở thường có ô REVISED VERSION (đoạn văn học sinh TỰ VIẾT LẠI), ô BÀI MẪU THAM KHẢO (chép tay bài mẫu) và
-các từ/cụm từ ghi ở lề, đầu trang hoặc cuối trang (có thể viết nhỏ, nghiêng) — nhìn kỹ cả lề và đầu/cuối trang.
+những gì nhìn thấy. Học sinh phải chép: sơ đồ OUTLINE của bài, BÀI MẪU (thường ở ô BÀI MẪU THAM KHẢO) và các từ/cụm từ (có thể ghi ở lề,
+đầu trang hoặc cuối trang, viết nhỏ, nghiêng) — nhìn kỹ cả lề, đầu/cuối trang và các trang sau.
 
 1. pages: với MỖI ảnh, theo thứ tự 1, 2, 3…: kind = handwritten / printed_or_screen / not_a_notebook; readable = yes / partly / no;
    neat = neat / acceptable / messy (CHỈ messy khi nét chữ nguệch ngoạc khó đọc, gạch xoá/bôi bẩn nhiều; phân vân → acceptable).
-2. revised: present = yes nếu có một đoạn văn học sinh tự viết (Revised version / bài viết của em) cùng đề bài, khác bài mẫu;
-   words = số chữ ước lượng của đoạn đó (0 nếu không có).
+2. outline: học sinh đã chép SƠ ĐỒ OUTLINE (luận điểm, ý chính – ý phụ) của bài chưa, so với ẢNH OUTLINE MẪU (nếu có):
+   status = full (đủ các nhánh chính) / partly (thiếu rõ ràng một số nhánh/ý) / missing (không có) / unclear;
+   lacking: CHỈ khi partly — ghi ngắn (≤ 15 chữ) nhánh/ý còn thiếu; còn lại "".
 3. model: present = yes nếu có chép bài mẫu; lastSentence = SỐ THỨ TỰ câu cuối cùng của bài mẫu (đánh số bên dưới) mà học sinh
    đã chép tới (đọc hết ô Bài mẫu tham khảo, kể cả dòng cuối trang và trang sau). Chép hết → số câu cuối cùng; không chép → 0.
 4. vocab: danh sách các từ/cụm từ tiếng Anh học sinh đã ghi (mục từ vựng ở bất kỳ chỗ nào trên trang), mỗi mục một chuỗi, nguyên văn.
@@ -229,6 +231,7 @@ Các từ của phần A:
    (có viết giải thích/lí do cho câu đó) / no / unclear. KHÔNG liệt kê câu em không làm.
 
 Trả kết quả DUY NHẤT qua công cụ record."""
+FLAG = "LỖI: ❌ CẦN NỘP LẠI"   # cell note prefix of our own "redo" mark
 STATUS_RANK = {"missing": 0, "partly": 1, "unclear": 2, "full": 3}
 
 
@@ -539,6 +542,9 @@ class FighterNotebooks:
         hashes = [dhash(b) for b in imgs]
         reused = self.reused_pages(sid, s, hashes)
         content = [{"type": "text", "text": f"Vở của học sinh ({len(imgs)} ảnh):"}] + [img_block(b) for b in imgs]
+        if ref.get("figure"):
+            content += [{"type": "text", "text": "ẢNH OUTLINE MẪU của bài (để đối chiếu):"},
+                        {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": ref["figure"]}}]
         content.append({"type": "text", "text": AP_PROMPT.format(title=COPY[s["prog"]][s["code"]].get("title") or s["code"],
                                                                  model="\n".join(f"[{k}] {x}" for k, x in enumerate(sentences(ref["model"]), 1)),
                                                                  vocab="\n".join(ref["vocab"]))})
@@ -546,8 +552,9 @@ class FighterNotebooks:
         with cf.ThreadPoolExecutor(2) as ex:
             reads = list(ex.map(lambda _: self.call(content, AP_SCHEMA, cat), range(2)))
         # merged in the pupil's favour
-        revised = any(r["revised"]["present"] in ("yes", "unclear") and (r["revised"]["words"] >= 60 or r["revised"]["present"] == "unclear")
-                      for r in reads)
+        best = max(reads, key=lambda r: STATUS_RANK[r["outline"]["status"]])
+        outline = {"full": 1.0, "unclear": 1.0, "partly": 0.5}.get(best["outline"]["status"], 0.0)
+        outline_lack = str(best["outline"].get("lacking") or "").strip().rstrip(".") if best["outline"]["status"] == "partly" else ""
         sents = sentences(ref["model"])
         got = 0
         for r in reads:
@@ -560,7 +567,7 @@ class FighterNotebooks:
         have = [v for v in ref["vocab"] if any(sim(v, w) >= 0.8 for w in seen)]
         lack = [v for v in ref["vocab"] if v not in have]
         model_full = got >= len(sents)
-        pct = round(100 * ((1 if revised else 0) + (1 if model_full else reach) + len(have) / len(ref["vocab"])) / 3)
+        pct = round(100 * (outline + (1 if model_full else reach) + len(have) / len(ref["vocab"])) / 3)
         pg = []
         pb = {p["page"]: p for p in reads[1].get("pages", [])}
         for p in reads[0].get("pages", []):
@@ -568,7 +575,7 @@ class FighterNotebooks:
             pg.append({"kind": p["kind"] if p["kind"] == q["kind"] else "handwritten",
                        "readable": p["readable"] if p["readable"] == q["readable"] else "partly",
                        "messy": p.get("neat") == q.get("neat") == "messy"})
-        out = {"type": "ap", "kind": "scored", "pct": pct, "pages": len(imgs), "hashes": hashes, "revised": revised,
+        out = {"type": "ap", "kind": "scored", "pct": pct, "pages": len(imgs), "hashes": hashes, "outline": outline, "outlineLack": outline_lack,
                "modelFull": model_full, "modelGot": got, "modelTotal": len(sents),
                "modelNext": " ".join(sents[got].split()[:6]) if not model_full and got < len(sents) else "", "vocabHave": len(have), "vocabTotal": len(ref["vocab"]), "vocabLack": lack,
                "messy": bool(pg) and sum(p["messy"] for p in pg) * 3 >= len(pg) * 2}
@@ -587,6 +594,7 @@ class FighterNotebooks:
         if s["prog"] == "AP":
             ref = ap_reference(les["text"])
             if ref:
+                ref["figure"] = les.get("figure")
                 return self.grade_ap(sid, s, ref)
             self.tick(f"ap_layout_other[{s['code']}]")
         imgs = self.pages(s)
@@ -804,10 +812,17 @@ class FighterNotebooks:
                     continue
             if not text:
                 raise RuntimeError("LECTURE_NOT_READABLE")
+            imgs = sorted(re.findall(r"data:image/[a-z+]+;base64,([A-Za-z0-9+/=]+)", text), key=len, reverse=True)
+            figure = None
+            if imgs and 20000 < len(imgs[0]) < 6000000:   # the outline diagram of the lesson (largest picture)
+                try:
+                    figure = img_block(to_jpeg(base64.b64decode(imgs[0])))["source"]["data"]
+                except Exception:
+                    figure = None
             text = re.sub(r"!\[[^\]]*\]\(data:[^)]*\)|^\[[^\]]+\]:\s*<?data:\S+", "", text, flags=re.M)   # inline images (base64)
             text = re.sub(r"\\([*\[\]_#])", r"\1", text)[:14000]
             parts = self.call([{"type": "text", "text": OUTLINE_PROMPT.format(doc=text)}], OUTLINE_SCHEMA, "Fighter · Chia phần bài giảng", 2000)["parts"]
-            docs[doc] = {"text": text, "parts": parts[:12]}
+            docs[doc] = {"text": text, "parts": parts[:12], "figure": figure}
         return docs[doc]
 
     def grade(self, sid, s):
@@ -888,18 +903,14 @@ class FighterNotebooks:
         what = KIND_NAME.get(s["prog"], "sổ từ vựng")
         book = "vở" if s["prog"] in KIND_NAME else "sổ"
         OWED = "⛔ Bài chưa đạt nên vẫn tính là CHƯA NỘP BÀI cho tới khi con nộp lại đạt yêu cầu."
-        # The tracker's receipt sync may put its own "✅ ĐÃ NỘP" line back on top; this line keeps the dashboard
-        # ("Cần bổ sung", counted as owed) and the class web app ("CẦN NỘP LẠI") right whatever the first line says.
-        FLAG = "GHI CHÚ GV: ❌ CẦN NỘP LẠI{} — bài nộp thiếu, chưa đạt yêu cầu."
-
         def refuse(why, ask):
-            return (f"Chất lượng: Chưa đạt (Yêu cầu nộp lại).\n• Lý do yêu cầu nộp lại: {why}\n{OWED}\n→ Yêu cầu: {ask}\n{FLAG.format('')}"), False, None
+            return (f"Chất lượng: Chưa đạt — CẦN NỘP LẠI.\n• Lý do yêu cầu nộp lại: {why}\n{OWED}\n→ Yêu cầu: {ask}"), False, None
 
         def head(pct, ok):
-            return (f"Chất lượng: đạt {pct}% — {'Đạt yêu cầu.' if ok else f'CHƯA ĐẠT (yêu cầu từ {PASS}%).'}")
+            return (f"Chất lượng: đạt {pct}% — {'Đạt yêu cầu.' if ok else f'CHƯA ĐẠT, CẦN NỘP LẠI (yêu cầu từ {PASS}%).'}")
 
         def ending(ok, ask, pct=None):
-            return [] if ok else [OWED, "→ Yêu cầu: " + ask, FLAG.format(f" · {pct}%" if pct is not None else "")]
+            return [] if ok else [OWED, "→ Yêu cầu: " + ask]
 
         if res["kind"] == "no_photos":
             return refuse(f"cô không mở được ảnh/tệp {book} con gửi.", f"con chụp rõ, đủ các trang {book} và NỘP LẠI ngay.")
@@ -943,7 +954,9 @@ class FighterNotebooks:
             pct = res["pct"]
             ok = pct >= PASS and not res.get("messy")
             lines = [head(pct, ok)]
-            lines.append("• Revised version (đoạn văn con tự viết lại): " + ("đã có." if res["revised"] else "CHƯA CÓ."))
+            lines.append("• Outline: " + ("đã chép đủ." if res["outline"] >= 1 else
+                                          f"chép thiếu — {res['outlineLack']}." if res["outline"] and res["outlineLack"] else
+                                          "chép thiếu." if res["outline"] else "CHƯA CHÉP."))
             if res["modelFull"]:
                 lines.append("• Bài mẫu: đã chép đủ.")
             elif res["modelGot"]:
@@ -1014,15 +1027,51 @@ class FighterNotebooks:
         receipt = ("⚠️ ĐÃ NỘP MUỘN" if deadline and sub_t > deadline else "✅ ĐÃ NỘP") + "\n" + sub_t.strftime("%d/%m/%Y %H:%M")
         if prefix.strip().startswith("❌ CẦN NỘP LẠI"):   # our own line for an earlier notebook: back to a receipt
             prefix = receipt
-        if not ok:   # KIDS look: the dashboard and the class web app count this homework as still owed
-            prefix = "❌ CẦN NỘP LẠI · " + (f"{pct}% · " if pct is not None else "") + sub_t.strftime("%d/%m/%Y %H:%M")
         prev = s.get("published")
+        if FLAG in prefix:   # the class sync shows our own note in the status block: drop it, it is set again below
+            prefix = re.sub(r"\n*💬?\s*GHI CHÚ GV:\s*\n?" + re.escape(FLAG) + r"[^\n]*", "", prefix)
         if "GHI CHÚ GV" in prefix.upper() or (existing and existing != prev and not (prev and prev in existing)):
             return "teacher_comment"   # a note Cô/staff wrote is never overwritten
         body = existing.replace(prev, text) if prev and prev in existing else text
         new = prefix.rstrip() + "\n\n" + MARK + "\n" + body
         tr.write(a1, new)
-        return "ok" if tr.cell(a1) == new else "readback_mismatch"
+        if tr.cell(a1) != new:
+            return "readback_mismatch"
+        self.set_flag(tr, a1, None if ok else
+                      f"{FLAG} · {pct}% — bài nộp thiếu, chưa đạt yêu cầu. Xem nhận xét chi tiết." if pct is not None else
+                      f"{FLAG} — bài nộp chưa hợp lệ. Xem nhận xét chi tiết.")
+        return "ok"
+
+    def set_flag(self, tr, a1, text):
+        """Cell note, the staff's own way to mark homework to redo ("LỖI: …"): the class sync shows it in red in the cell,
+        the dashboard files the homework under "Cần bổ sung" with "Cô nhắn". Only our own note is changed or cleared."""
+        try:
+            import urllib.parse
+            m = re.match(r"([A-Z]+)(\d+)$", a1)
+            col = 0
+            for ch in m.group(1):
+                col = col * 26 + ord(ch) - 64
+            row = int(m.group(2))
+            sid = self.st.setdefault("sheetIds", {}).get(f"{tr.id}|{tr.tab}")
+            if sid is None:
+                meta = self.g._req(f"https://sheets.googleapis.com/v4/spreadsheets/{tr.id}?fields=sheets.properties(sheetId,title)")
+                sid = next(x["properties"]["sheetId"] for x in meta["sheets"] if x["properties"]["title"] == tr.tab)
+                self.st["sheetIds"][f"{tr.id}|{tr.tab}"] = sid
+            rng = urllib.parse.quote(f"'{tr.tab}'!{a1}", safe="")
+            got = self.g._req(f"https://sheets.googleapis.com/v4/spreadsheets/{tr.id}?ranges={rng}&fields=sheets.data.rowData.values.note")
+            cur = (((got.get("sheets") or [{}])[0].get("data") or [{}])[0].get("rowData") or [{}])[0].get("values", [{}])[0].get("note", "")
+            if cur and not cur.startswith(FLAG):
+                self.tick("flag_kept_staff_note")
+                return
+            want = text or ""
+            if cur == want:
+                return
+            self.g._req(f"https://sheets.googleapis.com/v4/spreadsheets/{tr.id}:batchUpdate", "POST", {"requests": [{"updateCells": {
+                "range": {"sheetId": sid, "startRowIndex": row - 1, "endRowIndex": row, "startColumnIndex": col - 1, "endColumnIndex": col},
+                "rows": [{"values": [{"note": want}]}], "fields": "note"}}]})
+            self.tick("flag_set" if want else "flag_cleared")
+        except Exception as e:
+            self.tick("flag_error_" + type(e).__name__)
 
     def unpublish(self, s):
         prev = s.pop("published", None)
@@ -1096,8 +1145,7 @@ class FighterNotebooks:
                 units = ", ".join(unit_label(c)[1] for c in earlier + [s["code"]])
                 book = KIND_NAME.get(s["prog"], "sổ từ vựng")
                 rep = f"• ĐÂY LÀ LẦN THỨ {len(earlier) + 1} con nộp {book} chưa đạt ({label} {units}) — con cần nghiêm túc hơn."
-                head_, sep_, flag_ = text.rpartition("\nGHI CHÚ GV:")
-                text = (head_ + "\n" + rep + sep_ + flag_) if sep_ else text + "\n" + rep
+                text += "\n" + rep
             dl = dt.datetime.fromisoformat(s["deadline"]) if s.get("deadline") else None
             w = self.write(s, s["cell"], dl, text, ok, pct)
             if w == "wait":

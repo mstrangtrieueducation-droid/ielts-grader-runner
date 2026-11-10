@@ -100,14 +100,26 @@ class _T:
     def write(self, a1, t): self.v = t
 _t = _T("✅ ĐÃ NỘP\n09/11/2026 23:51")
 _f = nb.FighterNotebooks.__new__(nb.FighterNotebooks)
-_f.r = type("R", (), {"tracker": lambda self, c: _t})()
+_f.r = type("R", (), {"tracker": lambda self, c: _t, "tick": lambda self, *a: None})()
+_t.id, _t.tab = "X", "T"
+_notes = []
+class _G:
+    def _req(self, url, method="GET", data=None):
+        if method == "POST":
+            _notes.append(data["requests"][0]["updateCells"]["rows"][0]["values"][0]["note"]); return {}
+        if "fields=sheets.properties" in url:
+            return {"sheets": [{"properties": {"sheetId": 7, "title": "T"}}]}
+        return {"sheets": [{"data": [{"rowData": [{"values": [{"note": _notes[-1] if _notes else ""}]}]}]}]}
+_f.g, _f.st = _G(), {}
 _s = {"cls": "FIGHTER 5", "submittedAt": "09/11/2026 23:51:00"}
 assert _f.write(_s, "BQ4", None, "Chất lượng: đạt 17% — CHƯA ĐẠT", False, 17) == "ok"
-assert _t.v.startswith("❌ CẦN NỘP LẠI · 17% · 09/11/2026 23:51\n\n" + nb.MARK), _t.v
+assert _t.v.startswith("✅ ĐÃ NỘP\n09/11/2026 23:51\n\n" + nb.MARK), _t.v
+assert _notes[-1].startswith("LỖI: ❌ CẦN NỘP LẠI · 17%"), _notes
 _s["published"] = "Chất lượng: đạt 17% — CHƯA ĐẠT"
 _s2 = {"cls": "FIGHTER 5", "submittedAt": "10/11/2026 20:00:00", "published": _s["published"]}
 assert _f.write(_s2, "BQ4", None, "Chất lượng: đạt 95% — Đạt yêu cầu.", True, 95) == "ok"
-assert _t.v.startswith("✅ ĐÃ NỘP\n10/11/2026 20:00\n\n" + nb.MARK + "\nChất lượng: đạt 95%"), _t.v
+assert _t.v.startswith("✅ ĐÃ NỘP\n09/11/2026 23:51\n\n" + nb.MARK + "\nChất lượng: đạt 95%"), _t.v
+assert _notes[-1] == "", _notes   # passed later: our note is cleared
 print("status line ok")
 
 _W = [f"{chr(97 + i // 26)}{chr(97 + i % 26)}q" for i in range(100)]
