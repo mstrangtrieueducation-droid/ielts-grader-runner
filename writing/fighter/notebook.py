@@ -51,7 +51,7 @@ MODEL = "claude-haiku-5-5"
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 10              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 11              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 40        # the status system normally marks the cell first; after this we write the status line ourselves
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -116,13 +116,19 @@ COPY_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["pa
                                                                     "properties": {"id": I, "status": {"type": "string", "enum": ["full", "partly", "missing", "unclear"]},
                                                                                    "lacking": S}}},
                               "otherLesson": {"type": "boolean"}}}
-OUTLINE_PROMPT = """Dưới đây là TÀI LIỆU BÀI GIẢNG mà học sinh phải chép tay vào vở. Hãy chia tài liệu thành các PHẦN CHÍNH (4–12 phần)
+OUTLINE_PROMPT = """Dưới đây là TÀI LIỆU BÀI GIẢNG mà học sinh phải chép tay vào vở. Hãy chia tài liệu thành các PHẦN CHÍNH (4–12 phần) — CHỈ các phần nội dung học sinh phải chép (lí thuyết, ví dụ, bảng, bài mẫu, từ vựng); BỎ tiêu đề, lời dặn/hướng dẫn cách học, chú thích màu, quy trình học
 theo đúng thứ tự trong tài liệu, để giáo viên kiểm tra học sinh đã chép đủ chưa. Dùng các đề mục có sẵn (I, II, 1, 2…, Outline,
 Bài mẫu, Từ vựng…); phần nào quá ngắn thì gộp với phần bên cạnh. name = tên phần ngắn gọn (≤ 60 ký tự, giữ ngôn ngữ của tài liệu);
 starts = vài chữ đầu của phần đó. Trả kết quả qua công cụ record.
 
 TÀI LIỆU:
 {doc}"""
+AP_PARTS = [
+    {"name": "Revised version (đoạn văn con tự viết lại)",
+     "starts": "Ô REVISED VERSION: đoạn văn HỌC SINH TỰ VIẾT LẠI, không có trong tài liệu — full khi có một đoạn văn hoàn chỉnh "
+               "cùng đề bài (khoảng 140–160 từ), KHÔNG so từng chữ với bài mẫu"},
+    {"name": "Bài mẫu tham khảo (chép tay)", "starts": "Ô BÀI MẪU THAM KHẢO: chép tay đủ đoạn văn mẫu trong tài liệu, từ câu đầu đến câu cuối"},
+    {"name": "Từ vựng và cụm từ", "starts": "các từ/cụm từ trong mục Từ vựng và cụm từ của tài liệu, kèm nghĩa"}]
 COPY_PROMPT = """Bạn đọc ảnh VỞ CHÉP BÀI GIẢNG viết tay của một học sinh. Bạn KHÔNG chấm, KHÔNG nhận xét; chỉ ghi lại đúng những gì nhìn thấy.
 Học sinh phải chép tay đầy đủ tài liệu bài giảng ({title}) dưới đây vào vở. Tài liệu gồm các phần:
 {parts}
@@ -468,6 +474,8 @@ class FighterNotebooks:
 
     def grade_copy(self, sid, s):
         les = self.lesson(COPY[s["prog"]][s["code"]]["doc"])
+        if s["prog"] == "AP":   # the printed notebook page: REVISED VERSION | BÀI MẪU THAM KHẢO, words on top
+            les = {"text": les["text"], "parts": AP_PARTS}
         imgs = self.pages(s)
         if not imgs:
             return {"kind": "no_photos", "type": "copy"}
@@ -670,6 +678,8 @@ class FighterNotebooks:
 
     def lesson(self, doc):
         """Lecture text (Drive export, cached with the encrypted state) and its fixed list of parts (one Haiku call per lecture)."""
+        if self.st.get("docsVersion") != VERSION:   # outline rules changed: split the lectures again
+            self.st["docs"], self.st["docsVersion"] = {}, VERSION
         docs = self.st.setdefault("docs", {})
         if doc not in docs:
             text = None
