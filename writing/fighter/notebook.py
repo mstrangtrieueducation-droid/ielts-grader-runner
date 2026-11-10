@@ -51,7 +51,7 @@ MODEL = "claude-haiku-5-5"
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 12              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 13              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 40        # the status system normally marks the cell first; after this we write the status line ourselves
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -154,12 +154,14 @@ Trả kết quả DUY NHẤT qua công cụ record."""
 
 def ap_reference(text):
     """Model paragraph and word list of an Academic Paragraph lesson doc; None when the doc has another layout (Buổi 1)."""
-    t = re.sub(r"\\([*\[\]_#\\])", r"\1", str(text or ""))
-    i, j = t.find("Bài mẫu"), t.find("Từ vựng và cụm từ")
+    t = unicodedata.normalize("NFC", re.sub(r"\\([*\[\]_#\\])", r"\1", str(text or "")))
+    low = t.lower()
+    j = low.find("từ vựng và cụm từ")
+    i = low.rfind("bài mẫu", 0, j) if j > 0 else -1
     if i < 0 or j < 0 or j < i or t.find("PHÂN TÍCH") > 0 or t.find("KỸ THUẬT") > 0:
         return None
     model = re.sub(r"\s+", " ", re.sub(r"\*+|\|", " ", t[i + len("Bài mẫu"):j])).strip()
-    tail = t[j + len("Từ vựng và cụm từ"):]
+    tail = t[j + len("từ vựng và cụm từ"):]
     vocab = [re.sub(r"\s+", " ", v).strip(" .:") for v in re.findall(r"\*\*([^*]{2,60}?)\*\*\s*\(", tail)]
     if len(model.split()) < 60 or len(vocab) < 3:
         return None
@@ -580,6 +582,7 @@ class FighterNotebooks:
             ref = ap_reference(les["text"])
             if ref:
                 return self.grade_ap(sid, s, ref)
+            self.tick(f"ap_layout_other[{s['code']}]")
         imgs = self.pages(s)
         if not imgs:
             return {"kind": "no_photos", "type": "copy"}
