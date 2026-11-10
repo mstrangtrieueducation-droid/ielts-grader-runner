@@ -400,8 +400,16 @@ class FighterNotebooks:
     def pages(self, s, limit=MAX_PAGES):
         import pymupdf as fitz
         out = []
+        failed = 0
         for f in s["files"]:
-            data = self.g.download(f)
+            try:
+                data = self.g.download(f)
+            except RuntimeError as e:   # a deleted/unshared file must not sink the whole submission
+                failed += 1
+                self.tick(f"file_unreadable_{str(e)[:20]}[{s['code']}]")
+                if failed == len(s["files"]):
+                    raise
+                continue
             if data[:4] == b"%PDF":
                 doc = fitz.open(stream=data, filetype="pdf")
                 for pg in doc:
