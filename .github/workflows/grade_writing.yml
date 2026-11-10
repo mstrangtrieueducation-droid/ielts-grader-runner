@@ -77,7 +77,8 @@ jobs:
               && git push -fq "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}" writing-state)
             if [ -f "$RUNTIME_DIR/state/dashboard-assignments.json" ]; then   # public week list for the parent pages (no pupil data)
               pub=$(mktemp -d); cp "$RUNTIME_DIR/state/dashboard-assignments.json" "$pub/"
-              (cd "$pub" && git init -q -b writing-dashboard && git add dashboard-assignments.json \
+              [ -f "$RUNTIME_DIR/state/reports.json" ] && cp "$RUNTIME_DIR/state/reports.json" "$pub/"   # counts-only mail digests
+              (cd "$pub" && git init -q -b writing-dashboard && git add -A \
                 && git -c user.name=writing-runner -c user.email=writing-runner@users.noreply.github.com commit -qm "weeks" \
                 && git push -fq "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}" writing-dashboard) || true
             fi
@@ -135,8 +136,10 @@ jobs:
           git -c user.name=writing-runner -c user.email=writing-runner@users.noreply.github.com commit -qm "state"
           git push -fq "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" writing-state
           if [ -f "$RUNTIME_DIR/state/dashboard-assignments.json" ]; then
-            pub=$(mktemp -d); cp "$RUNTIME_DIR/state/dashboard-assignments.json" "$pub/"; cd "$pub"
-            git init -q -b writing-dashboard && git add dashboard-assignments.json
+            pub=$(mktemp -d); cp "$RUNTIME_DIR/state/dashboard-assignments.json" "$pub/"
+            [ -f "$RUNTIME_DIR/state/reports.json" ] && cp "$RUNTIME_DIR/state/reports.json" "$pub/"   # counts-only mail digests
+            cd "$pub"
+            git init -q -b writing-dashboard && git add -A
             git -c user.name=writing-runner -c user.email=writing-runner@users.noreply.github.com commit -qm "weeks"
             git push -fq "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" writing-dashboard || true
           fi

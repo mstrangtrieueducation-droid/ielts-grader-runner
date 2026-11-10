@@ -86,37 +86,61 @@ def build(state, scans, since, until):
             elif stu.get("status") == "unidentified":
                 waiting["bài kiểm tra: chưa nhận ra tên học sinh"] += 1
 
-    f = lambda t: t.astimezone(VN).strftime("%H:%M %d/%m")
-    out = [f"@{OWNER} Báo cáo chấm Writing **{f(since)} → {f(until)}**", ""]
+    return letter(since, until, nb, tests, dash, waiting)
+
+
+THU = ["thứ Hai", "thứ Ba", "thứ Tư", "thứ Năm", "thứ Sáu", "thứ Bảy", "Chủ nhật"]
+WAIT_VI = {
+    "đang chấm / chờ lượt sau": "bài đang chấm, sẽ có kết quả ở lượt sau",
+    "bài kiểm tra đang tạm dừng (chờ Cô quyết)": "bài kiểm tra cũ đang tạm dừng, chờ Cô quyết định có chấm không",
+    "bài kiểm tra đang chấm": "bài kiểm tra đang chấm",
+    "file scan sai tên (không đọc được lớp/buổi)": "file scan đặt tên sai, máy không biết của lớp/buổi nào — Cô xem lại tên file giúp em",
+    "bài kiểm tra chưa có barem": "bài kiểm tra chưa có đáp án/barem để chấm",
+}
+
+
+def letter(since, until, nb, tests, dash, waiting):
+    """Plain Vietnamese e-mail: subject, text and simple HTML (counts only, no pupil names)."""
+    f = lambda t: t.astimezone(VN).strftime("%H:%M ngày %d/%m")
+    u = until.astimezone(VN)
+    subject = f"Báo cáo chấm bài viết – {u:%H:%M} {THU[u.weekday()]} {u:%d/%m}"
+    blocks = []   # (title, [lines])
     if nb:
-        out.append(f"### ✅ Bài tập về nhà đã trả: {sum(c['vở'] for c in nb.values())} học sinh")
+        lines = []
         for (cls, w), c in sorted(nb.items()):
-            parts = [f"{c['vở']} vở"]
-            verdicts = [f"{c[v]} {v}" for v in ("Đạt", "Cần bổ sung", "Không đạt", "Chưa đủ dữ liệu để kết luận") if c[v]]
-            if verdicts:
-                parts.append("(" + ", ".join(verdicts) + ")")
+            bits = [f"kiểm tra {c['vở']} vở"]
+            v = [f"{c[k]} {lab}" for k, lab in (("Đạt", "đạt"), ("Cần bổ sung", "cần bổ sung"), ("Không đạt", "không đạt"),
+                                                 ("Chưa đủ dữ liệu để kết luận", "chưa đủ ảnh để kết luận")) if c[k]]
+            if v:
+                bits[0] += " (" + ", ".join(v) + ")"
             if c["bài chữa"]:
-                parts.append(f"· {c['bài chữa']} bài chữa")
+                bits.append(f"chữa {c['bài chữa']} bài viết")
             if c["muộn"]:
-                parts.append(f"· {c['muộn']} nộp muộn (chỉ kiểm tra vở)")
-            out.append(f"- **{cls}** · {w}: " + " ".join(parts))
-        out.append("")
+                bits.append(f"{c['muộn']} em nộp muộn nên chỉ kiểm tra vở")
+            lines.append(f"{cls} – bài {w}: " + "; ".join(bits) + ".")
+        blocks.append((f"BÀI TẬP VỀ NHÀ: đã trả kết quả cho {sum(c['vở'] for c in nb.values())} học sinh", lines))
     if tests:
-        out.append(f"### 📝 Bài kiểm tra giấy đã ghi điểm: {sum(tests.values())} bài")
-        out += [f"- {t}: {n} bài" for t, n in sorted(tests.items())]
-        out.append("")
+        blocks.append((f"BÀI KIỂM TRA TRÊN GIẤY: đã ghi điểm {sum(tests.values())} bài",
+                       [f"{t}: {n} bài." for t, n in sorted(tests.items())]))
     if dash:
-        out.append(f"### 🌐 Lên dashboard phụ huynh: {sum(dash.values())} học sinh")
-        out.append("- " + " · ".join(f"{c}: {n}" for c, n in sorted(dash.items())))
-        out.append("")
-    if not (nb or tests or dash):
-        out += ["Không có bài mới được chấm trong khoảng này.", ""]
+        blocks.append((f"ĐÃ LÊN DASH PHỤ HUYNH: {sum(dash.values())} học sinh",
+                       [", ".join(f"{c}: {n} em" for c, n in sorted(dash.items())) + "."]))
     if waiting:
-        out.append("### ⏳ Đang chờ / cần Cô xem")
-        out += [f"- {k}: {n}" for k, n in waiting.most_common()]
-        out.append("")
-    out.append("_Máy chấm tự gửi sau mỗi buổi (khoảng 12:00 và 22:30). Chỉ có số lượng, không có tên học sinh._")
-    return "\n".join(out)
+        blocks.append(("VIỆC ĐANG CHỜ", [f"{n} {WAIT_VI.get(k, k)}." for k, n in waiting.most_common()]))
+    intro = f"Từ {f(since)} đến {f(until)}, máy chấm đã làm xong những việc sau:" if (nb or tests or dash) else \
+        f"Từ {f(since)} đến {f(until)}, chưa có bài mới nào được chấm."
+    outro = "Máy tự gửi thư này 2 lần mỗi ngày (khoảng 12 giờ trưa và 10 giờ 30 tối). Thư chỉ ghi số lượng; Cô xem chi tiết từng em trên file theo dõi của lớp."
+    text = "\n".join(["Chào Cô Trang,", "", intro, ""] +
+                     sum(([t] + ["  • " + x for x in ls] + [""] for t, ls in blocks), []) + [outro])
+    esc = lambda x: x.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    html = ['<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.6;color:#222">',
+            "<p>Chào Cô Trang,</p>", f"<p>{esc(intro)}</p>"]
+    for t, ls in blocks:
+        html.append(f'<p style="margin:16px 0 4px"><b>{esc(t)}</b></p><ul style="margin:0">')
+        html += [f"<li>{esc(x)}</li>" for x in ls]
+        html.append("</ul>")
+    html.append(f'<p style="color:#777;font-size:13px;margin-top:20px">{esc(outro)}</p></div>')
+    return {"subject": subject, "text": text, "html": "".join(html)}
 
 
 def _api(path, data=None, method=None):
@@ -157,15 +181,27 @@ def due(state, now):
     return None
 
 
+def save_reports(reports):
+    """Public file read by Cô's Gmail script (Apps Script) which sends each new report from her own mailbox."""
+    d = os.environ.get("RUNTIME_DIR")
+    if d:
+        p = os.path.join(d, "state", "reports.json")
+        with open(p, "w", encoding="utf-8") as fh:
+            json.dump({"reports": reports}, fh, ensure_ascii=False)
+
+
 def maybe_send(runner, scans, force=False):
     state = runner.state
     now = dt.datetime.now(VN)
     tag = due(state, now)
-    if not (tag or force) or not os.environ.get("GH_TOKEN"):
+    if not (tag or force):
         return False
     since = _t(state.get("lastReportAt") or "") or now.replace(hour=0, minute=0, second=0, microsecond=0)
-    body = build(state, scans, since, now)
-    post(state, body)
+    mail = build(state, scans, since, now)
+    reports = state.setdefault("reports", [])
+    reports.append({"id": now.isoformat(timespec="seconds"), **mail})
+    del reports[:-30]
+    save_reports(reports)
     state["lastReportAt"] = now.isoformat()
     sent = state.setdefault("reportsSent", [])
     if tag:
