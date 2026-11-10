@@ -53,7 +53,7 @@ MAX_PAGES = 14
 PASS = 90
 VERSION = 24              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
-STATUS_WAIT_MIN = 40        # the status system normally marks the cell first; after this we write the status line ourselves
+STATUS_WAIT_MIN = 0         # Cô 10/11: grade as soon as a notebook is submitted; we write the receipt line ourselves if the sync has not
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
 PROGRAM_HEAD = {"VF1": r"Vocabulary Foundation 1", "VF2": r"Vocabulary Foundation 2",
                 "RI1": r"READING 1\s*-\s*TỪ VỰNG", "RI2": r"READING 2\s*-\s*TỪ VỰNG",
@@ -296,6 +296,8 @@ Các từ của phần A:
 
 Trả kết quả DUY NHẤT qua công cụ record."""
 DOCS_VERSION = 1            # lecture split + reference picture; kept stable so a notebook is judged the same way each time
+PAINT_VERSION = 2           # raise when only the cell colours/sizes change: published cells are repainted, not re-read
+BODY_SIZE = 18              # Cô 10/11: the comment after NHẬN XÉT GV twice as big
 REGRADE = {"GF", "AP"}      # programmes whose reading rules changed in this VERSION; others are only re-styled
 FLAG = "LỖI: ❌ CẦN NỘP LẠI"   # cell note prefix of our own "redo" mark
 STATUS_RANK = {"missing": 0, "partly": 1, "unclear": 2, "full": 3}
@@ -1129,7 +1131,7 @@ class FighterNotebooks:
             dl = dt.datetime.fromisoformat(s["deadline"]) if s.get("deadline") else None
             w = self.write(s, s["cell"], dl, new, ok, pct)
             if w == "ok":
-                s.update(published=new, ver=VERSION)
+                s.update(published=new, ver=VERSION, paintVer=PAINT_VERSION)
                 self.tick("restyled")
             else:
                 self.tick("restyle_" + w)
@@ -1160,7 +1162,7 @@ class FighterNotebooks:
                         color = "#C2185B"
                     else:
                         color = "#1B5E20"
-                    runs.append({"startIndex": u(text[:pos]), "format": fmt(color, strong, 9)})
+                    runs.append({"startIndex": u(text[:pos]), "format": fmt(color, strong, BODY_SIZE)})
                 pos += len(line) + 1
             cell = {"textFormatRuns": runs}
             fields = "textFormatRuns"
@@ -1238,6 +1240,16 @@ class FighterNotebooks:
                     self.tick("regrade_new_rules")
                 else:   # same result, today's wording/colours: no new reading
                     self.restyle(s)
+            elif s["status"] == "published" and s.get("paintVer", 1) < PAINT_VERSION:
+                try:
+                    tr = self.r.tracker(s["cls"])
+                    cur = tr.cell(s["cell"])
+                    if MARK in cur and (s.get("published") or "") in cur:
+                        self.paint(tr, s["cell"], cur, bool(s.get("ok")))
+                        self.tick("repainted")
+                    s["paintVer"] = PAINT_VERSION
+                except Exception as e:
+                    self.tick("repaint_error_" + type(e).__name__)
         todo = []
         for sid, s in subs.items():
             if s["status"] in ("published", "skipped", "not_in_roster", "held_error"):
@@ -1301,7 +1313,7 @@ class FighterNotebooks:
                 s.update(status="skipped" if w == "teacher_comment" else "graded", hold=w)
                 self.tick(w)
                 continue
-            s.update(status="published", published=text, ok=ok, publishedAt=now().isoformat(), ver=VERSION)
+            s.update(status="published", published=text, ok=ok, publishedAt=now().isoformat(), ver=VERSION, paintVer=PAINT_VERSION)
             for hx in res.get("hashes", []):
                 self.st["hashes"][hx] = {"sid": sid, "student": bare(s["student"]), "code": s["code"]}
             self.tick("published")
