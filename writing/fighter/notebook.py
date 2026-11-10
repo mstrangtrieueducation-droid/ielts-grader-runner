@@ -162,11 +162,9 @@ def ap_reference(text):
         return None
     model = re.sub(r"\s+", " ", re.sub(r"\*+|\|", " ", t[i + len("Bài mẫu"):j])).strip()
     tail = t[j + len("từ vựng và cụm từ"):]
-    vocab = []
-    for line in re.split(r"\n|(?<=\.)(?=\S)", re.sub(r"\*+", "", tail)):   # "term (TT): nghĩa — ví dụ." one per line
-        m = re.match(r"\s*[-•*]?\s*([^\n():|]{2,60}?)\s*\(([^)]{1,14})\)\s*:", line)
-        if m and re.search(r"[A-Za-z]", m.group(1)):
-            vocab.append(re.sub(r"\s+", " ", m.group(1)).strip(" .:"))
+    vocab = []   # "term (TT): nghĩa — ví dụ." items, separated by new lines, <br> or a full stop
+    for m in re.finditer(r"(?:^|[.\n>|])\s*[-•]?\s*([A-Za-z][^\n():|.<>]{1,60}?)\s*\(([^)]{1,14})\)\s*:", re.sub(r"\*+", "", tail)):
+        vocab.append(re.sub(r"\s+", " ", m.group(1)).strip(" .:"))
     if len(model.split()) < 60 or len(vocab) < 3:
         return None
     return {"model": model, "vocab": vocab}
