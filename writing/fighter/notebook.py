@@ -48,10 +48,11 @@ KIND_NAME = {"GF": "vở chép lí thuyết", "AP": "vở chép bài giảng", "
              "PT": "sổ luyện đề"}
 START = dt.datetime(2026, 11, 8, 0, 0, tzinfo=VN)
 MODEL = "claude-haiku-5-5"
+VERIFY_MODEL = "claude-sonnet-5-5"   # a notebook Haiku would fail is read once more by Sonnet, which decides
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 24              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 25              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 0         # Cô 10/11: grade as soon as a notebook is submitted; we write the receipt line ourselves if the sync has not
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -252,6 +253,68 @@ def model_reach(model, last):
     return at / len(mw) if best >= 0.5 else 0.0
 
 
+def judge_messy(read):
+    """Sonnet's read agrees the handwriting is messy on at least two thirds of the pages."""
+    pg = read.get("pages", [])
+    return bool(pg) and sum(p.get("neat") == "messy" for p in pg) * 3 >= len(pg) * 2
+
+
+def copy_passes(out):
+    return out["kind"] == "scored" and out["pct"] >= PASS and not out["messy"] and not out.get("blurry")
+
+
+def copy_result(reads, parts, imgs, hashes, reused, judge=None):
+    """Lecture-copy notebook. Without a judge: Haiku reads merged in the pupil's favour. With a judge (Sonnet): its
+    status decides each part; where it could not see a part (unclear) a Haiku "full" still counts. A part nobody could
+    see clearly is listed as blurry: the pupil re-photographs those pages, nothing has to be copied again."""
+    n = len(parts)
+    best, lack = {}, {}
+    for x in [p for r in reads for p in r.get("parts", [])]:
+        if 1 <= x["id"] <= n and STATUS_RANK[x["status"]] >= STATUS_RANK.get(best.get(x["id"]), -1):
+            if STATUS_RANK[x["status"]] > STATUS_RANK.get(best.get(x["id"]), -1) or not lack.get(x["id"]):
+                lack[x["id"]] = str(x.get("lacking") or "").strip().rstrip(".")
+            best[x["id"]] = x["status"]
+    status = {i: best.get(i, "missing") for i in range(1, n + 1)}
+    blurry = []
+    if judge is not None:
+        jv = {x["id"]: x for x in judge.get("parts", []) if 1 <= x["id"] <= n}
+        for i in range(1, n + 1):
+            j = jv.get(i, {}).get("status", "missing")
+            if j == "unclear":
+                if status[i] != "full":
+                    blurry.append(i)
+                    status[i] = "unclear"
+                else:
+                    status[i] = "full"
+            else:
+                status[i] = j
+                lack[i] = str(jv[i].get("lacking") or "").strip().rstrip(".") if i in jv else ""
+    pct = round(100 * sum({"full": 1, "unclear": 1, "partly": 0.5}.get(v, 0) for v in status.values()) / n) if n else 0
+    a = reads[0]
+    pb = {p["page"]: p for p in (reads[1] if len(reads) > 1 else a).get("pages", [])}
+    pg = []
+    for p in a.get("pages", []):
+        q = pb.get(p["page"], p)
+        pg.append({"kind": p["kind"] if p["kind"] == q["kind"] else "handwritten",
+                   "readable": p["readable"] if p["readable"] == q["readable"] else "partly",
+                   "messy": p.get("neat") == q.get("neat") == "messy"})
+    messy = bool(pg) and sum(p["messy"] for p in pg) * 3 >= len(pg) * 2 and (judge is None or judge_messy(judge))
+    out = {"type": "copy", "kind": "scored", "pct": pct, "pages": len(imgs), "hashes": hashes,
+           "missing": [parts[i - 1]["name"] for i, v in status.items() if v == "missing"],
+           "partly": [parts[i - 1]["name"] + (f" ({lack[i]})" if lack.get(i) else "") for i, v in status.items() if v == "partly"],
+           "blurry": [parts[i - 1]["name"] for i in blurry], "total": n, "messy": messy, "verified": judge is not None}
+    other = all(r.get("otherLesson") for r in reads) and (judge is None or judge.get("otherLesson"))
+    if pg and sum(p["kind"] == "printed_or_screen" for p in pg) * 2 > len(pg):
+        out["kind"] = "printed"
+    elif reused and len(reused) * 2 >= len(imgs):
+        out.update(kind="reused", reusedFrom=reused[0])
+    elif other and pct < 50:
+        out["kind"] = "wrong_unit"
+    elif pg and all(p["readable"] == "no" for p in pg) and (judge is None or all(p.get("readable") == "no" for p in judge.get("pages", []))):
+        out["kind"] = "unreadable"
+    return out
+
+
 COPY_PROMPT = """Bạn đọc ảnh VỞ CHÉP BÀI GIẢNG viết tay của một học sinh. Bạn KHÔNG chấm, KHÔNG nhận xét; chỉ ghi lại đúng những gì nhìn thấy.
 Học sinh phải chép tay đầy đủ tài liệu bài giảng ({title}) dưới đây vào vở. Tài liệu gồm các phần:
 {parts}
@@ -299,7 +362,8 @@ DOCS_VERSION = 1            # lecture split + reference picture; kept stable so 
 PAINT_VERSION = 3           # raise when only the cell colours/sizes change: published cells are repainted, not re-read
 BODY_SIZE = 9               # comment text size (Cô 10/11: keep 9, make the row twice as tall instead)
 ROW_FACTOR = 2              # rows holding our comments: twice the class sheet's own row height
-REGRADE = {"GF", "AP"}      # programmes whose reading rules changed in this VERSION; others are only re-styled
+REGRADE = {"GF", "AP"}
+REGRADE_FAILED_ONLY = True  # on a VERSION bump only notebooks that did not pass are read again (passed stay passed)      # programmes whose reading rules changed in this VERSION; others are only re-styled
 FLAG = "LỖI: ❌ CẦN NỘP LẠI"   # cell note prefix of our own "redo" mark
 STATUS_RANK = {"missing": 0, "partly": 1, "unclear": 2, "full": 3}
 
@@ -599,6 +663,9 @@ class FighterNotebooks:
         reused = []
         for hx in hashes:
             for other, owner in self.st["hashes"].items():
+                src = self.st["subs"].get(owner["sid"], {})
+                if (src.get("result") or {}).get("kind") == "wrong_unit":   # pupil sent this notebook under the wrong unit first
+                    continue
                 if owner["sid"] != sid and (owner["student"] != bare(s["student"]) or owner["code"] != s["code"]) and ham(hx, other) <= 60:
                     reused.append(owner)
                     break
@@ -620,6 +687,18 @@ class FighterNotebooks:
         cat = f"{s['cls']} · {KIND_NAME[s['prog']].capitalize()} · {s['code']}"
         with cf.ThreadPoolExecutor(2) as ex:
             reads = list(ex.map(lambda _: self.call(content, AP_SCHEMA, cat), range(2)))
+        first = self.ap_score(reads, ref, imgs, hashes, reused)
+        if first["kind"] not in ("scored", "wrong_unit") or (first["kind"] == "scored" and first["pct"] >= PASS and not first["messy"]):
+            return first
+        try:   # Haiku alone never fails a pupil: one Sonnet read joins the merge
+            reads.append(self.call(content, AP_SCHEMA, cat, model=VERIFY_MODEL))
+            self.tick("ap_verified")
+        except Exception as e:
+            self.tick("verify_error_" + type(e).__name__)
+            return first
+        return self.ap_score(reads, ref, imgs, hashes, reused, verified=len(reads) > 2)
+
+    def ap_score(self, reads, ref, imgs, hashes, reused, verified=False):
         # merged in the pupil's favour
         best = max(reads, key=lambda r: STATUS_RANK[r["outline"]["status"]])
         outline = {"full": 1.0, "unclear": 1.0, "partly": 0.5}.get(best["outline"]["status"], 0.0)
@@ -649,7 +728,7 @@ class FighterNotebooks:
         out = {"type": "ap", "kind": "scored", "pct": pct, "pages": len(imgs), "hashes": hashes, "revised": revised, "outline": outline, "outlineLack": outline_lack,
                "modelFull": model_full, "modelGot": got, "modelTotal": len(sents),
                "modelNext": " ".join(sents[got].split()[:6]) if not model_full and got < len(sents) else "", "vocabHave": len(have), "vocabTotal": len(ref["vocab"]), "vocabLack": lack,
-               "messy": bool(pg) and sum(p["messy"] for p in pg) * 3 >= len(pg) * 2}
+               "messy": bool(pg) and sum(p["messy"] for p in pg) * 3 >= len(pg) * 2 and (not verified or judge_messy(reads[-1]))}
         if pg and sum(p["kind"] == "printed_or_screen" for p in pg) * 2 > len(pg):
             out["kind"] = "printed"
         elif reused and len(reused) * 2 >= len(imgs):
@@ -679,37 +758,16 @@ class FighterNotebooks:
                                                                    parts=parts, doc=les["text"])})
         cat = f"{s['cls']} · {KIND_NAME[s['prog']].capitalize()} · {s['code']}"
         with cf.ThreadPoolExecutor(2) as ex:
-            a, b = ex.map(lambda _: self.call(content, COPY_SCHEMA, cat), range(2))
-        # merged in the pupil's favour: a part is missing only if both reads say so
-        best, lack = {}, {}
-        for x in a.get("parts", []) + b.get("parts", []):
-            if 1 <= x["id"] <= len(les["parts"]) and STATUS_RANK[x["status"]] >= STATUS_RANK.get(best.get(x["id"]), -1):
-                if STATUS_RANK[x["status"]] > STATUS_RANK.get(best.get(x["id"]), -1) or not lack.get(x["id"]):
-                    lack[x["id"]] = str(x.get("lacking") or "").strip().rstrip(".")
-                best[x["id"]] = x["status"]
-        n = len(les["parts"])
-        status = {i: best.get(i, "missing") for i in range(1, n + 1)}
-        pct = round(100 * sum({"full": 1, "unclear": 1, "partly": 0.5}.get(v, 0) for v in status.values()) / n) if n else 0
-        pb = {p["page"]: p for p in b.get("pages", [])}
-        pg = []
-        for p in a.get("pages", []):
-            q = pb.get(p["page"], p)
-            pg.append({"kind": p["kind"] if p["kind"] == q["kind"] else "handwritten",
-                       "readable": p["readable"] if p["readable"] == q["readable"] else "partly",
-                       "messy": p.get("neat") == q.get("neat") == "messy"})
-        out = {"type": "copy", "kind": "scored", "pct": pct, "pages": len(imgs), "hashes": hashes,
-               "missing": [les["parts"][i - 1]["name"] for i, v in status.items() if v == "missing"],
-               "partly": [les["parts"][i - 1]["name"] + (f" ({lack[i]})" if lack.get(i) else "")
-                          for i, v in status.items() if v == "partly"], "total": n,
-               "messy": bool(pg) and sum(p["messy"] for p in pg) * 3 >= len(pg) * 2}
-        if pg and sum(p["kind"] == "printed_or_screen" for p in pg) * 2 > len(pg):
-            out["kind"] = "printed"
-        elif reused and len(reused) * 2 >= len(imgs):
-            out.update(kind="reused", reusedFrom=reused[0])
-        elif a.get("otherLesson") and b.get("otherLesson") and pct < 50:
-            out["kind"] = "wrong_unit"
-        elif pg and all(p["readable"] == "no" for p in pg):
-            out["kind"] = "unreadable"
+            reads = list(ex.map(lambda _: self.call(content, COPY_SCHEMA, cat), range(2)))
+        out = copy_result(reads, les["parts"], imgs, hashes, reused)
+        if out["kind"] in ("scored", "wrong_unit", "unreadable") and not copy_passes(out):
+            # Haiku alone never fails a pupil: Sonnet reads the notebook once more and its reading decides
+            try:
+                v = self.call(content, COPY_SCHEMA, cat, model=VERIFY_MODEL)
+                out = copy_result(reads, les["parts"], imgs, hashes, reused, judge=v)
+                self.tick("copy_verified")
+            except Exception as e:
+                self.tick("verify_error_" + type(e).__name__)
         return out
 
     def site(self, d):
@@ -853,17 +911,29 @@ class FighterNotebooks:
         d = (m.get("videoMediaMetadata") or {}).get("durationMillis")
         return round(int(d) / 1000) if d else None
 
-    def call(self, content, schema, category, max_tokens=12000):
-        r = self.cl.messages.create(model=MODEL, max_tokens=max_tokens, thinking={"type": "disabled"},
-                                    tools=[{"name": "record", "description": "Ghi lại kết quả", "input_schema": schema}],
-                                    tool_choice={"type": "tool", "name": "record"},
-                                    messages=[{"role": "user", "content": content}])
+    def call(self, content, schema, category, max_tokens=12000, model=MODEL):
+        if model == MODEL:
+            r = self.cl.messages.create(model=model, max_tokens=max_tokens, thinking={"type": "disabled"},
+                                        tools=[{"name": "record", "description": "Ghi lại kết quả", "input_schema": schema}],
+                                        tool_choice={"type": "tool", "name": "record"},
+                                        messages=[{"role": "user", "content": content}])
+        else:   # Sonnet: forced tool choice is refused with its default thinking, so ask for the tool and check it came
+            for _ in range(3):
+                r = self.cl.messages.create(model=model, max_tokens=max_tokens + 8000,
+                                            tools=[{"name": "record", "description": "Ghi lại kết quả", "input_schema": schema}],
+                                            tool_choice={"type": "auto"},
+                                            messages=[{"role": "user", "content": content + [{"type": "text", "text":
+                                                      "Bắt buộc gọi công cụ record đúng một lần để ghi kết quả."}]}])
+                if any(b.type == "tool_use" for b in r.content):
+                    break
+            else:
+                raise RuntimeError("VERIFY_NO_TOOL")
         u = r.usage.model_dump()
-        c = cw.cost_usd(MODEL, u)
+        c = cw.cost_usd(model, u)
         if r.stop_reason == "max_tokens":   # a cut-off read would look like "nothing written": never publish it
             self.r.tick("fnb_cost_vnd", round(c * cw.USD_VND))
             raise RuntimeError("READ_TRUNCATED")
-        cw.ledger({"at": cw.now_iso(), "category": category, "step": "fighter-notebook", "model": MODEL,
+        cw.ledger({"at": cw.now_iso(), "category": category, "step": "fighter-notebook", "model": model,
                    "usage": u, "usd": c, "vnd": round(c * cw.USD_VND)})
         self.r.tick("fnb_cost_vnd", round(c * cw.USD_VND))
         return json.loads(json.dumps(next(b.input for b in r.content if b.type == "tool_use")))
@@ -989,6 +1059,10 @@ class FighterNotebooks:
             return refuse(f"cô không mở được ảnh/tệp {book} con gửi.", f"con chụp rõ, đủ các trang {book} và NỘP LẠI ngay.")
         if res["kind"] == "unreadable":
             return refuse(f"ảnh {book} quá mờ hoặc bị cắt, cô không đọc được.", "con chụp lại rõ nét, đủ sáng, đủ các trang và NỘP LẠI ngay.")
+        if res["kind"] == "wrong_unit" and s.get("hadEarlier"):
+            when = parse_vn_time(s["submittedAt"]).strftime("%d/%m %H:%M")
+            return (f"ℹ️ Lần nộp {when} là vở của một bài khác, không phải {label} {unit}, nên cô không tính lần nộp này; "
+                    f"bài {label} {unit} con nộp lần trước vẫn được ghi nhận.\n→ Nếu đây là bài của buổi khác, con nộp lại đúng mục bài đó nhé."), True, None
         if res["kind"] in ("printed", "reused", "wrong_unit"):
             prev = res.get("reusedFrom", {}).get("code")
             why = {"printed": f"{book} nộp là bản in/ảnh chụp màn hình, không phải chép tay — cô không chấp nhận.",
@@ -1046,17 +1120,23 @@ class FighterNotebooks:
             return "\n".join(lines), ok, pct
         if res.get("type") == "copy":
             pct = res["pct"]
-            ok = pct >= PASS and not res.get("messy")
-            full = res["total"] - len(res["missing"]) - len(res["partly"])
+            blurry = res.get("blurry") or []
+            ok = pct >= PASS and not res.get("messy") and not blurry
+            full = res["total"] - len(res["missing"]) - len(res["partly"]) - len(blurry)
             lines = [head(pct, ok), f"• {what.capitalize()}: {'đã' if full >= res['total'] else 'mới'} chép đủ {full}/{res['total']} phần của bài giảng."]
             if res["missing"]:
                 lines.append("• Chưa chép phần: " + "; ".join(res["missing"]) + ".")
             if res["partly"]:
                 lines.append("• Chép thiếu: " + "; ".join(res["partly"]) + ".")
+            if blurry:
+                lines.append("• Ảnh chụp mờ / bị cắt, cô chưa đọc được phần: " + "; ".join(blurry)
+                             + " — con KHÔNG phải chép lại, chỉ cần chụp lại rõ nét các trang đó.")
             if res.get("messy"):
                 lines.append(messy)
             lines += ending(ok, pct=pct, ask=("con chép bổ sung ĐỦ các phần trên theo bài giảng trên web, chụp lại toàn bộ và NỘP LẠI trước buổi học tới."
-                                 if pct < PASS else "con chép lại cẩn thận và NỘP LẠI trước buổi học tới."))
+                                 if pct < PASS or res["missing"] or res["partly"] else
+                                 "con chụp lại rõ nét, đủ sáng, thẳng trang (mỗi ảnh 1–2 trang) và NỘP LẠI ngay." if blurry
+                                 else "con chép lại cẩn thận và NỘP LẠI trước buổi học tới."))
             return "\n".join(lines), ok, pct
         pct = res["pct"]
         ok = pct >= PASS and res["video"] != "none" and not res.get("messy")
@@ -1128,6 +1208,7 @@ class FighterNotebooks:
                 pass
             first = re.sub(r"CHƯA ĐẠT(?:, CẦN NỘP LẠI)? \(yêu cầu từ (\d+)%\)\.", r"Chưa đạt (Yêu cầu nộp lại, cần từ \1%).", first)
             rest = rest.replace("⛔ Bài chưa đạt", "⚠ Bài chưa đạt")
+            rest = re.sub(r"mới chép đủ (\d+)/\1 phần", r"đã chép đủ \1/\1 phần", rest)
             new = first + sep + rest
             dl = dt.datetime.fromisoformat(s["deadline"]) if s.get("deadline") else None
             w = self.write(s, s["cell"], dl, new, ok, pct)
@@ -1259,7 +1340,7 @@ class FighterNotebooks:
         subs = self.st["subs"]
         for s in subs.values():
             if s["status"] == "published" and s.get("ver", 1) < VERSION:
-                if s["prog"] in REGRADE:
+                if s["prog"] in REGRADE and not (REGRADE_FAILED_ONLY and s.get("ok")):
                     s.update(status="new", tries=0, regrade=True)
                     self.tick("regrade_new_rules")
                 else:   # same result, today's wording/colours: no new reading
@@ -1321,6 +1402,14 @@ class FighterNotebooks:
             earlier = sorted({x["code"] for x in subs.values() if (x["cls"], bare(norm(x["student"]))) == key
                               and x["status"] == "published" and not x.get("ok") and x["code"] != s["code"]
                               and family(x["prog"]) == family(s["prog"])})
+            if res.get("kind") == "wrong_unit":   # sent under the wrong unit: an earlier submission of this unit is kept
+                try:
+                    first = self.r.tracker(s["cls"]).cell(s["cell"]).split("\n")[0]
+                except Exception:
+                    first = ""
+                s["hadEarlier"] = first.startswith("🔁") or any(
+                    x is not s and (x["cls"], bare(norm(x["student"])), x["code"]) == (s["cls"], bare(norm(s["student"])), s["code"])
+                    and parse_vn_time(x["submittedAt"]) < parse_vn_time(s["submittedAt"]) for x in subs.values())
             text, ok, pct = self.comment(s, res, len(earlier))
             if not ok and len(earlier) >= 2:
                 label = unit_label(s["code"])[0]

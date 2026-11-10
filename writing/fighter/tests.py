@@ -129,3 +129,20 @@ _r = nb.ap_reference(_doc); assert _r and _r["vocab"] == ["alpha", "beta gamma",
 assert nb.model_reach(_r["model"], " ".join(_W[97:]) + " end of model.") == 1.0 and 0.4 < nb.model_reach(_r["model"], " ".join(_W[45:50])) < 0.6
 assert nb.ap_reference("**Bài mẫu** short **Từ vựng và cụm từ**") is None
 print("academic paragraph ok")
+
+# --- lecture copy: Sonnet judge decides, blurry parts ask for a new photo, wrong unit needs the judge too
+import notebook as _nb
+_parts = [{"name": f"P{i}"} for i in range(1, 6)]
+_pg = [{"page": 1, "kind": "handwritten", "readable": "partly", "neat": "acceptable"}]
+_h = {"pages": _pg, "parts": [{"id": i, "status": "partly", "lacking": "thiếu ví dụ"} for i in range(1, 6)], "otherLesson": False}
+_j = {"pages": _pg, "otherLesson": False, "parts": [{"id": 1, "status": "full", "lacking": ""}, {"id": 2, "status": "full", "lacking": ""},
+      {"id": 3, "status": "unclear", "lacking": ""}, {"id": 4, "status": "missing", "lacking": ""}, {"id": 5, "status": "missing", "lacking": ""}]}
+_o = _nb.copy_result([_h, _h], _parts, [b""], [], [], judge=_j)
+assert _o["missing"] == ["P4", "P5"] and _o["partly"] == [] and _o["blurry"] == ["P3"] and _o["pct"] == 60, _o
+_j2 = dict(_j, parts=[{"id": i, "status": "full", "lacking": ""} for i in range(1, 6)])
+_o2 = _nb.copy_result([_h, _h], _parts, [b""], [], [], judge=_j2)
+assert _nb.copy_passes(_o2) and _o2["pct"] == 100, _o2
+_hw = dict(_h, otherLesson=True, parts=[])
+assert _nb.copy_result([_hw, _hw], _parts, [b""], [], [])["kind"] == "wrong_unit"
+assert _nb.copy_result([_hw, _hw], _parts, [b""], [], [], judge=_j2)["kind"] == "scored"
+print("copy judge ok")
