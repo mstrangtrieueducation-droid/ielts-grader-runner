@@ -51,7 +51,7 @@ MODEL = "claude-haiku-5-5"
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 15              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 16              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 40        # the status system normally marks the cell first; after this we write the status line ourselves
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -127,8 +127,8 @@ AP_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["page
              "properties": {"pages": {"type": "array", "items": PAGE},
                             "revised": {"type": "object", "additionalProperties": False, "required": ["present", "words"],
                                         "properties": {"present": {"type": "string", "enum": ["yes", "no", "unclear"]}, "words": I}},
-                            "model": {"type": "object", "additionalProperties": False, "required": ["present", "lastWords"],
-                                      "properties": {"present": {"type": "string", "enum": ["yes", "no", "unclear"]}, "lastWords": S}},
+                            "model": {"type": "object", "additionalProperties": False, "required": ["present", "lastSentence"],
+                                      "properties": {"present": {"type": "string", "enum": ["yes", "no", "unclear"]}, "lastSentence": I}},
                             "vocab": {"type": "array", "items": S}, "otherLesson": {"type": "boolean"}}}
 AP_PROMPT = """Bạn đọc ảnh VỞ ĐOẠN VĂN HỌC THUẬT viết tay của một học sinh ({title}). Bạn KHÔNG chấm, KHÔNG nhận xét; chỉ ghi lại đúng
 những gì nhìn thấy. Trang vở thường có ô REVISED VERSION (đoạn văn học sinh TỰ VIẾT LẠI), ô BÀI MẪU THAM KHẢO (chép tay bài mẫu) và
@@ -138,12 +138,12 @@ các từ/cụm từ ghi ở lề, đầu trang hoặc cuối trang (có thể v
    neat = neat / acceptable / messy (CHỈ messy khi nét chữ nguệch ngoạc khó đọc, gạch xoá/bôi bẩn nhiều; phân vân → acceptable).
 2. revised: present = yes nếu có một đoạn văn học sinh tự viết (Revised version / bài viết của em) cùng đề bài, khác bài mẫu;
    words = số chữ ước lượng của đoạn đó (0 nếu không có).
-3. model: present = yes nếu có chép bài mẫu; lastWords = 6–10 chữ CUỐI CÙNG của phần bài mẫu học sinh đã chép, chép nguyên văn
-   (để biết chép đến đâu). Không có → "".
+3. model: present = yes nếu có chép bài mẫu; lastSentence = SỐ THỨ TỰ câu cuối cùng của bài mẫu (đánh số bên dưới) mà học sinh
+   đã chép tới (đọc hết ô Bài mẫu tham khảo, kể cả dòng cuối trang và trang sau). Chép hết → số câu cuối cùng; không chép → 0.
 4. vocab: danh sách các từ/cụm từ tiếng Anh học sinh đã ghi (mục từ vựng ở bất kỳ chỗ nào trên trang), mỗi mục một chuỗi, nguyên văn.
 5. otherLesson = true nếu vở chủ yếu là bài của một buổi khác (đề bài khác).
 
-BÀI MẪU (để đối chiếu):
+BÀI MẪU (để đối chiếu, đã đánh số câu):
 {model}
 
 TỪ VỰNG CỦA BÀI:
@@ -160,7 +160,7 @@ def ap_reference(text):
     i = low.rfind("bài mẫu", 0, j) if j > 0 else -1
     if i < 0 or j < 0 or j < i or t.find("PHÂN TÍCH") > 0 or t.find("KỸ THUẬT") > 0:
         return None
-    model = re.sub(r"\s+", " ", re.sub(r"\*+|\|", " ", t[i + len("Bài mẫu"):j])).strip()
+    model = re.sub(r"\s+([,.;:!?])", r"\1", re.sub(r"\s+", " ", re.sub(r"\*+|\|", " ", t[i + len("Bài mẫu"):j]))).strip()
     tail = t[j + len("từ vựng và cụm từ"):]
     vocab = []   # "term (TT): nghĩa — ví dụ." items, separated by new lines, <br> or a full stop
     for m in re.finditer(r"(?:^|[.\n>|])\s*[-•]?\s*([A-Za-z][^\n():|.<>]{1,60}?)\s*\(([^)]{1,14})\)\s*:", re.sub(r"\*+", "", tail)):
@@ -168,6 +168,10 @@ def ap_reference(text):
     if len(model.split()) < 60 or len(vocab) < 3:
         return None
     return {"model": model, "vocab": vocab}
+
+
+def sentences(text):
+    return [x.strip() for x in re.split(r"(?<=[.!?])\s+(?=[A-Z])", str(text or "").strip()) if x.strip()]
 
 
 def model_reach(model, last):
@@ -536,27 +540,27 @@ class FighterNotebooks:
         reused = self.reused_pages(sid, s, hashes)
         content = [{"type": "text", "text": f"Vở của học sinh ({len(imgs)} ảnh):"}] + [img_block(b) for b in imgs]
         content.append({"type": "text", "text": AP_PROMPT.format(title=COPY[s["prog"]][s["code"]].get("title") or s["code"],
-                                                                 model=ref["model"], vocab="\n".join(ref["vocab"]))})
+                                                                 model="\n".join(f"[{k}] {x}" for k, x in enumerate(sentences(ref["model"]), 1)),
+                                                                 vocab="\n".join(ref["vocab"]))})
         cat = f"{s['cls']} · {KIND_NAME[s['prog']].capitalize()} · {s['code']}"
         with cf.ThreadPoolExecutor(2) as ex:
             reads = list(ex.map(lambda _: self.call(content, AP_SCHEMA, cat), range(2)))
         # merged in the pupil's favour
         revised = any(r["revised"]["present"] in ("yes", "unclear") and (r["revised"]["words"] >= 60 or r["revised"]["present"] == "unclear")
                       for r in reads)
-        reach, last = 0.0, ""
+        sents = sentences(ref["model"])
+        got = 0
         for r in reads:
-            x = model_reach(ref["model"], r["model"]["lastWords"]) if r["model"]["present"] != "no" else 0.0
-            if r["model"]["present"] == "unclear" and not x:
-                x = 1.0
-            if x > reach:
-                reach, last = x, r["model"]["lastWords"]
+            k = max(0, min(len(sents), int(r["model"]["lastSentence"] or 0))) if r["model"]["present"] != "no" else 0
+            if r["model"]["present"] == "unclear" and not k:
+                k = len(sents)
+            got = max(got, k)
+        reach = got / len(sents) if sents else 0.0
         seen = [w for r in reads for w in r.get("vocab", [])]
         have = [v for v in ref["vocab"] if any(sim(v, w) >= 0.8 for w in seen)]
         lack = [v for v in ref["vocab"] if v not in have]
-        model_full = reach >= 0.9
+        model_full = got >= len(sents)
         pct = round(100 * ((1 if revised else 0) + (1 if model_full else reach) + len(have) / len(ref["vocab"])) / 3)
-        mw = ref["model"].split()
-        cut = round(reach * len(mw))
         pg = []
         pb = {p["page"]: p for p in reads[1].get("pages", [])}
         for p in reads[0].get("pages", []):
@@ -565,8 +569,8 @@ class FighterNotebooks:
                        "readable": p["readable"] if p["readable"] == q["readable"] else "partly",
                        "messy": p.get("neat") == q.get("neat") == "messy"})
         out = {"type": "ap", "kind": "scored", "pct": pct, "pages": len(imgs), "hashes": hashes, "revised": revised,
-               "modelFull": model_full, "modelPct": round(100 * reach), "modelNext": " ".join(mw[cut:cut + 6]) if not model_full and cut else "",
-               "modelLast": last if not model_full else "", "vocabHave": len(have), "vocabTotal": len(ref["vocab"]), "vocabLack": lack,
+               "modelFull": model_full, "modelGot": got, "modelTotal": len(sents),
+               "modelNext": " ".join(sents[got].split()[:6]) if not model_full and got < len(sents) else "", "vocabHave": len(have), "vocabTotal": len(ref["vocab"]), "vocabLack": lack,
                "messy": bool(pg) and sum(p["messy"] for p in pg) * 3 >= len(pg) * 2}
         if pg and sum(p["kind"] == "printed_or_screen" for p in pg) * 2 > len(pg):
             out["kind"] = "printed"
@@ -939,9 +943,9 @@ class FighterNotebooks:
             lines.append("• Revised version (đoạn văn con tự viết lại): " + ("đã có." if res["revised"] else "CHƯA CÓ."))
             if res["modelFull"]:
                 lines.append("• Bài mẫu: đã chép đủ.")
-            elif res["modelPct"]:
-                lines.append(f"• Bài mẫu: mới chép khoảng {res['modelPct']}% (đến \"…{res['modelLast']}\")"
-                             + (f" — còn thiếu từ \"{res['modelNext']}…\" đến hết." if res["modelNext"] else "."))
+            elif res["modelGot"]:
+                lines.append(f"• Bài mẫu: mới chép {res['modelGot']}/{res['modelTotal']} câu"
+                             + (f" — còn thiếu từ câu \"{res['modelNext']}…\" đến hết." if res["modelNext"] else "."))
             else:
                 lines.append("• Bài mẫu: CHƯA CHÉP.")
             lines.append(f"• Từ vựng và cụm từ: có {res['vocabHave']}/{res['vocabTotal']}"
