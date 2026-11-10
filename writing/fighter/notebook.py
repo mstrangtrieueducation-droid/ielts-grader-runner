@@ -51,7 +51,7 @@ MODEL = "claude-haiku-5-5"
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 11              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 12              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 40        # the status system normally marks the cell first; after this we write the status line ourselves
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -123,12 +123,64 @@ starts = vài chữ đầu của phần đó. Trả kết quả qua công cụ r
 
 TÀI LIỆU:
 {doc}"""
-AP_PARTS = [
-    {"name": "Revised version (đoạn văn con tự viết lại)",
-     "starts": "Ô REVISED VERSION: đoạn văn HỌC SINH TỰ VIẾT LẠI, không có trong tài liệu — full khi có một đoạn văn hoàn chỉnh "
-               "cùng đề bài (khoảng 140–160 từ), KHÔNG so từng chữ với bài mẫu"},
-    {"name": "Bài mẫu tham khảo (chép tay)", "starts": "Ô BÀI MẪU THAM KHẢO: chép tay đủ đoạn văn mẫu trong tài liệu, từ câu đầu đến câu cuối"},
-    {"name": "Từ vựng và cụm từ", "starts": "các từ/cụm từ trong mục Từ vựng và cụm từ của tài liệu, kèm nghĩa"}]
+AP_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["pages", "revised", "model", "vocab", "otherLesson"],
+             "properties": {"pages": {"type": "array", "items": PAGE},
+                            "revised": {"type": "object", "additionalProperties": False, "required": ["present", "words"],
+                                        "properties": {"present": {"type": "string", "enum": ["yes", "no", "unclear"]}, "words": I}},
+                            "model": {"type": "object", "additionalProperties": False, "required": ["present", "lastWords"],
+                                      "properties": {"present": {"type": "string", "enum": ["yes", "no", "unclear"]}, "lastWords": S}},
+                            "vocab": {"type": "array", "items": S}, "otherLesson": {"type": "boolean"}}}
+AP_PROMPT = """Bạn đọc ảnh VỞ ĐOẠN VĂN HỌC THUẬT viết tay của một học sinh ({title}). Bạn KHÔNG chấm, KHÔNG nhận xét; chỉ ghi lại đúng
+những gì nhìn thấy. Trang vở thường có ô REVISED VERSION (đoạn văn học sinh TỰ VIẾT LẠI), ô BÀI MẪU THAM KHẢO (chép tay bài mẫu) và
+các từ/cụm từ ghi ở lề, đầu trang hoặc cuối trang (có thể viết nhỏ, nghiêng) — nhìn kỹ cả lề và đầu/cuối trang.
+
+1. pages: với MỖI ảnh, theo thứ tự 1, 2, 3…: kind = handwritten / printed_or_screen / not_a_notebook; readable = yes / partly / no;
+   neat = neat / acceptable / messy (CHỈ messy khi nét chữ nguệch ngoạc khó đọc, gạch xoá/bôi bẩn nhiều; phân vân → acceptable).
+2. revised: present = yes nếu có một đoạn văn học sinh tự viết (Revised version / bài viết của em) cùng đề bài, khác bài mẫu;
+   words = số chữ ước lượng của đoạn đó (0 nếu không có).
+3. model: present = yes nếu có chép bài mẫu; lastWords = 6–10 chữ CUỐI CÙNG của phần bài mẫu học sinh đã chép, chép nguyên văn
+   (để biết chép đến đâu). Không có → "".
+4. vocab: danh sách các từ/cụm từ tiếng Anh học sinh đã ghi (mục từ vựng ở bất kỳ chỗ nào trên trang), mỗi mục một chuỗi, nguyên văn.
+5. otherLesson = true nếu vở chủ yếu là bài của một buổi khác (đề bài khác).
+
+BÀI MẪU (để đối chiếu):
+{model}
+
+TỪ VỰNG CỦA BÀI:
+{vocab}
+
+Trả kết quả DUY NHẤT qua công cụ record."""
+
+
+def ap_reference(text):
+    """Model paragraph and word list of an Academic Paragraph lesson doc; None when the doc has another layout (Buổi 1)."""
+    t = re.sub(r"\\([*\[\]_#\\])", r"\1", str(text or ""))
+    i, j = t.find("Bài mẫu"), t.find("Từ vựng và cụm từ")
+    if i < 0 or j < 0 or j < i or t.find("PHÂN TÍCH") > 0 or t.find("KỸ THUẬT") > 0:
+        return None
+    model = re.sub(r"\s+", " ", re.sub(r"\*+|\|", " ", t[i + len("Bài mẫu"):j])).strip()
+    tail = t[j + len("Từ vựng và cụm từ"):]
+    vocab = [re.sub(r"\s+", " ", v).strip(" .:") for v in re.findall(r"\*\*([^*]{2,60}?)\*\*\s*\(", tail)]
+    if len(model.split()) < 60 or len(vocab) < 3:
+        return None
+    return {"model": model, "vocab": vocab}
+
+
+def model_reach(model, last):
+    """Share of the model paragraph copied, from the last words the pupil wrote (0–1)."""
+    mw = [core(w) for w in model.split()]
+    lw = [core(w) for w in str(last or "").split() if core(w)]
+    if not lw or not mw:
+        return 0.0
+    k = len(lw)
+    best, at = 0.0, 0
+    for e in range(k, len(mw) + 1):
+        r = difflib.SequenceMatcher(None, mw[e - k:e], lw).ratio()
+        if r >= best:
+            best, at = r, e
+    return at / len(mw) if best >= 0.5 else 0.0
+
+
 COPY_PROMPT = """Bạn đọc ảnh VỞ CHÉP BÀI GIẢNG viết tay của một học sinh. Bạn KHÔNG chấm, KHÔNG nhận xét; chỉ ghi lại đúng những gì nhìn thấy.
 Học sinh phải chép tay đầy đủ tài liệu bài giảng ({title}) dưới đây vào vở. Tài liệu gồm các phần:
 {parts}
@@ -472,10 +524,62 @@ class FighterNotebooks:
                     break
         return reused
 
+    def grade_ap(self, sid, s, ref):
+        imgs = self.pages(s)
+        if not imgs:
+            return {"kind": "no_photos", "type": "ap"}
+        hashes = [dhash(b) for b in imgs]
+        reused = self.reused_pages(sid, s, hashes)
+        content = [{"type": "text", "text": f"Vở của học sinh ({len(imgs)} ảnh):"}] + [img_block(b) for b in imgs]
+        content.append({"type": "text", "text": AP_PROMPT.format(title=COPY[s["prog"]][s["code"]].get("title") or s["code"],
+                                                                 model=ref["model"], vocab="\n".join(ref["vocab"]))})
+        cat = f"{s['cls']} · {KIND_NAME[s['prog']].capitalize()} · {s['code']}"
+        with cf.ThreadPoolExecutor(2) as ex:
+            reads = list(ex.map(lambda _: self.call(content, AP_SCHEMA, cat), range(2)))
+        # merged in the pupil's favour
+        revised = any(r["revised"]["present"] in ("yes", "unclear") and (r["revised"]["words"] >= 60 or r["revised"]["present"] == "unclear")
+                      for r in reads)
+        reach, last = 0.0, ""
+        for r in reads:
+            x = model_reach(ref["model"], r["model"]["lastWords"]) if r["model"]["present"] != "no" else 0.0
+            if r["model"]["present"] == "unclear" and not x:
+                x = 1.0
+            if x > reach:
+                reach, last = x, r["model"]["lastWords"]
+        seen = [w for r in reads for w in r.get("vocab", [])]
+        have = [v for v in ref["vocab"] if any(sim(v, w) >= 0.8 for w in seen)]
+        lack = [v for v in ref["vocab"] if v not in have]
+        model_full = reach >= 0.9
+        pct = round(100 * ((1 if revised else 0) + (1 if model_full else reach) + len(have) / len(ref["vocab"])) / 3)
+        mw = ref["model"].split()
+        cut = round(reach * len(mw))
+        pg = []
+        pb = {p["page"]: p for p in reads[1].get("pages", [])}
+        for p in reads[0].get("pages", []):
+            q = pb.get(p["page"], p)
+            pg.append({"kind": p["kind"] if p["kind"] == q["kind"] else "handwritten",
+                       "readable": p["readable"] if p["readable"] == q["readable"] else "partly",
+                       "messy": p.get("neat") == q.get("neat") == "messy"})
+        out = {"type": "ap", "kind": "scored", "pct": pct, "pages": len(imgs), "hashes": hashes, "revised": revised,
+               "modelFull": model_full, "modelPct": round(100 * reach), "modelNext": " ".join(mw[cut:cut + 6]) if not model_full and cut else "",
+               "modelLast": last if not model_full else "", "vocabHave": len(have), "vocabTotal": len(ref["vocab"]), "vocabLack": lack,
+               "messy": bool(pg) and sum(p["messy"] for p in pg) * 3 >= len(pg) * 2}
+        if pg and sum(p["kind"] == "printed_or_screen" for p in pg) * 2 > len(pg):
+            out["kind"] = "printed"
+        elif reused and len(reused) * 2 >= len(imgs):
+            out.update(kind="reused", reusedFrom=reused[0])
+        elif all(r.get("otherLesson") for r in reads) and pct < 50:
+            out["kind"] = "wrong_unit"
+        elif pg and all(p["readable"] == "no" for p in pg):
+            out["kind"] = "unreadable"
+        return out
+
     def grade_copy(self, sid, s):
         les = self.lesson(COPY[s["prog"]][s["code"]]["doc"])
-        if s["prog"] == "AP":   # the printed notebook page: REVISED VERSION | BÀI MẪU THAM KHẢO, words on top
-            les = {"text": les["text"], "parts": AP_PARTS}
+        if s["prog"] == "AP":
+            ref = ap_reference(les["text"])
+            if ref:
+                return self.grade_ap(sid, s, ref)
         imgs = self.pages(s)
         if not imgs:
             return {"kind": "no_photos", "type": "copy"}
@@ -821,6 +925,24 @@ class FighterNotebooks:
             if res.get("messy"):
                 lines.append(messy)
             lines += ending(ok, f"con bổ sung đủ các mục trên vào sổ từ vựng và {name.lower()}, chụp lại toàn bộ và NỘP LẠI trước buổi học tới.")
+            return "\n".join(lines), ok, pct
+        if res.get("type") == "ap":
+            pct = res["pct"]
+            ok = pct >= PASS and not res.get("messy")
+            lines = [head(pct, ok)]
+            lines.append("• Revised version (đoạn văn con tự viết lại): " + ("đã có." if res["revised"] else "CHƯA CÓ."))
+            if res["modelFull"]:
+                lines.append("• Bài mẫu: đã chép đủ.")
+            elif res["modelPct"]:
+                lines.append(f"• Bài mẫu: mới chép khoảng {res['modelPct']}% (đến \"…{res['modelLast']}\")"
+                             + (f" — còn thiếu từ \"{res['modelNext']}…\" đến hết." if res["modelNext"] else "."))
+            else:
+                lines.append("• Bài mẫu: CHƯA CHÉP.")
+            lines.append(f"• Từ vựng và cụm từ: có {res['vocabHave']}/{res['vocabTotal']}"
+                         + (" — thiếu: " + "; ".join(res["vocabLack"]) + "." if res["vocabLack"] else "."))
+            if res.get("messy"):
+                lines.append(messy)
+            lines += ending(ok, "con bổ sung ĐỦ các mục còn thiếu ở trên vào vở, chụp lại toàn bộ và NỘP LẠI trước buổi học tới.")
             return "\n".join(lines), ok, pct
         if res.get("type") == "copy":
             pct = res["pct"]

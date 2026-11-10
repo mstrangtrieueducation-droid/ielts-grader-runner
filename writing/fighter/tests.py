@@ -109,3 +109,10 @@ _s2 = {"cls": "FIGHTER 5", "submittedAt": "10/11/2026 20:00:00", "published": _s
 assert _f.write(_s2, "BQ4", None, "Chất lượng: đạt 95% — Đạt yêu cầu.", True, 95) == "ok"
 assert _t.v.startswith("✅ ĐÃ NỘP\n10/11/2026 20:00\n\n" + nb.MARK + "\nChất lượng: đạt 95%"), _t.v
 print("status line ok")
+
+# Academic Paragraph: model paragraph + word list from the lesson doc, coverage from the last words copied
+_doc = "x **Bài mẫu**" + " ".join(f"w{i}" for i in range(100)) + " end of model. **Từ vựng và cụm từ****alpha** (TT): a.**beta gamma** (cụm DT): b.**delta** (ĐT): c."
+_r = nb.ap_reference(_doc); assert _r and _r["vocab"] == ["alpha", "beta gamma", "delta"], _r
+assert nb.model_reach(_r["model"], "w97 w98 w99 end of model.") == 1.0 and 0.4 < nb.model_reach(_r["model"], "w45 w46 w47 w48 w49") < 0.6
+assert nb.ap_reference("**Bài mẫu** short **Từ vựng và cụm từ**") is None
+print("academic paragraph ok")
