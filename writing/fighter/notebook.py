@@ -51,7 +51,7 @@ MODEL = "claude-haiku-5-5"
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 8              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 9              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 40        # the status system normally marks the cell first; after this we write the status line ourselves
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -287,6 +287,14 @@ def score(unit, res):
     termok = len(seen)
     return {"pct": pct, "missing": missing, "empty": empty, "seen": len(seen), "total": len(want), "termOk": termok,
             "written": len(res.get("entries", []))}
+
+
+def test_section(text, n):
+    marks = [(int(m.group(1)), m.start()) for m in re.finditer(r"(?m)^[#\s*\\]*TEST\s*(\d+)\b", text)]
+    for i, (k, at) in enumerate(marks):
+        if k == n:
+            return text[at:marks[i + 1][1] if i + 1 < len(marks) else len(text)]
+    return ""
 
 
 def parse_doc_why(text, total):
@@ -558,7 +566,7 @@ class FighterNotebooks:
                                "needsWhy": bool(str(q.get("explanation") or "").strip())})
             if not words or not qs:
                 raise RuntimeError("READING_REFERENCE_INCOMPLETE")
-            why = self.doc_why(pg.get("doc"), len(qs))
+            why = self.doc_why(pg.get("whyDoc") or pg.get("doc"), len(qs), pg.get("whyPart"))
             if why:   # Cô's correction doc decides which answers need a written explanation
                 for q, w in zip(sorted(qs, key=lambda q: q["n"]), why):
                     q["needsWhy"] = w
@@ -566,7 +574,7 @@ class FighterNotebooks:
                          "words": words, "questions": qs}
         return ref[code]
 
-    def doc_why(self, doc, total):
+    def doc_why(self, doc, total, part=None):
         """One flag per answer row of the correction doc's table: True when Cô wrote an explanation there."""
         if not doc:
             return None
@@ -574,7 +582,9 @@ class FighterNotebooks:
             text = self.g._req(f"https://www.googleapis.com/drive/v3/files/{doc}/export?mimeType=text/markdown", raw=True).decode("utf-8", "replace")
         except Exception:
             return None
-        return parse_doc_why(text, total)
+        if part:   # one doc holding every test: keep the "TEST n" section only
+            text = test_section(text, part)
+        return parse_doc_why(text, total) if text else None
 
     def grade_reading(self, sid, s):
         ref = self.reading_ref(s["code"])

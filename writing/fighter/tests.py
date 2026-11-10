@@ -87,3 +87,8 @@ _t = "| **Câu** | **Đáp án** | **Giải thích** |\n| :- | :- | :- |\n|  | *
 assert parse_doc_why(_t, 4) == [True, False, False, True]
 assert parse_doc_why(_t, 5) is None
 print("doc_why ok")
+
+from notebook import test_section
+_d = "# **CHỮA ĐỀ**\n# **TEST 1**\n| a |\n# **TEST 2**\n| b |\n"
+assert "| b |" in test_section(_d, 2) and "| a |" not in test_section(_d, 2) and test_section(_d, 3) == ""
+print("test_section ok")

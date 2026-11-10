@@ -1,51 +1,75 @@
 {
  "RI1-C01": {
   "correction": "c16171509bdeb76456f56b1806f3db16",
-  "doc": "17ts07LYX-potm4QKNFEuSiZf6bslOFsyizqghpbMDbs"
+  "doc": "17ts07LYX-potm4QKNFEuSiZf6bslOFsyizqghpbMDbs",
+  "whyDoc": "1s0DrBhfaLaDDnbLkrf4MqXC2RtSsz9XnEHKsPEI2rF0",
+  "whyPart": 1
  },
  "RI1-C02": {
   "correction": "935069ec5887d60236f12322f3698e60",
-  "doc": "1XDOAMiCrsmlN1rBIwmxWKM1G4dXzoPYwU6m3Cs4s2ps"
+  "doc": "1XDOAMiCrsmlN1rBIwmxWKM1G4dXzoPYwU6m3Cs4s2ps",
+  "whyDoc": "1s0DrBhfaLaDDnbLkrf4MqXC2RtSsz9XnEHKsPEI2rF0",
+  "whyPart": 2
  },
  "RI1-C03": {
   "correction": "2a509119cbfe61714bdfcd742530b7ac",
-  "doc": "1dps8vbc0ONef5tbqwpefR-alSSjwvrJcS4GpMLGs1fM"
+  "doc": "1dps8vbc0ONef5tbqwpefR-alSSjwvrJcS4GpMLGs1fM",
+  "whyDoc": "1s0DrBhfaLaDDnbLkrf4MqXC2RtSsz9XnEHKsPEI2rF0",
+  "whyPart": 3
  },
  "RI1-C04": {
   "correction": "b028d4b35aeb678e5988c7ffb2252172",
-  "doc": "1xQcI70g_EMOtQCRcG1HOFGI1F4uIxRFhMlIcqZef9JM"
+  "doc": "1xQcI70g_EMOtQCRcG1HOFGI1F4uIxRFhMlIcqZef9JM",
+  "whyDoc": "1s0DrBhfaLaDDnbLkrf4MqXC2RtSsz9XnEHKsPEI2rF0",
+  "whyPart": 4
  },
  "RI1-C05": {
   "correction": "50540c4f39674ae4043d96afc938d217",
-  "doc": "18Ba46Y2FFEtDB3Nm_0ctOtNXiS1BTAHuABo5NW4MAGI"
+  "doc": "18Ba46Y2FFEtDB3Nm_0ctOtNXiS1BTAHuABo5NW4MAGI",
+  "whyDoc": "1s0DrBhfaLaDDnbLkrf4MqXC2RtSsz9XnEHKsPEI2rF0",
+  "whyPart": 5
  },
  "RI1-C06": {
   "correction": "d097d194dd8c93323267443ed4b8ca16",
-  "doc": "1Bl9pgrNX5mV-7uFTFgAsIazLlbq491sA9yN5IqQgMSU"
+  "doc": "1Bl9pgrNX5mV-7uFTFgAsIazLlbq491sA9yN5IqQgMSU",
+  "whyDoc": "1s0DrBhfaLaDDnbLkrf4MqXC2RtSsz9XnEHKsPEI2rF0",
+  "whyPart": 6
  },
  "RI1-C07": {
   "correction": "60fb302a295a1bb87a0ec3370f4ffe82",
-  "doc": "1CnD84x6dkWkTv2F-Z3EhqMq2wLEbE0ZegS14WaDD9-w"
+  "doc": "1CnD84x6dkWkTv2F-Z3EhqMq2wLEbE0ZegS14WaDD9-w",
+  "whyDoc": "1s0DrBhfaLaDDnbLkrf4MqXC2RtSsz9XnEHKsPEI2rF0",
+  "whyPart": 7
  },
  "RI1-C08": {
   "correction": "a1cfa6d79aab4bf23c01e822d84e19e1",
-  "doc": "1D7Yxlc0AoscO3xxgGNaftSV1ZhYkNSyDXJmGq_VMmkw"
+  "doc": "1D7Yxlc0AoscO3xxgGNaftSV1ZhYkNSyDXJmGq_VMmkw",
+  "whyDoc": "1s0DrBhfaLaDDnbLkrf4MqXC2RtSsz9XnEHKsPEI2rF0",
+  "whyPart": 8
  },
  "RI1-C09": {
   "correction": "a766e2226d6375ebef548464ac3549fe",
-  "doc": "1UfFlVuQdYx5BmL2T340Prlt95owWGqJsnv8qIKrG7WI"
+  "doc": "1UfFlVuQdYx5BmL2T340Prlt95owWGqJsnv8qIKrG7WI",
+  "whyDoc": "1s0DrBhfaLaDDnbLkrf4MqXC2RtSsz9XnEHKsPEI2rF0",
+  "whyPart": 9
  },
  "RI1-C10": {
   "correction": "7f94ed6b8007d69f9bb1b0b5f7dd8583",
-  "doc": "1yycTB41zh2x8XN_IdD_0JGYFc8tAezyV1fE4y7V4lJo"
+  "doc": "1yycTB41zh2x8XN_IdD_0JGYFc8tAezyV1fE4y7V4lJo",
+  "whyDoc": "1s0DrBhfaLaDDnbLkrf4MqXC2RtSsz9XnEHKsPEI2rF0",
+  "whyPart": 10
  },
  "RI1-C11": {
   "correction": "86ada2cdc9f327f35e4a1a53ddfc1e4e",
-  "doc": "17ykWYzJ3K2QoX_NWzBl7pQM5iGXGNncmrHWeLqG9VNo"
+  "doc": "17ykWYzJ3K2QoX_NWzBl7pQM5iGXGNncmrHWeLqG9VNo",
+  "whyDoc": "1s0DrBhfaLaDDnbLkrf4MqXC2RtSsz9XnEHKsPEI2rF0",
+  "whyPart": 11
  },
  "RI1-C12": {
   "correction": "e5bc21eeef468b7827f438d302aff1ec",
-  "doc": "1QQqdMXkvVucXZcEM4H7ocrr_sH7KIOzCZjOGcnETSIs"
+  "doc": "1QQqdMXkvVucXZcEM4H7ocrr_sH7KIOzCZjOGcnETSIs",
+  "whyDoc": "1s0DrBhfaLaDDnbLkrf4MqXC2RtSsz9XnEHKsPEI2rF0",
+  "whyPart": 12
  },
  "RI2-C01": {
   "correction": "e5d15763c67f8f707c722df540533a5f",
