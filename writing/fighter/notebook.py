@@ -51,7 +51,7 @@ MODEL = "claude-haiku-5-5"
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 5              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 6              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 40        # the status system normally marks the cell first; after this we write the status line ourselves
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -415,12 +415,10 @@ class FighterNotebooks:
         for f in s["files"]:
             try:
                 data = self.g.download(f)
-            except RuntimeError as e:   # a deleted/unshared file must not sink the whole submission
+            except RuntimeError as e:   # never grade on part of the pages: a missing page would read as "not done"
                 failed += 1
                 self.tick(f"file_unreadable_{str(e)[:20]}[{s['code']}]")
-                if failed == len(s["files"]):
-                    raise
-                continue
+                raise RuntimeError("FILE_UNREADABLE")
             if data[:4] == b"%PDF":
                 doc = fitz.open(stream=data, filetype="pdf")
                 for pg in doc:
@@ -804,6 +802,18 @@ class FighterNotebooks:
         tr.write(a1, new)
         return "ok" if tr.cell(a1) == new else "readback_mismatch"
 
+    def unpublish(self, s):
+        prev = s.pop("published", None)
+        if not prev or not s.get("cell"):
+            return
+        tr = self.r.tracker(s["cls"])
+        cur = tr.cell(s["cell"])
+        if MARK in cur:
+            prefix, body = cur.split(MARK, 1)
+            if body.strip() == prev.strip():
+                tr.write(s["cell"], prefix.rstrip())
+                self.tick("unpublished_partial_read")
+
     def run(self):
         self.scan()
         subs = self.st["subs"]
@@ -841,6 +851,10 @@ class FighterNotebooks:
                     s["status"] = "graded"
                     self.tick("graded")
                 except Exception as e:
+                    if str(e) == "FILE_UNREADABLE":   # our access problem: take back any result shown, wait for access
+                        self.unpublish(s)
+                        s.update(status="new", hold="file_unreadable")
+                        continue
                     s["tries"] = s.get("tries", 0) + 1
                     s["error"] = type(e).__name__
                     self.tick("error_" + type(e).__name__ + (f"_{str(e)[:40]}[{s['code']}]" if isinstance(e, RuntimeError) else ""))
