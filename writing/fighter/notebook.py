@@ -48,11 +48,14 @@ KIND_NAME = {"GF": "vở chép lí thuyết", "AP": "vở chép bài giảng", "
              "PT": "sổ luyện đề"}
 START = dt.datetime(2026, 11, 8, 0, 0, tzinfo=VN)
 MODEL = "claude-haiku-5-5"
-VERIFY_MODEL = "claude-sonnet-5-5"   # a notebook Haiku would fail is read once more by Sonnet, which decides
+VERIFY_MODEL = "claude-sonnet-5-5"
+LEAN_MODEL = "claude-sonnet-5-5"     # Cô 11/11: lecture-copy notebooks (GF, AP) read ONCE by Sonnet, sent as a batch (half price)
+LEAN_PROGS = {"GF", "AP"}
+LEAN_SIDE = 1200                     # photo size for that read: enough to see the handwriting, a third of the image cost
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 26              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 27              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 0         # Cô 10/11: grade as soon as a notebook is submitted; we write the receipt line ourselves if the sync has not
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -253,10 +256,36 @@ def model_reach(model, last):
     return at / len(mw) if best >= 0.5 else 0.0
 
 
+class Pending(Exception):
+    """The read was queued in a Message Batch; the submission is graded when the answer is back."""
+
+
 def judge_messy(read):
     """Sonnet's read agrees the handwriting is messy on at least two thirds of the pages."""
     pg = read.get("pages", [])
     return bool(pg) and sum(p.get("neat") == "messy" for p in pg) * 3 >= len(pg) * 2
+
+
+def lean_copy_result(read, parts, imgs, hashes, reused):
+    """One Sonnet read of a lecture-copy notebook: copied / missing / unreadable per part (unreadable → re-photograph)."""
+    n = len(parts)
+    st = {x["id"]: x["status"] for x in read.get("parts", []) if 1 <= x["id"] <= n}
+    status = {i: st.get(i, "missing") for i in range(1, n + 1)}
+    pg = [{"kind": p["kind"], "readable": p["readable"], "messy": p.get("neat") == "messy"} for p in read.get("pages", [])]
+    pct = round(100 * sum(v != "missing" for v in status.values()) / n) if n else 0
+    out = {"type": "copy", "kind": "scored", "pct": pct, "pages": len(imgs), "hashes": hashes, "lean": True,
+           "missing": [parts[i - 1]["name"] for i, v in status.items() if v == "missing"], "partly": [],
+           "blurry": [parts[i - 1]["name"] for i, v in status.items() if v == "unreadable"], "total": n,
+           "messy": bool(pg) and sum(p["messy"] for p in pg) * 3 >= len(pg) * 2}
+    if pg and sum(p["kind"] == "printed_or_screen" for p in pg) * 2 > len(pg):
+        out["kind"] = "printed"
+    elif reused and len(reused) * 2 >= len(imgs):
+        out.update(kind="reused", reusedFrom=reused[0])
+    elif read.get("otherLesson") and pct < 50:
+        out["kind"] = "wrong_unit"
+    elif pg and all(p["readable"] == "no" for p in pg):
+        out["kind"] = "unreadable"
+    return out
 
 
 def copy_passes(out):
@@ -318,6 +347,28 @@ def copy_result(reads, parts, imgs, hashes, reused, judge=None):
     elif pg and all(p["readable"] == "no" for p in pg) and (judge is None or all(p.get("readable") == "no" for p in judge.get("pages", []))):
         out["kind"] = "unreadable"
     return out
+
+
+LEAN_COPY_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["pages", "parts", "otherLesson"],
+                    "properties": {"pages": {"type": "array", "items": PAGE},
+                                   "parts": {"type": "array", "items": {"type": "object", "additionalProperties": False,
+                                                                         "required": ["id", "status"],
+                                                                         "properties": {"id": I, "status": {"type": "string",
+                                                                                        "enum": ["copied", "missing", "unreadable"]}}}},
+                                   "otherLesson": {"type": "boolean"}}}
+LEAN_COPY_PROMPT = """Ảnh trên là VỞ CHÉP BÀI GIẢNG viết tay của một học sinh. Bài giảng phải chép: {title}. Bài giảng gồm các phần:
+{parts}
+
+Chỉ ghi lại những gì nhìn thấy, không chấm, không nhận xét.
+1. pages — với MỖI ảnh theo thứ tự 1, 2, 3…: kind = handwritten / printed_or_screen (bản in, ảnh màn hình, chữ đánh máy) /
+   not_a_notebook; readable = yes / partly / no; neat = neat / acceptable / messy (CHỈ messy khi chữ nguệch ngoạc khó đọc,
+   gạch xoá, bôi bẩn nhiều; chữ xấu mà đọc được là acceptable; ảnh mờ do chụp KHÔNG phải messy).
+2. parts — với MỖI phần ở trên (id theo số thứ tự):
+   copied = trong vở CÓ chép phần này (thấy đề mục hoặc nội dung chính của phần; chép gọn, tóm tắt, thiếu vài ví dụ vẫn là copied);
+   missing = ảnh đọc được nhưng KHÔNG có phần này (không có đề mục, không có nội dung của phần), kể cả trang để trống;
+   unreadable = ảnh quá mờ / tối / bị cắt nên không nhìn được trang có phần này.
+   Không bắt bẻ chi tiết nhỏ. Phân vân giữa copied và missing thì nhìn lại đề mục; vẫn không chắc thì chọn copied.
+3. otherLesson = true nếu vở rõ ràng là nội dung của một bài giảng KHÁC (các đề mục không khớp danh sách trên)."""
 
 
 COPY_PROMPT = """Bạn đọc ảnh VỞ CHÉP BÀI GIẢNG viết tay của một học sinh. Bạn KHÔNG chấm, KHÔNG nhận xét; chỉ ghi lại đúng những gì nhìn thấy.
@@ -465,10 +516,10 @@ def ham(a, b):
     return bin(int(a, 16) ^ int(b, 16)).count("1")
 
 
-def img_block(jpeg: bytes):
+def img_block(jpeg: bytes, side=SIDE):
     from PIL import Image, ImageOps
     im = ImageOps.exif_transpose(Image.open(io.BytesIO(jpeg))).convert("RGB")
-    im.thumbnail((SIDE, SIDE))
+    im.thumbnail((side, side))
     buf = io.BytesIO()
     im.save(buf, "JPEG", quality=85)
     return {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": base64.b64encode(buf.getvalue()).decode()}}
@@ -684,7 +735,8 @@ class FighterNotebooks:
             return {"kind": "no_photos", "type": "ap"}
         hashes = [dhash(b) for b in imgs]
         reused = self.reused_pages(sid, s, hashes)
-        content = [{"type": "text", "text": f"Vở của học sinh ({len(imgs)} ảnh):"}] + [img_block(b) for b in imgs]
+        lean = s["prog"] in LEAN_PROGS
+        content = [{"type": "text", "text": f"Vở của học sinh ({len(imgs)} ảnh):"}] + [img_block(b, LEAN_SIDE if lean else SIDE) for b in imgs]
         if ref.get("figure"):
             content += [{"type": "text", "text": "ẢNH OUTLINE MẪU của bài (để đối chiếu):"},
                         {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": ref["figure"]}}]
@@ -692,6 +744,8 @@ class FighterNotebooks:
                                                                  model="\n".join(f"[{k}] {x}" for k, x in enumerate(sentences(ref["model"]), 1)),
                                                                  vocab="\n".join(ref["vocab"]))})
         cat = f"{s['cls']} · {KIND_NAME[s['prog']].capitalize()} · {s['code']}"
+        if lean:
+            return self.ap_score([self.call(content, AP_SCHEMA, cat, model=LEAN_MODEL, batch=True)], ref, imgs, hashes, reused)
         with cf.ThreadPoolExecutor(2) as ex:
             reads = list(ex.map(lambda _: self.call(content, AP_SCHEMA, cat), range(2)))
         first = self.ap_score(reads, ref, imgs, hashes, reused)
@@ -726,7 +780,7 @@ class FighterNotebooks:
                       for r in reads)
         pct = round(100 * ((1 if revised else 0) + outline + (1 if model_full else reach) + len(have) / len(ref["vocab"])) / 4)
         pg = []
-        pb = {p["page"]: p for p in reads[1].get("pages", [])}
+        pb = {p["page"]: p for p in reads[-1].get("pages", [])}
         for p in reads[0].get("pages", []):
             q = pb.get(p["page"], p)
             pg.append({"kind": p["kind"] if p["kind"] == q["kind"] else "handwritten",
@@ -760,6 +814,13 @@ class FighterNotebooks:
         hashes = [dhash(b) for b in imgs]
         reused = self.reused_pages(sid, s, hashes)
         parts = "\n".join(f"{i}. {p['name']} (bắt đầu: {p['starts'][:60]})" for i, p in enumerate(les["parts"], 1))
+        if s["prog"] in LEAN_PROGS:
+            content = [{"type": "text", "text": f"Vở của học sinh ({len(imgs)} ảnh):"}] + [img_block(b, LEAN_SIDE) for b in imgs]
+            content.append({"type": "text", "text": LEAN_COPY_PROMPT.format(
+                title=COPY[s["prog"]][s["code"]].get("title") or s["code"], parts=parts)})
+            cat = f"{s['cls']} · {KIND_NAME[s['prog']].capitalize()} · {s['code']}"
+            read = self.call(content, LEAN_COPY_SCHEMA, cat, model=LEAN_MODEL, batch=True)
+            return lean_copy_result(read, les["parts"], imgs, hashes, reused)
         content = [{"type": "text", "text": f"Vở của học sinh ({len(imgs)} ảnh):"}] + [img_block(b) for b in imgs]
         content.append({"type": "text", "text": COPY_PROMPT.format(title=COPY[s["prog"]][s["code"]].get("title") or s["code"],
                                                                    parts=parts, doc=les["text"])})
@@ -918,7 +979,20 @@ class FighterNotebooks:
         d = (m.get("videoMediaMetadata") or {}).get("durationMillis")
         return round(int(d) / 1000) if d else None
 
-    def call(self, content, schema, category, max_tokens=12000, model=MODEL):
+    def call(self, content, schema, category, max_tokens=12000, model=MODEL, batch=False):
+        if batch:   # answered by a Message Batch (half price): queued now, the answer is picked up by a later cycle
+            key = h(json.dumps([model, schema, content], ensure_ascii=False, sort_keys=True), 40)
+            got = self.st.setdefault("batchRes", {}).pop(key, None)
+            if got is not None:
+                if "_error" in got:
+                    raise RuntimeError("BATCH_" + got["_error"])
+                return got["out"]
+            if key not in self.st.setdefault("batchPending", {}):
+                self.queue[key] = {"cat": category, "params": {
+                    "model": model, "max_tokens": 6000, "thinking": {"type": "between_tools"},
+                    "output_config": {"format": {"type": "json_schema", "schema": schema}},
+                    "messages": [{"role": "user", "content": content}]}}
+            raise Pending()
         if model == MODEL:
             r = self.cl.messages.create(model=model, max_tokens=max_tokens, thinking={"type": "disabled"},
                                         tools=[{"name": "record", "description": "Ghi lại kết quả", "input_schema": schema}],
@@ -1342,7 +1416,61 @@ class FighterNotebooks:
                 tr.write(s["cell"], prefix.rstrip())
                 self.tick("unpublished_partial_read")
 
+    def collect_batches(self):
+        pend, res = self.st.setdefault("batchPending", {}), self.st.setdefault("batchRes", {})
+        for bid, info in list(self.st.setdefault("batches", {}).items()):
+            try:
+                b = self.cl.messages.batches.retrieve(bid)
+            except Exception as e:
+                self.tick("batch_retrieve_error_" + type(e).__name__)
+                continue
+            if b.processing_status != "ended":
+                if now() - dt.datetime.fromisoformat(info["at"]) < dt.timedelta(hours=26):
+                    self.tick("batch_pending")
+                    continue
+            else:
+                for item in self.cl.messages.batches.results(bid):
+                    key = item.custom_id
+                    cat = (pend.get(key) or {}).get("cat", "Fighter")
+                    if item.result.type != "succeeded":
+                        res[key] = {"_error": item.result.type}
+                        self.tick("batch_item_" + item.result.type)
+                        continue
+                    m = item.result.message.model_dump()
+                    c = cw.cost_usd(m["model"], m["usage"], batch=True)
+                    cw.ledger({"at": cw.now_iso(), "category": cat, "step": "fighter-notebook-batch", "model": m["model"],
+                               "usage": m["usage"], "usd": c, "vnd": round(c * cw.USD_VND)})
+                    self.r.tick("fnb_cost_vnd", round(c * cw.USD_VND))
+                    self.tick("batch_reads")
+                    self.tick("batch_read_vnd", round(c * cw.USD_VND))
+                    txt = "".join(x.get("text") or "" for x in m["content"] if x.get("type") == "text")
+                    try:
+                        res[key] = {"out": json.loads(txt)}
+                    except ValueError:
+                        res[key] = {"_error": "truncated" if m.get("stop_reason") == "max_tokens" else "bad_json"}
+            for key in info["keys"]:
+                pend.pop(key, None)
+            del self.st["batches"][bid]
+
+    def submit_batch(self):
+        if not self.queue:
+            return
+        reqs = [{"custom_id": k, "params": v["params"]} for k, v in self.queue.items()]
+        try:
+            b = self.cl.messages.batches.create(requests=reqs)
+        except Exception as e:
+            self.tick("batch_submit_error_" + type(e).__name__)
+            self.queue = {}
+            return
+        self.st.setdefault("batches", {})[b.id] = {"at": now().isoformat(), "keys": list(self.queue)}
+        for k, v in self.queue.items():
+            self.st.setdefault("batchPending", {})[k] = {"bid": b.id, "cat": v["cat"]}
+        self.tick("batch_submitted", len(reqs))
+        self.queue = {}
+
     def run(self):
+        self.queue = {}
+        self.collect_batches()
         self.scan()
         subs = self.st["subs"]
         for s in subs.values():   # "reused" against a later submission (the pupil sent it under another unit first): read again
@@ -1400,6 +1528,8 @@ class FighterNotebooks:
                     s["result"] = fu.result()
                     s["status"] = "graded"
                     self.tick("graded")
+                except Pending:
+                    self.tick("waiting_batch")
                 except Exception as e:
                     if str(e) == "FILE_UNREADABLE":   # our access problem: take back any result shown, wait for access
                         self.unpublish(s)
@@ -1410,6 +1540,7 @@ class FighterNotebooks:
                     self.tick("error_" + type(e).__name__ + (f"_{str(e)[:40]}[{s['code']}]" if isinstance(e, RuntimeError) else ""))
                     if s["tries"] >= 6:   # our side failing (Drive access, API): never blame the pupil, keep it for a fix
                         s["status"] = "held_error"
+        self.submit_batch()   # reads queued this cycle go out as one Message Batch
         for sid, s in subs.items():   # publish (graded earlier or just now)
             if s["status"] != "graded":
                 continue

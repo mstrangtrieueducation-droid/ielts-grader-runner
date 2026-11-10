@@ -146,3 +146,12 @@ _hw = dict(_h, otherLesson=True, parts=[])
 assert _nb.copy_result([_hw, _hw], _parts, [b""], [], [])["kind"] == "wrong_unit"
 assert _nb.copy_result([_hw, _hw], _parts, [b""], [], [], judge=_j2)["kind"] == "scored"
 print("copy judge ok")
+
+# --- lean Sonnet read of a lecture copy
+_r = {"pages": [{"page": 1, "kind": "handwritten", "readable": "yes", "neat": "acceptable"}], "otherLesson": False,
+      "parts": [{"id": 1, "status": "copied"}, {"id": 2, "status": "copied"}, {"id": 3, "status": "unreadable"},
+                {"id": 4, "status": "missing"}]}
+_o = _nb.lean_copy_result(_r, _parts, [b""], [], [])
+assert _o["missing"] == ["P4", "P5"] and _o["blurry"] == ["P3"] and _o["pct"] == 60 and not _nb.copy_passes(_o), _o
+_s = {"prog": "GF", "code": "GF-U12", "submittedAt": "10/11/2026 20:00:00", "cls": "FIGHTER 9", "student": "X"}
+print("lean ok")
