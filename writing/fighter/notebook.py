@@ -51,7 +51,7 @@ MODEL = "claude-haiku-5-5"
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 17              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 18              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 40        # the status system normally marks the cell first; after this we write the status line ourselves
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -552,7 +552,7 @@ class FighterNotebooks:
         got = 0
         for r in reads:
             k = max(0, min(len(sents), int(r["model"]["lastSentence"] or 0))) if r["model"]["present"] != "no" else 0
-            if r["model"]["present"] == "unclear" and not k:
+            if r["model"]["present"] in ("yes", "unclear") and not k:   # seen but not placed: benefit of the doubt
                 k = len(sents)
             got = max(got, k)
         reach = got / len(sents) if sents else 0.0
