@@ -52,7 +52,7 @@ VERIFY_MODEL = "claude-sonnet-5-5"   # a notebook Haiku would fail is read once 
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 25              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 26              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 0         # Cô 10/11: grade as soon as a notebook is submitted; we write the receipt line ourselves if the sync has not
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -263,6 +263,11 @@ def copy_passes(out):
     return out["kind"] == "scored" and out["pct"] >= PASS and not out["messy"] and not out.get("blurry")
 
 
+def copy_clean(out):
+    """Nothing to say against the notebook: no second opinion needed."""
+    return copy_passes(out) and out["pct"] >= 100
+
+
 def copy_result(reads, parts, imgs, hashes, reused, judge=None):
     """Lecture-copy notebook. Without a judge: Haiku reads merged in the pupil's favour. With a judge (Sonnet): its
     status decides each part; where it could not see a part (unclear) a Haiku "full" still counts. A part nobody could
@@ -363,7 +368,7 @@ PAINT_VERSION = 3           # raise when only the cell colours/sizes change: pub
 BODY_SIZE = 9               # comment text size (Cô 10/11: keep 9, make the row twice as tall instead)
 ROW_FACTOR = 2              # rows holding our comments: twice the class sheet's own row height
 REGRADE = {"GF", "AP"}
-REGRADE_FAILED_ONLY = True  # on a VERSION bump only notebooks that did not pass are read again (passed stay passed)      # programmes whose reading rules changed in this VERSION; others are only re-styled
+REGRADE_FAILED_ONLY = True  # on a VERSION bump only notebooks below 100% are read again (a clean pass stays)      # programmes whose reading rules changed in this VERSION; others are only re-styled
 FLAG = "LỖI: ❌ CẦN NỘP LẠI"   # cell note prefix of our own "redo" mark
 STATUS_RANK = {"missing": 0, "partly": 1, "unclear": 2, "full": 3}
 
@@ -688,7 +693,7 @@ class FighterNotebooks:
         with cf.ThreadPoolExecutor(2) as ex:
             reads = list(ex.map(lambda _: self.call(content, AP_SCHEMA, cat), range(2)))
         first = self.ap_score(reads, ref, imgs, hashes, reused)
-        if first["kind"] not in ("scored", "wrong_unit") or (first["kind"] == "scored" and first["pct"] >= PASS and not first["messy"]):
+        if first["kind"] not in ("scored", "wrong_unit") or (first["kind"] == "scored" and first["pct"] >= 100 and not first["messy"]):
             return first
         try:   # Haiku alone never fails a pupil: one Sonnet read joins the merge
             reads.append(self.call(content, AP_SCHEMA, cat, model=VERIFY_MODEL))
@@ -760,7 +765,7 @@ class FighterNotebooks:
         with cf.ThreadPoolExecutor(2) as ex:
             reads = list(ex.map(lambda _: self.call(content, COPY_SCHEMA, cat), range(2)))
         out = copy_result(reads, les["parts"], imgs, hashes, reused)
-        if out["kind"] in ("scored", "wrong_unit", "unreadable") and not copy_passes(out):
+        if out["kind"] in ("scored", "wrong_unit", "unreadable") and not copy_clean(out):
             # Haiku alone never fails a pupil: Sonnet reads the notebook once more and its reading decides
             try:
                 v = self.call(content, COPY_SCHEMA, cat, model=VERIFY_MODEL)
@@ -1340,7 +1345,9 @@ class FighterNotebooks:
         subs = self.st["subs"]
         for s in subs.values():
             if s["status"] == "published" and s.get("ver", 1) < VERSION:
-                if s["prog"] in REGRADE and not (REGRADE_FAILED_ONLY and s.get("ok")):
+                m = re.search(r"đạt (\d+)%", s.get("published") or "")
+                clean = s.get("ok") and m and int(m.group(1)) >= 100
+                if s["prog"] in REGRADE and not (REGRADE_FAILED_ONLY and clean):
                     s.update(status="new", tries=0, regrade=True)
                     self.tick("regrade_new_rules")
                 else:   # same result, today's wording/colours: no new reading
