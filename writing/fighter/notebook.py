@@ -51,7 +51,7 @@ MODEL = "claude-haiku-5-5"
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 23              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 24              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 40        # the status system normally marks the cell first; after this we write the status line ourselves
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -260,8 +260,11 @@ Học sinh phải chép tay đầy đủ tài liệu bài giảng ({title}) dư�
    dán tài liệu in) / not_a_notebook; readable = yes / partly / no; neat = neat / acceptable / messy (CHỈ messy khi nét chữ
    nguệch ngoạc khó đọc, gạch xoá/bôi bẩn nhiều, trang lem nhem lộn xộn; chữ không đẹp nhưng đọc được là acceptable;
    ảnh mờ do chụp KHÔNG phải messy; phân vân thì chọn acceptable).
-2. parts: với MỖI phần ở trên (id theo số thứ tự): full = đã chép đủ nội dung chính của phần đó; partly = chỉ chép một phần
-   (thiếu rõ ràng nhiều ý/ví dụ); missing = không thấy phần đó trong vở; unclear = không nhìn rõ để kết luận.
+2. parts: với MỖI phần ở trên (id theo số thứ tự): full = phần đó CÓ trong vở với các ý chính (định nghĩa / cách dùng /
+   bảng / ví dụ chính) — học sinh viết gọn, tóm tắt, thiếu vài ví dụ phụ hay chi tiết nhỏ VẪN là full; partly = chỉ khi thiếu hẳn
+   một mục lớn của phần (vd cả bảng, cả mục "cách hình thành", hơn một nửa nội dung); missing = không thấy phần đó trong vở;
+   unclear = không nhìn rõ để kết luận. KHÔNG bắt bẻ chi tiết nhỏ. Ảnh mờ, chụp nghiêng hay bị cắt mép mà vẫn thấy phần đó
+   có trong vở → full hoặc unclear, KHÔNG phải partly (không phạt học sinh vì ảnh chụp).
    lacking: CHỈ khi partly — ghi cụ thể, ngắn (≤ 20 chữ) phần còn thiếu so với tài liệu, gọi theo tên/ý trong tài liệu
    (vd "thiếu ý 2 và 3 của thân đoạn", "bài mẫu mới chép đến câu 4/9", "thiếu 3 cụm cuối: …"); các trường hợp khác để "".
    Đối chiếu với nội dung tài liệu bên dưới; không đòi chép giống từng chữ, không bắt lỗi chính tả.
@@ -292,6 +295,8 @@ Các từ của phần A:
    (có viết giải thích/lí do cho câu đó) / no / unclear. KHÔNG liệt kê câu em không làm.
 
 Trả kết quả DUY NHẤT qua công cụ record."""
+DOCS_VERSION = 1            # lecture split + reference picture; kept stable so a notebook is judged the same way each time
+REGRADE = {"GF", "AP"}      # programmes whose reading rules changed in this VERSION; others are only re-styled
 FLAG = "LỖI: ❌ CẦN NỘP LẠI"   # cell note prefix of our own "redo" mark
 STATUS_RANK = {"missing": 0, "partly": 1, "unclear": 2, "full": 3}
 
@@ -862,8 +867,8 @@ class FighterNotebooks:
 
     def lesson(self, doc):
         """Lecture text (Drive export, cached with the encrypted state) and its fixed list of parts (one Haiku call per lecture)."""
-        if self.st.get("docsVersion") != VERSION:   # outline rules changed: split the lectures again
-            self.st["docs"], self.st["docsVersion"] = {}, VERSION
+        if self.st.get("docsVersion") != DOCS_VERSION:   # split the lectures again only when the split rules change
+            self.st["docs"], self.st["docsVersion"] = {}, DOCS_VERSION
         docs = self.st.setdefault("docs", {})
         if doc not in docs:
             text = None
@@ -967,12 +972,12 @@ class FighterNotebooks:
         label, unit = unit_label(s["code"])
         what = KIND_NAME.get(s["prog"], "sổ từ vựng")
         book = "vở" if s["prog"] in KIND_NAME else "sổ"
-        OWED = "⛔ Bài chưa đạt nên vẫn tính là CHƯA NỘP BÀI cho tới khi con nộp lại đạt yêu cầu."
+        OWED = "⚠ Bài chưa đạt nên vẫn tính là CHƯA NỘP BÀI cho tới khi con nộp lại đạt yêu cầu."
         def refuse(why, ask):
-            return (f"❌ Chất lượng: Chưa đạt — CẦN NỘP LẠI.\n• Lý do yêu cầu nộp lại: {why}\n{OWED}\n→ Yêu cầu: {ask}"), False, None
+            return (f"❌ Chất lượng: Chưa đạt (Yêu cầu nộp lại).\n• Lý do yêu cầu nộp lại: {why}\n{OWED}\n→ Yêu cầu: {ask}"), False, None
 
         def head(pct, ok):
-            return (f"{'✅' if ok else '❌'} Chất lượng: đạt {pct}% — {'Đạt yêu cầu.' if ok else f'CHƯA ĐẠT, CẦN NỘP LẠI (yêu cầu từ {PASS}%).'}")
+            return (f"{'✅' if ok else '❌'} Chất lượng: đạt {pct}% — {'Đạt yêu cầu.' if ok else f'Chưa đạt (Yêu cầu nộp lại, cần từ {PASS}%).'}")
 
         def ending(ok, ask, pct=None):
             return [] if ok else [OWED, "→ Yêu cầu: " + ask]
@@ -1094,6 +1099,7 @@ class FighterNotebooks:
         if prefix.strip().startswith("❌ CẦN NỘP LẠI"):   # our own line for an earlier notebook: back to a receipt
             prefix = receipt
         prev = s.get("published")
+        existing = re.sub(r"\n*💬?\s*GHI CHÚ GV:\s*\n?" + re.escape(FLAG) + r"[^\n]*", "", existing).strip()
         if FLAG in prefix:   # the class sync shows our own note in the status block: drop it, it is set again below
             prefix = re.sub(r"\n*💬?\s*GHI CHÚ GV:\s*\n?" + re.escape(FLAG) + r"[^\n]*", "", prefix)
         if "GHI CHÚ GV" in prefix.upper() or (existing and existing != prev and not (prev and prev in existing)):
@@ -1106,6 +1112,29 @@ class FighterNotebooks:
         self.set_flag(tr, a1, None)   # Cô 10/11: no cell notes — the comment itself says CẦN NỘP LẠI; clear our old ones
         self.paint(tr, a1, new, ok)
         return "ok"
+
+    def restyle(self, s):
+        try:
+            txt, ok = s.get("published") or "", bool(s.get("ok"))
+            m = re.search(r"đạt (\d+)%", txt)
+            pct = int(m.group(1)) if m else None
+            first, sep, rest = txt.partition("\n")
+            if first.startswith("Chất lượng:"):
+                first = ("✅ " if ok else "❌ ") + first
+            elif first.startswith(("❌", "✅")):
+                pass
+            first = re.sub(r"CHƯA ĐẠT(?:, CẦN NỘP LẠI)? \(yêu cầu từ (\d+)%\)\.", r"Chưa đạt (Yêu cầu nộp lại, cần từ \1%).", first)
+            rest = rest.replace("⛔ Bài chưa đạt", "⚠ Bài chưa đạt")
+            new = first + sep + rest
+            dl = dt.datetime.fromisoformat(s["deadline"]) if s.get("deadline") else None
+            w = self.write(s, s["cell"], dl, new, ok, pct)
+            if w == "ok":
+                s.update(published=new, ver=VERSION)
+                self.tick("restyled")
+            else:
+                self.tick("restyle_" + w)
+        except Exception as e:
+            self.tick("restyle_error_" + type(e).__name__)
 
     def paint(self, tr, a1, text, ok):
         """Same colours as the class sync: status block green/orange, the marker blue; our verdict green when passed,
@@ -1120,10 +1149,17 @@ class FighterNotebooks:
             runs = [{"startIndex": 0, "format": fmt("#b45f06" if "MUỘN" in head.split("\n")[0] else "#274e13", True, 8)},
                     {"startIndex": u(text[:at]), "format": fmt("#1c4587", True, 10)}]
             pos = at + len(MARK)
-            for line in text[pos:].split("\n"):
+            for line in text[pos:].split("\n"):   # KIDS colours: praise green, correction pink, attention red
                 if line.strip():
-                    strong = line.startswith(("❌", "✅", "⛔", "→", "• ĐÂY LÀ"))
-                    color = ("#274e13" if ok else "#990000") if strong else "#000000"
+                    strong = line.startswith(("❌", "✅", "⚠", "⛔", "→", "• ĐÂY LÀ"))
+                    if line.startswith("✅"):
+                        color = "#1B5E20"
+                    elif strong:
+                        color = "#B71C1C"
+                    elif re.search(r"CHƯA|[Tt]hiếu|Bỏ trống|[Cc]hưa|sai|quá ngắn|cẩu thả|không khớp", line):
+                        color = "#C2185B"
+                    else:
+                        color = "#1B5E20"
                     runs.append({"startIndex": u(text[:pos]), "format": fmt(color, strong, 9)})
                 pos += len(line) + 1
             cell = {"textFormatRuns": runs}
@@ -1197,8 +1233,11 @@ class FighterNotebooks:
         subs = self.st["subs"]
         for s in subs.values():
             if s["status"] == "published" and s.get("ver", 1) < VERSION:
-                s.update(status="new", tries=0, regrade=True)
-                self.tick("regrade_new_rules")
+                if s["prog"] in REGRADE:
+                    s.update(status="new", tries=0, regrade=True)
+                    self.tick("regrade_new_rules")
+                else:   # same result, today's wording/colours: no new reading
+                    self.restyle(s)
         todo = []
         for sid, s in subs.items():
             if s["status"] in ("published", "skipped", "not_in_roster", "held_error"):
