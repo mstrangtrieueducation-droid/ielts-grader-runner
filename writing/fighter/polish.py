@@ -156,10 +156,19 @@ def rewrite(cl, items):
     out = {}
     for k in range(0, len(items), 40):
         chunk = items[k:k + 40]
-        r = cl.messages.create(model=MODEL, max_tokens=16000,
-                               tools=[{"name": "record", "description": "Ghi kết quả", "input_schema": SCHEMA}],
-                               tool_choice={"type": "tool", "name": "record"},
-                               messages=[{"role": "user", "content": PROMPT.format(items=json.dumps(chunk, ensure_ascii=False))}])
+        for attempt in range(4):
+            try:
+                r = cl.messages.create(model=MODEL, max_tokens=16000,
+                                       tools=[{"name": "record", "description": "Ghi kết quả", "input_schema": SCHEMA}],
+                                       tool_choice={"type": "tool", "name": "record"},
+                                       messages=[{"role": "user", "content": PROMPT.format(items=json.dumps(chunk, ensure_ascii=False))}])
+                break
+            except Exception as e:   # overload / network: wait and try again (nothing was billed for a failed call)
+                if attempt == 3:
+                    raise
+                print(f"  retry after {type(e).__name__}")
+                import time
+                time.sleep(30 * (attempt + 1))
         if r.stop_reason == "max_tokens":
             raise RuntimeError("REWRITE_TRUNCATED")
         u = r.usage.model_dump()
@@ -224,9 +233,70 @@ def words(s):
     return len(re.sub(r"\*\*", "", s).split())
 
 
+PT_PROMPT = """Bạn là trợ lí của Cô Trang, giáo viên tiếng Anh. Học sinh CHÉP TAY giải thích đáp án đề luyện thi vào sổ luyện đề,
+mà các con còn học nhiều môn, nên Cô muốn giải thích "đủ và cần": giữ đúng ý và bằng chứng quyết định đáp án, bỏ chữ thừa.
+
+Viết lại từng giải thích:
+- Tối đa khoảng 16 chữ, một dòng (không xuống dòng).
+- Giữ nguyên chữ tiếng Anh then chốt (cụm từ, trích dẫn ngắn, cấu trúc), có thể rút bằng "…". Không bịa trích dẫn.
+- Ưu tiên dạng "X = nghĩa", "cấu trúc → lí do", "'trích dẫn' → kết luận". Câu loại trừ phương án sai chỉ giữ nếu thật cần.
+- Không đổi đáp án, không thêm kiến thức mới, không emoji.
+
+Ví dụ:
+- "Tossing and turning là trở mình liên tục vì khó ngủ. Đây là cặp từ cố định thường đi cùng nhau.\ntoss and turn = trằn trọc, trở mình liên tục." → "toss and turn = trằn trọc, trở mình liên tục (cụm cố định)"
+- "It is imperative that + chủ ngữ + động từ nguyên mẫu là thức giả định diễn tả điều bắt buộc. Vì vậy everyone know, không chia knows/knew; know what to do không cần about." → "It is imperative that + S + V nguyên mẫu (giả định) → everyone know"
+
+Các giải thích (JSON, mỗi mục id, đáp án, nội dung):
+{items}
+
+Trả về bằng công cụ record: mỗi mục {{"id", "text", "extra"}} với extra = ""."""
+
+
+def practice_texts():
+    import urllib.request
+    P = json.loads((HERE / "practice.json").read_text(encoding="utf-8"))
+    dec, out = json.JSONDecoder(), {}
+    for code, pg in P.items():
+        req = urllib.request.Request("https://mstrangtrieueducation-droid.github.io/vocabulary-reading-web/" + pg["test"] + "/",
+                                     headers={"User-Agent": "fighter-polish"})
+        page = urllib.request.urlopen(req, timeout=60).read().decode("utf-8", "replace")
+        i = page.find("const APP = ")
+        out[code] = dec.raw_decode(page[i + len("const APP = "):])[0]["test"]["answers"]
+    return out
+
+
+def polish_pt(limit_words=22):
+    global PROMPT
+    cl = cw.client()
+    res_all = {}
+    items, keys = [], []
+    for code, answers in practice_texts().items():
+        for a in answers:
+            e = str(a.get("explanation") or "").strip()
+            if len(e.split()) > limit_words:
+                keys.append((code, int(a["globalNumber"])))
+                items.append({"id": len(items), "answer": a.get("displayAnswer", ""), "text": e})
+    print(f"PT explanations to tighten: {len(items)}")
+    saved, PROMPT = PROMPT, PT_PROMPT
+    try:
+        res = rewrite(cl, items)
+    finally:
+        PROMPT = saved
+    for (code, n), it in zip(keys, items):
+        t = re.sub(r"\s*\n\s*", "; ", res[it["id"]]["text"].strip())
+        res_all.setdefault(code, {})[str(n)] = {"old": it["text"], "new": t}
+    w = [len(v["new"].split()) for c in res_all.values() for v in c.values()]
+    print(f"  → words median={statistics.median(w)} max={max(w)}")
+    out = Path(os.environ.get("RUNTIME_DIR", ".")) / "pt-polish.json"
+    out.write_text(json.dumps(res_all, ensure_ascii=False, indent=1), encoding="utf-8")
+    print("saved", out)
+
+
 def main():
     g = Docs(json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"]))
     mode = os.environ.get("POLISH_MODE", "survey")
+    if mode == "pt":
+        return polish_pt()
     sel = os.environ.get("DOCS", "all")
     codes = list(READING) if sel == "all" else [c.strip() for c in sel.split(",") if c.strip()]
     st = json.loads(STATE.read_text()) if STATE.exists() else {}

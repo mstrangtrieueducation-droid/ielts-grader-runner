@@ -5,7 +5,7 @@ run-name: Polish docs ${{ inputs.mode }} ${{ inputs.docs }}
 on:
   workflow_dispatch:
     inputs:
-      mode: {description: 'survey | apply | restore', default: survey}
+      mode: {description: 'survey | apply | restore | pt', default: survey}
       docs: {description: 'RI2-C06,… or all', default: all}
 permissions:
   contents: write
@@ -44,6 +44,14 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           WRITING_BUNDLE_KEY: ${{ secrets.WRITING_BUNDLE_KEY }}
         run: python writing/fighter/polish.py
+      - name: Publish PT draft (public lesson text only)
+        if: inputs.mode == 'pt'
+        run: |
+          f="$RUNTIME_DIR/pt-polish.json"; [ -f "$f" ] || exit 0
+          tmp=$(mktemp -d); cp "$f" "$tmp/"; cd "$tmp"
+          git init -q -b polish-out && git add pt-polish.json
+          git -c user.name=writing-runner -c user.email=writing-runner@users.noreply.github.com commit -qm "PT explanations draft"
+          git push -fq "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" polish-out
       - name: Save state (encrypted)
         if: always()
         env:
