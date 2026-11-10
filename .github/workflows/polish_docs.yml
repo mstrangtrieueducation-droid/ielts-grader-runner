@@ -1,0 +1,57 @@
+name: Polish correction docs
+run-name: Polish docs ${{ inputs.mode }} ${{ inputs.docs }}
+# Fighter vocabulary notebooks: runs on demand and whenever the Fighter grading code changes,
+# so new rules are applied at once; on schedule every 20 minutes 07:00–23:59 (results within the hour).
+on:
+  workflow_dispatch:
+    inputs:
+      mode: {description: 'survey | apply | restore', default: survey}
+      docs: {description: 'RI2-C06,… or all', default: all}
+permissions:
+  contents: write
+concurrency:
+  group: fighter-notebooks
+  cancel-in-progress: false
+jobs:
+  fighter:
+    if: github.repository == 'mstrangtrieueducation-droid/ielts-grader-runner'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      RUNTIME_DIR: ${{ github.workspace }}/.runtime/writing
+      FIGHTER_STATE: ${{ github.workspace }}/.runtime/fighter/fighter-notebook.json
+      POLISH_MODE: ${{ inputs.mode }}
+      DOCS: ${{ inputs.docs }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install
+        run: |
+          python3 -m venv .venv && echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          .venv/bin/pip install --quiet -r writing/requirements.txt
+      - name: Restore
+        env:
+          WRITING_BUNDLE_KEY: ${{ secrets.WRITING_BUNDLE_KEY }}
+        run: |
+          mkdir -p "$RUNTIME_DIR" "$(dirname "$FIGHTER_STATE")"
+          python writing/vault.py unpack writing/bundle.enc "$RUNTIME_DIR/bundle"
+          if git fetch --depth 1 origin fighter-state 2>/dev/null; then
+            git show origin/fighter-state:fighter.enc > "$RUNTIME_DIR/fighter.enc"
+            python writing/vault.py unpack "$RUNTIME_DIR/fighter.enc" "$(dirname "$FIGHTER_STATE")"
+          fi
+      - name: Polish
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          WRITING_BUNDLE_KEY: ${{ secrets.WRITING_BUNDLE_KEY }}
+        run: python writing/fighter/polish.py
+      - name: Save state (encrypted)
+        if: always()
+        env:
+          WRITING_BUNDLE_KEY: ${{ secrets.WRITING_BUNDLE_KEY }}
+        run: |
+          d="$(dirname "$FIGHTER_STATE")"; [ -f "$FIGHTER_STATE" ] || exit 0
+          python writing/vault.py pack "$d" "$RUNTIME_DIR/fighter.enc"
+          tmp=$(mktemp -d); cp "$RUNTIME_DIR/fighter.enc" "$tmp/"; cd "$tmp"
+          git init -q -b fighter-state && git add fighter.enc
+          git -c user.name=writing-runner -c user.email=writing-runner@users.noreply.github.com commit -qm "fighter state"
+          git push -fq "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" fighter-state
