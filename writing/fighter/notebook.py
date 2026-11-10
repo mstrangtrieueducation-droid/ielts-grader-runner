@@ -51,7 +51,7 @@ MODEL = "claude-haiku-5-5"
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 7              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 8              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 40        # the status system normally marks the cell first; after this we write the status line ourselves
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -289,6 +289,20 @@ def score(unit, res):
             "written": len(res.get("entries", []))}
 
 
+def parse_doc_why(text, total):
+    rows = []
+    for line in text.splitlines():
+        if not line.lstrip().startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) < 3 or set("".join(cells)) <= set(":- ") or "Đáp án" in cells[1]:
+            continue
+        if not re.sub(r"[*\\\s]", "", cells[1]):
+            continue
+        rows.append(bool(re.sub(r"[*\\\s]", "", "|".join(cells[2:]))))
+    return rows if len(rows) == total else None
+
+
 class FighterNotebooks:
     def __init__(self, runner):
         self.r, self.g = runner, runner.g
@@ -514,6 +528,8 @@ class FighterNotebooks:
                           for k, w in enumerate(words, 1)], "questions": qs}
 
     def reading_ref(self, code):
+        if self.st.get("refsVersion") != VERSION:
+            self.st["readingRefs"], self.st["refsVersion"] = {}, VERSION
         ref = self.st.setdefault("readingRefs", {})
         if code not in ref and code.startswith("PT"):
             ref[code] = self.practice_ref(code)
@@ -542,9 +558,23 @@ class FighterNotebooks:
                                "needsWhy": bool(str(q.get("explanation") or "").strip())})
             if not words or not qs:
                 raise RuntimeError("READING_REFERENCE_INCOMPLETE")
+            why = self.doc_why(pg.get("doc"), len(qs))
+            if why:   # Cô's correction doc decides which answers need a written explanation
+                for q, w in zip(sorted(qs, key=lambda q: q["n"]), why):
+                    q["needsWhy"] = w
             ref[code] = {"title": (test or {}).get("title", code), "total": int((test or {}).get("total") or len(qs)),
                          "words": words, "questions": qs}
         return ref[code]
+
+    def doc_why(self, doc, total):
+        """One flag per answer row of the correction doc's table: True when Cô wrote an explanation there."""
+        if not doc:
+            return None
+        try:
+            text = self.g._req(f"https://www.googleapis.com/drive/v3/files/{doc}/export?mimeType=text/markdown", raw=True).decode("utf-8", "replace")
+        except Exception:
+            return None
+        return parse_doc_why(text, total)
 
     def grade_reading(self, sid, s):
         ref = self.reading_ref(s["code"])

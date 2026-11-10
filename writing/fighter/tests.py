@@ -80,3 +80,10 @@ assert nb.unit_code("PT", "PRACTICE TEST 4") == "PT4" and nb.unit_label("PT4") =
 r2[61] = "LUYỆN ĐỀ\nPractice Test 4"; r3[61] = "* sổ luyện đề & sổ từ vựng\nHạn: Chủ nhật, 15/11/2026"
 assert f.cell_for({"cls": "FIGHTER 5", "student": "Nguyễn Kim Ngân", "code": "PT4", "prog": "PT"})[0] == "BJ7"
 print("fighter notebook offline checks: OK")
+
+# correction-doc table → which answers need an explanation
+from notebook import parse_doc_why
+_t = "| **Câu** | **Đáp án** | **Giải thích** |\n| :- | :- | :- |\n|  | **Q** | **Stun (v):** x |\n|  | **state ** |  |\n|  | **D** |  |\n|  | **B** | **Khía** |\n"
+assert parse_doc_why(_t, 4) == [True, False, False, True]
+assert parse_doc_why(_t, 5) is None
+print("doc_why ok")
