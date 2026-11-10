@@ -159,28 +159,66 @@ class Scans:
                    "usage": resp["usage"], "usd": c, "vnd": round(c * cw.USD_VND)})
         return json.loads(text_of(resp))["pages"]
 
-    def build(self, fid, rec, pdf_bytes):
+    def roster_aliases(self, cls):
+        """{roster name: [English/short names]} from column C of the tracker (e.g. 'PHẠM THÁI HÀ' → ['Sophia'])."""
+        tr = self.r.tracker(cls)
+        out = {}
+        for row in self.g.values(tr.id, f"'{tr.tab}'!B1:C200"):
+            if row and row[0].strip():
+                nm = norm(row[0].strip().split("\n")[0])
+                al = [x.strip() for x in re.split(r"[\n/,]", row[1]) if x.strip()] if len(row) > 1 else []
+                out[nm] = al
+        return out
+
+    @staticmethod
+    def resolve(read, aliases):
+        """A name read on the paper → the ONE roster name it can only mean, else None. Tries: full name, English name
+        (column C, also inside brackets), then every written word found in exactly one roster name."""
+        if not read:
+            return None
+        bare = lambda x: "".join(c for c in unicodedata.normalize("NFD", x) if not unicodedata.combining(c)).replace("Đ", "D").replace("đ", "d").upper()
+        words = lambda x: re.findall(r"[A-Z0-9]+", bare(x))
+        names = list(aliases)
+        full = [n for n in names if words(n) == words(read)]
+        if len(full) == 1:
+            return full[0]
+        tokens = set(words(read))
+        eng = [n for n in names if any(set(words(a)) and set(words(a)) <= tokens for a in aliases[n])]
+        if len(eng) == 1:
+            return eng[0]
+        part = [n for n in names if tokens and tokens <= set(words(n))]
+        return part[0] if len(part) == 1 else None
+
+    def build(self, fid, rec, pdf_bytes, only=None):
         import pymupdf as fitz
         meta, spec = rec["meta"], pack_for(rec["meta"])
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         tr = self.r.tracker(meta["cls"])
         roster_rows = tr.rows()
         roster = [n for n in roster_rows if n and not n.startswith(("HỌ TÊN", "HỌ VÀ TÊN", "STT"))]
-        pages = self.segment(doc, roster)
-        groups, cur = [], None
-        for p in sorted(pages, key=lambda x: x["page"]):
-            if p["header"] or cur is None:
-                cur = {"pages": [p["page"]], "nameRead": p["nameRead"],
-                       "name": norm(p["rosterName"]) if p["sure"] and norm(p["rosterName"]) in roster_rows else None}
-                groups.append(cur)
-            else:
-                cur["pages"].append(p["page"])
+        aliases = {n: a for n, a in self.roster_aliases(meta["cls"]).items() if n in roster_rows}
+        if only is not None:   # rescue pass: papers already split, names now resolvable
+            groups = only
+        else:
+            listing = [n + (f" ({', '.join(aliases[n])})" if aliases.get(n) else "") for n in roster]
+            pages = self.segment(doc, listing)
+            groups, cur = [], None
+            for p in sorted(pages, key=lambda x: x["page"]):
+                if p["header"] or cur is None:
+                    pick = norm(re.sub(r"\s*\(.*$", "", p["rosterName"] or ""))
+                    cur = {"pages": [p["page"]], "nameRead": p["nameRead"],
+                           "name": pick if p["sure"] and pick in roster_rows else self.resolve(p["nameRead"], aliases)}
+                    groups.append(cur)
+                else:
+                    cur["pages"].append(p["page"])
         head = (BUNDLE / "packs" / spec["pack"] / "head.md").read_text(encoding="utf-8")
         system = [{"type": "text", "text": head, "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
         task_text = self.task_text(spec)
-        reqs, seen = [], set()
+        reqs, seen = [], {x["name"] for x in rec["students"].values() if x.get("name")} if only is not None else set()
         for g in groups:
-            if not g["name"] or g["name"] in seen:   # unreadable / duplicate name → the teacher assigns it
+            if not g["name"] or g["name"] in seen:   # unreadable / duplicate / not on the list → not graded
+                if only is not None:
+                    continue
                 key = f"?{g['pages'][0]}"
                 rec["students"][key] = {"name": None, "nameRead": g["nameRead"], "pages": g["pages"], "status": "unidentified"}
                 self.tick("unidentified")
@@ -197,9 +235,41 @@ class Scans:
                 "model": MODEL, "max_tokens": 12000, "thinking": {"type": "between_tools"}, "system": system,
                 "output_config": {"format": {"type": "json_schema", "schema": schema}},
                 "messages": [{"role": "user", "content": content}]}})
+            rec["students"].pop(f"?{g['pages'][0]}", None)
             rec["students"][key] = {"name": g["name"], "nameRead": g["nameRead"], "pages": g["pages"],
                                     "status": "submitted", "cid": cid}
         return reqs
+
+    def rescue(self):
+        """Papers left unidentified (English or short name on the paper): match them again with column C names."""
+        reqs, mapping = [], {}
+        for fid, rec in self.st["files"].items():
+            if rec.get("rescued") or rec["status"] not in ("graded", "submitted") or not rec.get("meta"):
+                continue
+            unk = [x for x in rec["students"].values() if x["status"] == "unidentified"]
+            rec["rescued"] = True
+            if not unk:
+                continue
+            aliases = self.roster_aliases(rec["meta"]["cls"])
+            groups = [{"pages": x["pages"], "nameRead": x.get("nameRead"), "name": self.resolve(x.get("nameRead"), aliases)}
+                      for x in unk]
+            groups = [g for g in groups if g["name"]]
+            if not groups:
+                continue
+            try:
+                rq = self.build(fid, rec, self.g.download(fid), only=groups)
+            except Exception:
+                self.tick("rescue_error")
+                continue
+            for q in rq:
+                mapping[q["custom_id"]] = fid
+            reqs += rq
+            if rq:
+                rec["status"] = "submitted"
+                self.tick("rescued", len(rq))
+        if reqs:
+            b = self.cl.messages.batches.create(requests=reqs)
+            self.st["batches"][b.id] = {"at": now().isoformat(), "map": mapping}
 
     def task_text(self, spec):
         if spec["pack"] == "TEST-FIGHTER":
@@ -384,6 +454,30 @@ class Scans:
                 return out
         return {}
 
+    def add_fighter_column(self, tr, grid, n):
+        """Insert 'KT 0n' right after the last existing KT column, same format, headers as KT 01. Only Fighter, only
+        when a KT 01-style column exists to copy (never guesses a place in an unfamiliar tracker)."""
+        row = lambda r: grid[r] if r < len(grid) else []
+        kts = [c for c, v in enumerate(row(1)) if re.fullmatch(r"\s*KT\s*0*\d+\s*", str(v)) and "Điểm /1" in str(row(2)[c] if c < len(row(2)) else "")]
+        if not kts:
+            return False
+        at = max(kts) + 1
+        meta = self.g._req(f"https://sheets.googleapis.com/v4/spreadsheets/{tr.id}?fields=sheets.properties(sheetId,title)")
+        gid = next((x["properties"]["sheetId"] for x in meta["sheets"] if x["properties"]["title"] == tr.tab), None)
+        if gid is None:
+            return False
+        self.g._req(f"https://sheets.googleapis.com/v4/spreadsheets/{tr.id}:batchUpdate", "POST", {"requests": [
+            {"insertDimension": {"range": {"sheetId": gid, "dimension": "COLUMNS", "startIndex": at, "endIndex": at + 1},
+                                 "inheritFromBefore": True}},
+            {"copyPaste": {"source": {"sheetId": gid, "startColumnIndex": max(kts), "endColumnIndex": max(kts) + 1},
+                           "destination": {"sheetId": gid, "startColumnIndex": at, "endColumnIndex": at + 1},
+                           "pasteType": "PASTE_FORMAT"}}]})
+        self.g.set_cell(tr.id, f"'{tr.tab}'!{col_letter(at)}2", f"KT {n:02d}")
+        self.g.set_cell(tr.id, f"'{tr.tab}'!{col_letter(at)}3", str(row(2)[max(kts)]))
+        tr._hdr = None   # columns moved: every cached column position of this tracker is stale
+        self.tick("kt_column_added")
+        return True
+
     @staticmethod
     def fmt(x):
         return f"{x:.2f}".replace(".", ",") if abs(x * 10 - round(x * 10)) > 1e-9 else f"{x:.1f}".replace(".", ",")
@@ -420,7 +514,7 @@ class Scans:
         """Graded paper tests → the class tracker. A cell that already has anything is never touched (the result was
         given before); a test without its tracker column waits until the column exists."""
         cut = self.r.cfg.get("scanBaselineBefore") or ""
-        for fid, rec in self.st["files"].items():
+        for fid, rec in sorted(self.st["files"].items(), key=lambda kv: ((kv[1].get("meta") or {}).get("cls", ""), (kv[1].get("meta") or {}).get("n") or 0)):
             if (rec.get("modified") or "") < cut and not rec.get("approvedOld"):   # pre-go-live trials stay unpublished
                 continue
             todo = [s for s in rec["students"].values() if s["status"] in ("graded", "held") and s.get("name")]
@@ -432,6 +526,12 @@ class Scans:
             grid = tr._grid
             spec = pack_for(rec["meta"])
             cols = self.find_columns(grid, rec["meta"], spec.get("tasks") or [])
+            if not cols and rec["meta"]["cls"].startswith("FIGHTER"):
+                if self.add_fighter_column(tr, grid, rec["meta"]["n"]):   # Cô 10/11: open the KT column automatically
+                    tr._grid = None
+                    tr.cached("A", 1)
+                    grid = tr._grid
+                    cols = self.find_columns(grid, rec["meta"], spec.get("tasks") or [])
             if not cols:
                 for s in todo:
                     s.update(status="held", hold="no_tracker_column")
@@ -499,6 +599,7 @@ def run(runner, only=None, limit_files=None):
                 if rec["status"] == "new" and fid not in only:
                     rec["status"] = "waiting"
         sc.submit(limit_files)
+        sc.rescue()
     finally:
         sc.save()
         sc.review()
