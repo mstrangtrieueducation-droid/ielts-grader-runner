@@ -140,7 +140,8 @@ def make(runner, now=None):
             title = "Bài viết " + code.rsplit("-", 1)[-1]
             import zalo_draw   # Cô 11/11: quality + charts, per-pupil band shown, no class-wide notes
             png = zalo_draw.draw({"cls": cls, "title": title, "deadline": deadline, "made": now, "total": len(pupils),
-                                  "pupils": pupils, "crit": crit, "notes": [], "show_band": True})
+                                  "pupils": pupils, "crit": crit, "notes": [], "show_band": True,
+                                  "kind": "BÀI TẬP VỀ NHÀ"})
             b64 = base64.b64encode(png).decode()
             parts = [b64[i:i + CHUNK] for i in range(0, len(b64), CHUNK)][:10]
             sid = runner.cfg["classes"][cls]

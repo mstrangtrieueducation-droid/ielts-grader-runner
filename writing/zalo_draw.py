@@ -77,23 +77,32 @@ def draw(data):
     stars = [p for p in stars if p["band"] >= (stars[0]["band"] - 0.5 if stars else 0)][:6]
 
     # ---- layout pass (heights)
-    H = 210 + 210 + 2 * 150 + 40
+    H = 256 + 210 + 2 * 150 + 40
+    caution = data.get("caution") or [
+        "Band ở đây là điểm CHẤT LƯỢNG BÀI VIẾT của bài tập về nhà này,",
+        "không phải trình độ hay band thi thật của các con: bài làm ở nhà, không giới hạn",
+        "thời gian, được xem tài liệu, dàn ý. Đi thi sẽ khác (áp lực thời gian, không tài liệu).",
+    ]
+    if any(p.get("band") for p in pupils):
+        H += 40 * len(caution) + 70
     if crit:
         H += 90 + len(CRIT) * 62 + 20
     if notes:
         H += 90 + len(notes) * 124 + 10
     if stars:
         H += 90 + ((len(stars) + 1) // 2) * 60 + 10
-    H += 90 + 56 + len(pupils) * 58 + 30 + 110
+    H += 90 + 56 + len(pupils) * 58 + 30 + 150
     img = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(img)
 
     # ---- header
-    d.rectangle((0, 0, W, 190), fill=NAVY)
-    d.text((P, 40), f"{data['cls']} · {data['title']}", font=f_t, fill=(255, 255, 255))
-    d.text((P, 112), f"Hạn nộp {data['deadline']:%d/%m/%Y}  ·  Tổng kết lúc {data['made']:%H:%M %d/%m}",
+    kind = data.get("kind") or "BÀI TẬP VỀ NHÀ"
+    d.rectangle((0, 0, W, 236), fill=NAVY)
+    chip(d, P, 30, kind, NAVY, (255, 255, 255), F("Bold", 26), h=42)
+    d.text((P, 86), f"{data['cls']} · {data['title']}", font=f_t, fill=(255, 255, 255))
+    d.text((P, 158), f"Hạn nộp {data['deadline']:%d/%m/%Y}  ·  Tổng kết lúc {data['made']:%H:%M %d/%m}",
            font=f_s, fill=(199, 210, 254))
-    y = 210
+    y = 256
 
     # ---- KPI tiles
     total = data["total"]
@@ -104,7 +113,7 @@ def draw(data):
     tiles = [(f"{len(handed)}/{total}", "đã nộp bài", NAVY),
              (f"{len(on)}", "nộp đúng hạn", GREEN),
              (f"{len(ok)}/{len(handed)}", "vở đạt yêu cầu", GREEN if len(ok) * 2 >= max(len(handed), 1) else AMBER),
-             ((f"{sum(bands) / len(bands):.1f}" if bands else "—"), f"band TB ({len(bands)} bài chữa)", BLUE)]
+             ((f"{sum(bands) / len(bands):.1f}" if bands else "—"), f"band bài viết TB ({len(bands)} bài)", BLUE)]
     tw_ = (W - 2 * P - 3 * 20) // 4
     for i, (big, lab, c) in enumerate(tiles):
         x = P + i * (tw_ + 20)
@@ -131,7 +140,7 @@ def draw(data):
 
     # ---- criteria
     if crit:
-        section(f"Bài viết được chữa – điểm trung bình từng tiêu chí ({len(bands)} bài)")
+        section(f"Chất lượng bài viết được chữa – trung bình từng tiêu chí ({len(bands)} bài)")
         bw = W - 2 * P - 330 - 80
         for k, lab in CRIT:
             v = crit.get(k)
@@ -144,6 +153,15 @@ def draw(data):
             d.text((x0 + bw + 16, y + 2), f"{v:.1f}", font=F("Bold", 30), fill=BLUE)
             y += 62
         y += 20
+
+    # ---- caution about what the band means (Cô 11/11)
+    if bands:
+        bh = 36 * len(caution) + 36
+        d.rounded_rectangle((P, y, W - P, y + bh), radius=16, fill=(255, 251, 235), outline=(253, 230, 138), width=2)
+        d.text((P + 24, y + 16), "Lưu ý", font=F("Bold", 27), fill=AMBER)
+        for j, ln in enumerate(caution):
+            d.text((P + 120, y + 16 + 36 * j), ln, font=F("Regular", 25), fill=INK)
+        y += bh + 34
 
     # ---- notes
     if notes:
@@ -181,7 +199,7 @@ def draw(data):
 
     # ---- per pupil
     section("Từng bạn")
-    cols = [("Họ tên", P + 20), ("Nộp bài", 560), ("Vở ghi", 760)] + ([("Band", 960)] if show_band else [])
+    cols = [("Họ tên", P + 20), ("Nộp bài", 560), ("Vở ghi", 760)] + ([("Band bài*", 925)] if show_band else [])
     d.rounded_rectangle((P, y, W - P, y + 50), radius=12, fill=GREY_BG)
     for lab, x in cols:
         d.text((x, y + 9), lab, font=F("Bold", 27), fill=GREY)
@@ -206,6 +224,9 @@ def draw(data):
     d.text((P, y + 18), "Nộp muộn: chỉ kiểm tra vở, không chữa bài viết. Vở \"Cần bổ sung\": con bổ sung và nộp lại.",
            font=f_sm, fill=MUTED)
     d.text((P, y + 54), "Nhận xét chi tiết của từng bạn: xem trên dashboard phụ huynh.", font=f_sm, fill=MUTED)
+    if show_band:
+        d.text((P, y + 90), "* Band chất lượng bài viết về nhà, không phải band thi thật.", font=f_sm, fill=MUTED)
+        y += 36
     img = img.crop((0, 0, W, y + 110))
     out = io.BytesIO()
     img.quantize(colors=128).save(out, "PNG", optimize=True)
