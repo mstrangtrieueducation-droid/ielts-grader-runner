@@ -52,6 +52,8 @@ VERIFY_MODEL = "claude-sonnet-5-5"
 LEAN_MODEL = "claude-sonnet-5-5"     # Cô 11/11: lecture-copy notebooks (GF, AP) read ONCE by Sonnet, sent as a batch (half price)
 LEAN_PROGS = {"GF", "AP"}
 LEAN_SIDE = 1200                     # photo size for that read: enough to see the handwriting, a third of the image cost
+LEAN_ALL = True                      # Cô 11/11 ("Sonnet chấm đúng hết"): every notebook — vocab books and reading books too
+LEAN_TABLE_SIDE = 1400               # vocab tables have 7 narrow columns: a little sharper
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
@@ -926,16 +928,22 @@ class FighterNotebooks:
         hashes = [dhash(b) for b in imgs]
         reused = self.reused_pages(sid, s, hashes)
         listing = "\n".join(f"{w['n']}. {w['term']} ({w['type']}) — {w['vi']}" for w in ref["words"])
-        content = [{"type": "text", "text": f"Bài nộp ({len(imgs)} ảnh):"}] + [img_block(b) for b in imgs]
+        lean = LEAN_ALL
+        content = [{"type": "text", "text": f"Bài nộp ({len(imgs)} ảnh):"}] + [img_block(b, LEAN_TABLE_SIDE if lean else SIDE) for b in imgs]
         content.append({"type": "text", "text": READING_PROMPT.format(title=ref["title"], total=ref["total"], listing=listing,
                                                                      book="SỔ LUYỆN ĐỀ" if s["prog"] == "PT" else "VỞ CHỮA BÀI")})
         cat = f"{s['cls']} · {KIND_NAME[s['prog']].capitalize()} · {s['code']}"
-        with cf.ThreadPoolExecutor(2) as ex:
-            a, b = ex.map(lambda _: self.call(content, READING_SCHEMA, cat, 20000), range(2))
-        vocab = score({"entries": ref["words"]}, {"entries": a.get("entries", []) + b.get("entries", [])})
+        if lean:   # one Sonnet read (Message Batch)
+            a = self.call(content, READING_SCHEMA, cat, 20000, model=LEAN_MODEL, batch=True)
+            b = a
+        else:
+            with cf.ThreadPoolExecutor(2) as ex:
+                a, b = ex.map(lambda _: self.call(content, READING_SCHEMA, cat, 20000), range(2))
+        reads = [a] if b is a else [a, b]
+        vocab = score({"entries": ref["words"]}, {"entries": [e for r in reads for e in r.get("entries", [])]})
         key = {q["n"]: q for q in ref["questions"]}
         ans = {}
-        for x in a.get("answers", []) + b.get("answers", []):
+        for x in [y for r in reads for y in r.get("answers", [])]:
             if x["n"] in key:
                 ans.setdefault(x["n"], []).append(x)
         answered = sorted(ans)
@@ -944,8 +952,8 @@ class FighterNotebooks:
         explained = sorted(n for n, xs in ans.items() if n not in need_why or any(x["explained"] != "no" for x in xs))
         norm_a = lambda v: re.sub(r"[^a-z0-9]", "", bare(v))
         wrong = sorted(n for n, xs in ans.items()   # only clear single-letter answers, both reads agreeing
-                       if key[n]["choices"] and re.fullmatch(r"[A-Za-z]", key[n]["answer"].strip()) and len(xs) == 2
-                       and norm_a(xs[0]["answer"]) == norm_a(xs[1]["answer"]) and re.fullmatch(r"[a-z]", norm_a(xs[0]["answer"]) or "")
+                       if key[n]["choices"] and re.fullmatch(r"[A-Za-z]", key[n]["answer"].strip()) and len(xs) == len(reads)
+                       and norm_a(xs[0]["answer"]) == norm_a(xs[-1]["answer"]) and re.fullmatch(r"[a-z]", norm_a(xs[0]["answer"]) or "")
                        and norm_a(xs[0]["answer"]) != norm_a(key[n]["answer"]))
         total = ref["total"]
         work = round(100 * (len(answered) + len(explained)) / (2 * total)) if total else 0
@@ -989,7 +997,7 @@ class FighterNotebooks:
                 return got["out"]
             if key not in self.st.setdefault("batchPending", {}):
                 self.queue[key] = {"cat": category, "params": {
-                    "model": model, "max_tokens": 6000, "thinking": {"type": "between_tools"},
+                    "model": model, "max_tokens": max_tokens, "thinking": {"type": "between_tools"},
                     "output_config": {"format": {"type": "json_schema", "schema": schema}},
                     "messages": [{"role": "user", "content": content}]}}
             raise Pending()
@@ -1064,9 +1072,11 @@ class FighterNotebooks:
         step = max(1, len(ents) // 5)
         spot = [e["n"] for e in ents[::step]][:5]
         listing = "\n".join(f"{e['n']}. {e['term']} — {e['vi']}" for e in ents)
-        content = [{"type": "text", "text": "Ảnh mẫu sổ 7 cột:"}, img_block(SAMPLE.read_bytes()),
+        lean = LEAN_ALL
+        side = LEAN_TABLE_SIDE if lean else SIDE
+        content = [{"type": "text", "text": "Ảnh mẫu sổ 7 cột:"}, img_block(SAMPLE.read_bytes(), side),
                    {"type": "text", "text": f"Bài làm của học sinh ({len(imgs)} ảnh):"}]
-        content += [img_block(b) for b in imgs]
+        content += [img_block(b, side) for b in imgs]
         content.append({"type": "text", "text": PROMPT.format(code=s["code"], title=unit["title"], first=ents[0]["n"],
                                                               last=ents[-1]["n"], listing=listing, spot=", ".join(map(str, spot)))})
         def read():
@@ -1081,10 +1091,13 @@ class FighterNotebooks:
             cw.ledger({"at": cw.now_iso(), "category": f"{s['cls']} · Sổ từ vựng · {s['code']}", "step": "fighter-notebook",
                        "model": MODEL, "usage": u, "usd": c, "vnd": round(c * cw.USD_VND)})
             return json.loads(json.dumps(next(b.input for b in r.content if b.type == "tool_use"))), c
-        # two independent reads, merged in the pupil's favour: a word/column counts as missing only if BOTH reads miss it
-        with cf.ThreadPoolExecutor(2) as ex:
-            (a, ca), (b, cb) = ex.map(lambda _: read(), range(2))
-        c = ca + cb
+        if lean:   # one Sonnet read (Message Batch); the merge below then sees the same read twice
+            a = self.call(content, SCHEMA, f"{s['cls']} · Sổ từ vựng · {s['code']}", model=LEAN_MODEL, batch=True)
+            b, c = a, 0.0
+        else:      # two independent Haiku reads, merged in the pupil's favour
+            with cf.ThreadPoolExecutor(2) as ex:
+                (a, ca), (b, cb) = ex.map(lambda _: read(), range(2))
+            c = ca + cb
         pb = {p["page"]: p for p in b.get("pages", [])}
         for p in a.get("pages", []):
             q = pb.get(p["page"])
@@ -1093,7 +1106,7 @@ class FighterNotebooks:
             if q and "no" in (p["readable"], q["readable"]) and p["readable"] != q["readable"]:
                 p["readable"] = "partly"
             p["neat"] = "messy" if (q and p.get("neat") == q.get("neat") == "messy") else "ok"   # both reads must agree
-        res = {"pages": a.get("pages", []), "entries": a.get("entries", []) + b.get("entries", []),
+        res = {"pages": a.get("pages", []), "entries": a.get("entries", []) + (b.get("entries", []) if b is not a else []),
                "otherTerms": min(a.get("otherTerms", 0), b.get("otherTerms", 0)),
                "meaningCheck": [m for m in a.get("meaningCheck", [])
                                 if any(x["n"] == m["n"] and x["match"] == m["match"] for x in b.get("meaningCheck", []))]}
@@ -1105,7 +1118,7 @@ class FighterNotebooks:
             out["kind"] = "printed"
         elif reused and len(reused) * 2 >= len(imgs):
             out.update(kind="reused", reusedFrom=reused[0])
-        elif sc["written"] >= 16 and res.get("otherTerms", 0) >= 8 and sc["seen"] * 20 < sc["written"] * 3:   # entries of two reads
+        elif sc["written"] >= (8 if b is a else 16) and res.get("otherTerms", 0) >= 8 and sc["seen"] * 20 < sc["written"] * 3:
             out["kind"] = "wrong_unit"
         elif pg and all(p["readable"] == "no" for p in pg):
             out["kind"] = "unreadable"
