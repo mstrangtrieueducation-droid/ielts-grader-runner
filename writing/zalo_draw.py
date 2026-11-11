@@ -348,7 +348,7 @@ def draw_inclass(data):
     foot = ["\"Không có bài\": máy không thấy bài của con trong tập scan của buổi này.",
             "Bài chữa chi tiết của từng bạn: xem trên dashboard / file theo dõi của lớp."]
     if data.get("unknown"):
-        foot.insert(1, f"Có {data["unknown"]} tờ máy chưa đọc được tên học sinh nên chưa ghi vào bảng.")
+        foot.insert(1, f"Có {data['unknown']} tờ máy chưa đọc được tên học sinh nên chưa ghi vào bảng.")
     for j, ln in enumerate(foot):
         d.text((P, y + 18 + 36 * j), ln, font=f_sm, fill=MUTED)
     y += 36 * len(foot) + 40
