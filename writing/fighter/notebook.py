@@ -468,7 +468,7 @@ BODY_SIZE = 9               # comment text size (Cô 10/11: keep 9, make the row
 ROW_FACTOR = 2              # rows holding our comments: twice the class sheet's own row height
 REGRADE = set(PROGRAM_HEAD)   # v28: every kind (second Sonnet look at full size for a failing notebook)
 DEBUG_NAMES = set()               # pupils whose reading is printed to the run log (debugging only)
-DAILY_CAP_VND = 50000          # Cô 11/11 "xót tiền": no new reads are sent once a day's notebook reading costs this much
+DAILY_CAP_VND = None           # Cô 11/11 21:40: no cap — every submitted notebook is graded
 REGRADE_MATCH = r"có 0/\d+ từ"   # v31: only notebooks where no word was found are read again (printed-word workbooks)
 REGRADE_FAILED_ONLY = True  # on a VERSION bump only notebooks below 100% are read again (a clean pass stays)      # programmes whose reading rules changed in this VERSION; others are only re-styled
 FLAG = "LỖI: ❌ CẦN NỘP LẠI"   # cell note prefix of our own "redo" mark
@@ -1754,7 +1754,7 @@ class FighterNotebooks:
         if not self.queue:
             return
         spent = self.st.get("spend", {}).get(now().strftime("%Y-%m-%d"), 0)
-        if spent >= DAILY_CAP_VND:   # the day's budget is used: the notebooks wait for tomorrow
+        if DAILY_CAP_VND and spent >= DAILY_CAP_VND:   # the day's budget is used: the notebooks wait for tomorrow
             self.tick("daily_cap_reached")
             self.queue = {}
             return
