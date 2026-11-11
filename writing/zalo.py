@@ -178,23 +178,27 @@ def class_day(runner, cls, deadline):
 
 
 def ready(runner, cls, code, deadline, now):
-    """On the lesson day: every piece handed in has its result, or it is 17:00 (send what there is)."""
+    """From the lesson day on (Cô 11/11): only once EVERY piece handed in has its result — never a picture
+    with work still being graded. Given up 2 days after the lesson day."""
     day = class_day(runner, cls, deadline)
-    if not (day <= now.astimezone(VN).date() <= day + dt.timedelta(days=1)):   # missed by > 1 day: not sent late
+    if not (day <= now.astimezone(VN).date() <= day + dt.timedelta(days=2)):
         return False
-    if now.astimezone(VN).hour >= 17 or now.astimezone(VN).date() > class_day(runner, cls, deadline):
-        return True
     return not any(s.get("className") == cls and s.get("assignment") == code and s.get("status") in PENDING
                    for s in runner.state.get("subs", {}).values())
 
 
 def make(runner, now=None):
     """Each cycle (Cô 11/11): a class's homework picture goes out on its lesson day (the day after the deadline),
-    08:00–20:00, once the class has its results (17:00 at the latest), in its own mail. A week without homework
+    08:00–20:00, once EVERY piece handed in has its result, in its own mail. A week without homework
     has no deadline, so nothing is sent. Returns [(class, title)] made this time."""
     now = now or dt.datetime.now(VN)
     force = set(runner.cfg.get("zaloForce") or [])   # Cô asks for a picture now: "IELTS 47|IELTS-WRITING-W28"
     done = runner.state.setdefault("zaloDone", [])
+    redone = runner.state.setdefault("zaloRedone", [])
+    for k in runner.cfg.get("zaloRedo") or []:   # a picture sent wrongly: make it again, once
+        if k in done and k not in redone:
+            done.remove(k)
+            redone.append(k)
     if not (8 <= now.astimezone(VN).hour < 20) and not (force - set(done)):
         return []
     made = []
@@ -220,10 +224,12 @@ def make(runner, now=None):
             pupils, crit = collect(runner, cls, code, deadline)
             if not pupils:
                 continue
-            title = "Bài viết " + code.rsplit("-", 1)[-1]
+            nb_only = a.get("mode") == "notebook_only"   # weeks with only the lecture notebook, no essay
+            title = ("Vở chép bài giảng " if nb_only else "Bài viết ") + code.rsplit("-", 1)[-1]
             import zalo_draw   # Cô 11/11: quality + charts, per-pupil band shown, no class-wide notes
             png = zalo_draw.draw({"cls": cls, "title": title, "deadline": deadline, "made": now, "total": len(pupils),
-                                  "pupils": pupils, "crit": crit, "notes": [], "show_band": True,
+                                  "pupils": pupils, "crit": {} if nb_only else crit, "notes": [],
+                                  "show_band": not nb_only, "notebook_only": nb_only,
                                   "kind": "BÀI TẬP VỀ NHÀ"})
             b64 = base64.b64encode(png).decode()
             parts = [b64[i:i + CHUNK] for i in range(0, len(b64), CHUNK)][:10]

@@ -110,11 +110,13 @@ def draw(data):
     on = [p for p in pupils if p["sub"] == "on"]
     ok = [p for p in pupils if p.get("nb") == "Đạt"]
     bands = [p["band"] for p in pupils if p.get("band")]
+    nb_only = data.get("notebook_only")
     tiles = [(f"{len(handed)}/{total}", "đã nộp bài", NAVY),
              (f"{len(on)}", "nộp đúng hạn", GREEN),
-             (f"{len(ok)}/{len(handed)}", "vở đạt yêu cầu", GREEN if len(ok) * 2 >= max(len(handed), 1) else AMBER),
-             ((f"{sum(bands) / len(bands):.1f}" if bands else "—"), f"band bài viết TB ({len(bands)} bài)", BLUE)]
-    tw_ = (W - 2 * P - 3 * 20) // 4
+             (f"{len(ok)}/{len(handed)}", "vở đạt yêu cầu", GREEN if len(ok) * 2 >= max(len(handed), 1) else AMBER)]
+    if not nb_only:
+        tiles.append(((f"{sum(bands) / len(bands):.1f}" if bands else "—"), f"band bài viết TB ({len(bands)} bài)", BLUE))
+    tw_ = (W - 2 * P - (len(tiles) - 1) * 20) // len(tiles)
     for i, (big, lab, c) in enumerate(tiles):
         x = P + i * (tw_ + 20)
         d.rounded_rectangle((x, y, x + tw_, y + 180), radius=22, fill=CARD, outline=LINE, width=2)
@@ -200,7 +202,7 @@ def draw(data):
     # ---- per pupil
     section("Từng bạn")
     X_SUB, X_NB, X_ES = 470, 650, 845
-    cols = [("Họ tên", P + 20), ("Nộp bài", X_SUB), ("Vở ghi", X_NB), ("Bài viết", X_ES)]
+    cols = [("Họ tên", P + 20), ("Nộp bài", X_SUB), ("Vở ghi", X_NB)] + ([] if nb_only else [("Bài viết", X_ES)])
     d.rounded_rectangle((P, y, W - P, y + 50), radius=12, fill=GREY_BG)
     for lab, x in cols:
         d.text((x, y + 9), lab, font=F("Bold", 27), fill=GREY)
@@ -215,16 +217,14 @@ def draw(data):
         if p.get("nb") in NB:
             lab, fg, bg = NB[p["nb"]]
             chip(d, X_NB, y + 9, lab, fg, bg, f_chip)
-        elif p["sub"] != "none":
-            d.text((X_NB, y + 13), "đang chấm", font=f_why, fill=MUTED)
-        if p.get("band") and show_band:
+        if nb_only:
+            pass
+        elif p.get("band") and show_band:
             chip(d, X_ES, y + 9, f"band {p['band']:.1f}", BLUE, (219, 234, 254), f_chip)
         elif p["sub"] == "late":
             d.text((X_ES, y + 13), "không chữa (muộn)", font=f_why, fill=MUTED)
         elif p.get("nb") and p["nb"] != "Đạt":
             d.text((X_ES, y + 13), "không chữa (vở)", font=f_why, fill=MUTED)
-        elif p["sub"] == "on":
-            d.text((X_ES, y + 13), "đang chấm", font=f_why, fill=MUTED)
         y += 58
     y += 30
     d.line((P, y, W - P, y), fill=LINE, width=2)
@@ -232,6 +232,10 @@ def draw(data):
             "Nộp muộn, hoặc vở cần bổ sung: chỉ kiểm tra vở, không chữa bài viết.",
             "Band là chất lượng bài viết về nhà, không phải band thi thật.",
             "Nhận xét chi tiết của từng bạn: xem trên dashboard phụ huynh."]
+    if nb_only:
+        foot = ["Tuần này chỉ kiểm tra VỞ CHÉP BÀI GIẢNG, không có bài viết.",
+                "Vở \"Cần bổ sung\": con bổ sung và nộp lại.",
+                "Nhận xét chi tiết của từng bạn: xem trên dashboard phụ huynh."]
     for j, ln in enumerate(foot):
         d.text((P, y + 18 + 36 * j), ln, font=f_sm, fill=INK if j == 0 else MUTED)
     y += 36 * (len(foot) - 2)
@@ -339,7 +343,7 @@ def draw_inclass(data):
             elif p.get("done"):
                 chip(d, X_RES, y + 9, "Đã chữa", GREEN, GREEN_BG, f_chip)
             else:
-                d.text((X_RES, y + 13), "đang chấm", font=F("Regular", 23), fill=MUTED)
+                pass
         else:
             chip(d, X_HAS, y + 9, "Không có bài", RED, RED_BG, f_chip)
         y += 58
