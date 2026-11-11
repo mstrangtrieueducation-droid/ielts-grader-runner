@@ -55,25 +55,23 @@ def dot(d, x, y, c, r=7):
 
 
 def logo_tile(img, x, y, h):
-    """Logo on its own navy rounded tile (the logo artwork is navy-backed)."""
-    from PIL import Image, ImageDraw
-    lg = Image.open(FONTS / "logo-header.png").convert("RGB")
-    lg = lg.resize((int(lg.width * h / lg.height), h), Image.LANCZOS)
-    mask = Image.new("L", lg.size, 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, lg.width - 1, lg.height - 1), radius=h // 5, fill=255)
-    img.paste(lg, (x, y), mask)
+    """Cô's whole logo image (not cropped), scaled down sharply."""
+    from PIL import Image, ImageFilter
+    lg = Image.open(FONTS / "logo.png").convert("RGB").resize((h, h), Image.LANCZOS)
+    lg = lg.filter(ImageFilter.UnsharpMask(radius=1, percent=60, threshold=2))
+    img.paste(lg, (x, y))
     return lg.width
 
 
 def header(img, d, kind, cls, title, meta):
-    lw = logo_tile(img, P, 56, 78)
-    spaced(d, P + lw + 26, 66, kind.upper(), sans(21, "SemiBold"), GOLD_TEXT, 3)
-    d.text((P + lw + 26, 98), "Ms. Trang Trieu Education", font=sans(22), fill=MUTED)
-    d.text((P, 168), cls, font=serif(68), fill=NAVY)
-    d.text((P, 252), title, font=serif(40, "Medium"), fill=INK)
-    d.text((P, 316), meta, font=sans(24), fill=MUTED)
-    d.rectangle((P, 368, P + 96, 371), fill=GOLD)
-    return 410
+    lw = logo_tile(img, P, 44, 136)
+    spaced(d, P + lw + 28, 82, kind.upper(), sans(21, "SemiBold"), GOLD_TEXT, 3)
+    d.text((P + lw + 28, 116), "Ms. Trang Trieu Education", font=sans(22), fill=MUTED)
+    d.text((P, 206), cls, font=serif(68), fill=NAVY)
+    d.text((P, 290), title, font=serif(40, "Medium"), fill=INK)
+    d.text((P, 354), meta, font=sans(24), fill=MUTED)
+    d.rectangle((P, 406, P + 96, 409), fill=GOLD)
+    return 448
 
 
 def section(d, y, label):
@@ -153,7 +151,7 @@ def praise(d, y, people, with_band):
 
 def png(img):
     out = io.BytesIO()
-    img.quantize(colors=256, method=2).save(out, "PNG", optimize=True)
+    img.save(out, "PNG", optimize=True)   # full colour: the logo stays crisp
     return out.getvalue()
 
 
@@ -165,15 +163,15 @@ def table_pages(data, cols, rows_draw, n, foot):
     chunks = [list(range(i, min(i + per, n))) for i in range(0, n, per)] or [[]]
     for k, idx in enumerate(chunks):
         last = k == len(chunks) - 1
-        H = 220 + 60 + len(idx) * ROW + (60 + 36 * len(foot) if last else 40)
+        H = 230 + 60 + len(idx) * ROW + (60 + 36 * len(foot) if last else 40)
         img = Image.new("RGB", (W, H), PAPER)
         d = ImageDraw.Draw(img)
-        lw = logo_tile(img, P, 44, 56)
-        d.text((P + lw + 22, 46), f"{data['cls']} · {data['title']}", font=serif(34), fill=NAVY)
-        d.text((P + lw + 22, 92), ("Từng bạn" + (f"  ·  trang {k + 1}/{len(chunks)}" if len(chunks) > 1 else "")),
+        lw = logo_tile(img, P, 30, 104)
+        d.text((P + lw + 24, 46), f"{data['cls']} · {data['title']}", font=serif(34), fill=NAVY)
+        d.text((P + lw + 24, 92), ("Từng bạn" + (f"  ·  trang {k + 1}/{len(chunks)}" if len(chunks) > 1 else "")),
                font=sans(22), fill=MUTED)
-        d.rectangle((P, 150, P + 96, 153), fill=GOLD)
-        y = 196
+        d.rectangle((P, 158, P + 96, 161), fill=GOLD)
+        y = 200
         for lab, x in cols:
             spaced(d, x, y, lab.upper(), sans(19, "SemiBold"), FAINT, 2)
         y += 44
