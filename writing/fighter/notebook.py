@@ -53,6 +53,7 @@ LEAN_MODEL = "claude-sonnet-5-5"     # Cô 11/11: lecture-copy notebooks (GF, AP
 LEAN_PROGS = {"GF", "AP"}
 LEAN_SIDE = 1200                     # photo size for that read: enough to see the handwriting, a third of the image cost
 LEAN_ALL = True                      # Cô 11/11 ("Sonnet chấm đúng hết"): every notebook — vocab books and reading books too
+COMPARE_SHEET = "1eDLM26_CcNb7PFtxKuJG2wV3f1b7KW-2EqABTabVidA"   # Cô 11/11: Haiku results since 08/11 read again by Sonnet, old vs new
 LEAN_TABLE_SIDE = 1400               # vocab tables have 7 narrow columns: a little sharper
 SIDE = 1568
 MAX_PAGES = 14
@@ -1465,6 +1466,26 @@ class FighterNotebooks:
                 pend.pop(key, None)
             del self.st["batches"][bid]
 
+    def compare_row(self, s, old, old_ok, new, ok):
+        def verdict(txt, good):
+            m = re.search(r"đạt (\d+)%", txt or "")
+            if not txt:
+                return "—"
+            return ("Đạt" if good else "Chưa đạt") + (f" {m.group(1)}%" if m else "")
+        a, b = verdict(old, old_ok), verdict(new, ok)
+        change = ("Giữ nguyên" if a == b else "Chưa đạt → ĐẠT" if ok and not old_ok else "Đạt → CHƯA ĐẠT" if old_ok and not ok
+                  else "Đổi %")
+        label, unit = unit_label(s["code"])
+        row = [now().strftime("%d/%m/%Y %H:%M"), s["cls"], s["student"], f"{label} {unit}", s["submittedAt"][:16], a, b, change, new]
+        try:
+            import urllib.parse
+            rng = urllib.parse.quote("'Untitled'!A:I")
+            self.g._req(f"https://sheets.googleapis.com/v4/spreadsheets/{COMPARE_SHEET}/values/{rng}:append"
+                        "?valueInputOption=RAW&insertDataOption=INSERT_ROWS", "POST", {"values": [row]})
+            self.tick("compare_row")
+        except Exception as e:
+            self.tick("compare_error_" + type(e).__name__)
+
     def submit_batch(self):
         if not self.queue:
             return
@@ -1493,6 +1514,11 @@ class FighterNotebooks:
                     and parse_vn_time(o["submittedAt"]) >= parse_vn_time(s["submittedAt"]):
                 s.update(status="new", tries=0, regrade=True)
                 self.tick("regrade_reuse_order")
+        for s in subs.values():   # Cô 11/11: every notebook Haiku graded is read again once by Sonnet, old result kept for comparison
+            r = s.get("result") or {}
+            if LEAN_ALL and s["status"] == "published" and not s.get("haikuRegrade") and r.get("by") != "sonnet" and not r.get("lean"):
+                s.update(prevPublished=s.get("published") or "", prevOk=s.get("ok"), status="new", tries=0, regrade=True, haikuRegrade=True)
+                self.tick("regrade_haiku")
         for s in subs.values():
             if s["status"] == "published" and s.get("ver", 1) < VERSION:
                 m = re.search(r"đạt (\d+)%", s.get("published") or "")
@@ -1539,6 +1565,8 @@ class FighterNotebooks:
                 sid, s = futs[fu]
                 try:
                     s["result"] = fu.result()
+                    if LEAN_ALL:
+                        s["result"]["by"] = "sonnet"
                     s["status"] = "graded"
                     self.tick("graded")
                 except Pending:
@@ -1587,6 +1615,8 @@ class FighterNotebooks:
                 self.tick(w)
                 continue
             s.update(status="published", published=text, ok=ok, publishedAt=now().isoformat(), ver=VERSION, paintVer=PAINT_VERSION)
+            if "prevPublished" in s:
+                self.compare_row(s, s.pop("prevPublished"), s.pop("prevOk", None), text, ok)
             for hx in res.get("hashes", []):
                 self.st["hashes"][hx] = {"sid": sid, "student": bare(s["student"]), "code": s["code"]}
             self.tick("published")
