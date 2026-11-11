@@ -190,6 +190,22 @@ def save_reports(reports):
             json.dump({"reports": reports}, fh, ensure_ascii=False)
 
 
+def zalo_mail(runner, made, now):
+    """Own mail for the class pictures (Cô 11/11): sent as soon as a class is complete, 08:00–20:00.
+    Public file carries class names only; Cô's mail script fetches the pictures from each class tracker."""
+    classes = sorted({c for c, _ in made})
+    names = ", ".join(f"{c} – {t}" for c, t in made)
+    text = ("Chào Cô Trang,\n\nẢnh tổng kết để gửi nhóm Zalo lớp đã sẵn sàng (đính kèm): " + names + ".\n"
+            "Cô lưu ảnh về điện thoại rồi chuyển vào nhóm lớp nhé.\n\nMáy chấm bài viết")
+    html = ("<p>Chào Cô Trang,</p><p>Ảnh tổng kết để gửi nhóm Zalo lớp đã sẵn sàng (đính kèm): <b>" + names
+            + "</b>.</p><p>Cô lưu ảnh về điện thoại rồi chuyển vào nhóm lớp nhé.</p><p>Máy chấm bài viết</p>")
+    reports = runner.state.setdefault("reports", [])
+    reports.append({"id": now.isoformat(timespec="seconds") + "z", "subject": "Ảnh gửi nhóm Zalo – " + names,
+                    "text": text, "html": html, "zalo": classes})
+    del reports[:-30]
+    save_reports(reports)
+
+
 def maybe_send(runner, scans, force=False):
     state = runner.state
     now = dt.datetime.now(VN)
@@ -197,19 +213,7 @@ def maybe_send(runner, scans, force=False):
     if not (tag or force):
         return False
     since = _t(state.get("lastReportAt") or "") or now.replace(hour=0, minute=0, second=0, microsecond=0)
-    try:   # Cô 11/11: one picture per class & week for the Zalo group, attached to this mail by her mail script
-        import zalo
-        pics = zalo.make(runner, now)
-    except Exception as e:
-        pics = []
-        runner.tick(f"zalo_failed_{type(e).__name__}")
     mail = build(state, scans, since, now)
-    if pics:   # class names only: the pictures themselves stay in each class tracker
-        mail["zalo"] = pics
-        line = ("Ảnh tình hình nộp bài viết để gửi nhóm Zalo lớp (" + ", ".join(pics) + ") được đính kèm mail này. "
-                "Cô lưu ảnh về điện thoại rồi chuyển vào nhóm lớp nhé.")
-        mail["text"] += "\n\n" + line
-        mail["html"] += "<p>" + line + "</p>"
     reports = state.setdefault("reports", [])
     reports.append({"id": now.isoformat(timespec="seconds"), **mail})
     del reports[:-30]

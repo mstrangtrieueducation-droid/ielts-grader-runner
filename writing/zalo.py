@@ -103,7 +103,8 @@ def collect(runner, cls, code, deadline):
         if not b or not b["t"]:
             pupils.append({"name": nice(n), "sub": "none", "nb": None, "band": None})
             continue
-        pupils.append({"name": nice(n), "sub": "on" if b["t"] <= deadline else "late", "nb": b["nb"], "band": b["band"]})
+        sub = "on" if b["t"] <= deadline else "late"
+        pupils.append({"name": nice(n), "sub": sub, "nb": b["nb"], "band": b["band"]})
         for c, v in b["crit"].items():
             crit.setdefault(c, []).append(v)
     return pupils, {c: sum(v) / len(v) for c, v in crit.items()}
@@ -115,9 +116,23 @@ def ensure_tab(g, sid):
         g.add_hidden_sheet(sid, TAB, HEAD)
 
 
+PENDING = ("new", "submitted", "graded", "essay_new", "essay_submitted")
+
+
+def ready(runner, cls, code, deadline, now):
+    """Every piece handed in for that class & week has its result (or 36 h passed since the deadline)."""
+    if now > deadline + dt.timedelta(hours=36):
+        return True
+    return not any(s.get("className") == cls and s.get("assignment") == code and s.get("status") in PENDING
+                   for s in runner.state.get("subs", {}).values())
+
+
 def make(runner, now=None):
-    """Called when the report is sent. Returns the classes that got a new picture."""
+    """Each cycle (Cô 11/11): a class's picture is made as soon as the whole class has its results, between
+    08:00 and 20:00 only, and sent to Cô in its own mail. Returns [(class, title)] made this time."""
     now = now or dt.datetime.now(VN)
+    if not (8 <= now.astimezone(VN).hour < 20):
+        return []
     done = runner.state.setdefault("zaloDone", [])
     made = []
     for cls in sorted(runner.cfg["classes"]):
@@ -133,6 +148,8 @@ def make(runner, now=None):
             except Exception:
                 continue
             if not col or not deadline or not (deadline < now <= deadline + WINDOW):
+                continue
+            if not ready(runner, cls, code, deadline, now):
                 continue
             pupils, crit = collect(runner, cls, code, deadline)
             if not pupils:
@@ -150,7 +167,9 @@ def make(runner, now=None):
                                              now.strftime("%d/%m/%Y %H:%M"), ""] + parts])
             done.append(key)
             del done[:-400]
-            if cls not in made:
-                made.append(cls)
+            made.append((cls, title))
             runner.tick("zalo_picture")
+    if made:
+        import report
+        report.zalo_mail(runner, made, now)
     return made

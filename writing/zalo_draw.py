@@ -199,35 +199,43 @@ def draw(data):
 
     # ---- per pupil
     section("Từng bạn")
-    cols = [("Họ tên", P + 20), ("Nộp bài", 560), ("Vở ghi", 760)] + ([("Band bài*", 925)] if show_band else [])
+    X_SUB, X_NB, X_ES = 470, 650, 845
+    cols = [("Họ tên", P + 20), ("Nộp bài", X_SUB), ("Vở ghi", X_NB), ("Bài viết", X_ES)]
     d.rounded_rectangle((P, y, W - P, y + 50), radius=12, fill=GREY_BG)
     for lab, x in cols:
         d.text((x, y + 9), lab, font=F("Bold", 27), fill=GREY)
     y += 56
+    f_why = F("Regular", 23)
     for i, p in enumerate(pupils):
         if i % 2:
             d.rectangle((P, y, W - P, y + 58), fill=(239, 241, 246))
         d.text((P + 20, y + 11), p["name"], font=f_sm, fill=INK)
         lab, fg, bg = SUB[p["sub"]]
-        chip(d, 560, y + 9, lab, fg, bg, f_chip)
+        chip(d, X_SUB, y + 9, lab, fg, bg, f_chip)
         if p.get("nb") in NB:
             lab, fg, bg = NB[p["nb"]]
-            chip(d, 760, y + 9, lab, fg, bg, f_chip)
+            chip(d, X_NB, y + 9, lab, fg, bg, f_chip)
         elif p["sub"] != "none":
-            d.text((760, y + 11), "đang chấm", font=f_sm, fill=MUTED)
-        if show_band:
-            d.text((960, y + 11), f"{p['band']:.1f}" if p.get("band") else "—", font=F("Bold", 28),
-                   fill=BLUE if p.get("band") else MUTED)
+            d.text((X_NB, y + 13), "đang chấm", font=f_why, fill=MUTED)
+        if p.get("band") and show_band:
+            chip(d, X_ES, y + 9, f"band {p['band']:.1f}", BLUE, (219, 234, 254), f_chip)
+        elif p["sub"] == "late":
+            d.text((X_ES, y + 13), "không chữa (muộn)", font=f_why, fill=MUTED)
+        elif p.get("nb") and p["nb"] != "Đạt":
+            d.text((X_ES, y + 13), "không chữa (vở)", font=f_why, fill=MUTED)
+        elif p["sub"] == "on":
+            d.text((X_ES, y + 13), "đang chấm", font=f_why, fill=MUTED)
         y += 58
     y += 30
     d.line((P, y, W - P, y), fill=LINE, width=2)
-    d.text((P, y + 18), "Nộp muộn: chỉ kiểm tra vở, không chữa bài viết. Vở \"Cần bổ sung\": con bổ sung và nộp lại.",
-           font=f_sm, fill=MUTED)
-    d.text((P, y + 54), "Nhận xét chi tiết của từng bạn: xem trên dashboard phụ huynh.", font=f_sm, fill=MUTED)
-    if show_band:
-        d.text((P, y + 90), "* Band chất lượng bài viết về nhà, không phải band thi thật.", font=f_sm, fill=MUTED)
-        y += 36
+    foot = ["Bài viết chỉ được chữa chi tiết và cho band khi con NỘP ĐÚNG HẠN và VỞ ĐẠT.",
+            "Nộp muộn, hoặc vở cần bổ sung: chỉ kiểm tra vở, không chữa bài viết.",
+            "Band là chất lượng bài viết về nhà, không phải band thi thật.",
+            "Nhận xét chi tiết của từng bạn: xem trên dashboard phụ huynh."]
+    for j, ln in enumerate(foot):
+        d.text((P, y + 18 + 36 * j), ln, font=f_sm, fill=INK if j == 0 else MUTED)
+    y += 36 * (len(foot) - 2)
     img = img.crop((0, 0, W, y + 110))
     out = io.BytesIO()
-    img.quantize(colors=128).save(out, "PNG", optimize=True)
+    img.quantize(colors=256).save(out, "PNG", optimize=True)
     return out.getvalue()

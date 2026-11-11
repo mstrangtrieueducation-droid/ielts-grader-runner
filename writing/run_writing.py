@@ -779,6 +779,12 @@ def main():
                     dashboard.Dashboard(run).run()
                 except Exception as e:
                     run.tick(f"dash_failed_{type(e).__name__}")
+        if mode == "cycle" and run.auto_publish():
+            try:   # Cô 11/11: Zalo picture per class & week as soon as the class is complete (08:00–20:00)
+                import zalo
+                zalo.make(run)
+            except Exception as e:
+                run.tick(f"zalo_failed_{type(e).__name__}")
         if mode in ("cycle", "report"):
             try:   # digest for Cô (counts only) as a GitHub issue comment → e-mail
                 import report
