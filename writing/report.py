@@ -190,17 +190,17 @@ def save_reports(reports):
             json.dump({"reports": reports}, fh, ensure_ascii=False)
 
 
-def zalo_mail(runner, made, now):
+def zalo_mail(runner, made, now, seq=0):
     """Own mail for the class pictures (Cô 11/11): sent as soon as a class is complete, 08:00–20:00.
     Public file carries class names only; Cô's mail script fetches the pictures from each class tracker."""
     classes = sorted({c for c, _ in made})
     names = ", ".join(f"{c} – {t}" for c, t in made)
-    text = ("Chào Cô Trang,\n\nẢnh tổng kết để gửi nhóm Zalo lớp đã sẵn sàng (đính kèm): " + names + ".\n"
-            "Cô lưu ảnh về điện thoại rồi chuyển vào nhóm lớp nhé.\n\nMáy chấm bài viết")
-    html = ("<p>Chào Cô Trang,</p><p>Ảnh tổng kết để gửi nhóm Zalo lớp đã sẵn sàng (đính kèm): <b>" + names
-            + "</b>.</p><p>Cô lưu ảnh về điện thoại rồi chuyển vào nhóm lớp nhé.</p><p>Máy chấm bài viết</p>")
+    text = ("Chào Cô Trang,\n\nẢnh tổng kết để gửi nhóm Zalo lớp: " + names + ".\n"
+            "Ảnh trang 1 là tổng quan, các trang sau là bảng từng bạn (đánh số theo thứ tự).\n\nMáy chấm bài viết")
+    html = ("<p>Chào Cô Trang,</p><p>Ảnh tổng kết để gửi nhóm Zalo lớp: <b>" + names + "</b>.</p>"
+            "<p>Ảnh trang 1 là tổng quan, các trang sau là bảng từng bạn (đánh số theo thứ tự).</p><p>Máy chấm bài viết</p>")
     reports = runner.state.setdefault("reports", [])
-    reports.append({"id": now.isoformat(timespec="seconds") + "z", "subject": "Ảnh gửi nhóm Zalo – " + names,
+    reports.append({"id": now.isoformat(timespec="seconds") + f"z{seq:02d}", "subject": "Ảnh Zalo " + names,
                     "text": text, "html": html, "zalo": classes})
     del reports[:-30]
     save_reports(reports)

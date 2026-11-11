@@ -200,13 +200,16 @@ def draw(data):
         y += half * 60 + 10
 
     # ---- per pupil
+    marks = {"table": y}
     section("Từng bạn")
-    X_SUB, X_NB, X_ES = 470, 650, 845
+    marks["colhead"] = y
+    X_SUB, X_NB, X_ES = 460, 635, 815
     cols = [("Họ tên", P + 20), ("Nộp bài", X_SUB), ("Vở ghi", X_NB)] + ([] if nb_only else [("Bài viết", X_ES)])
     d.rounded_rectangle((P, y, W - P, y + 50), radius=12, fill=GREY_BG)
     for lab, x in cols:
         d.text((x, y + 9), lab, font=F("Bold", 27), fill=GREY)
     y += 56
+    marks["rows"] = y
     f_why = F("Regular", 23)
     for i, p in enumerate(pupils):
         if i % 2:
@@ -226,6 +229,7 @@ def draw(data):
         elif p.get("nb") and p["nb"] != "Đạt":
             d.text((X_ES, y + 13), "không chữa (vở)", font=f_why, fill=MUTED)
         y += 58
+    marks["rows_end"] = y
     y += 30
     d.line((P, y, W - P, y), fill=LINE, width=2)
     foot = ["Bài viết chỉ được chữa chi tiết và cho band khi con NỘP ĐÚNG HẠN và VỞ ĐẠT.",
@@ -239,10 +243,49 @@ def draw(data):
     for j, ln in enumerate(foot):
         d.text((P, y + 18 + 36 * j), ln, font=f_sm, fill=INK if j == 0 else MUTED)
     y += 36 * (len(foot) - 2)
-    img = img.crop((0, 0, W, y + 110))
+    marks["end"] = y + 110
+    return split(img, data, marks, len(pupils))
+
+
+ROWS_PER_PAGE = 16
+
+
+def png(img):
     out = io.BytesIO()
     img.quantize(colors=256).save(out, "PNG", optimize=True)
     return out.getvalue()
+
+
+def split(img, data, marks, n):
+    """Cô 11/11: one long picture does not fit a Zalo screen. Page 1 = summary (header, numbers, charts,
+    notes, praise); then the per-pupil table, ROWS_PER_PAGE rows a page, each page with a small header and the
+    column titles; the footer goes on the last page. Returns [PNG bytes]."""
+    from PIL import Image, ImageDraw
+    pages = [png(img.crop((0, 0, W, marks["table"] + 10)))]
+    per = -(-n // max(1, -(-n // ROWS_PER_PAGE))) if n else 1   # even pages: 25 pupils → 13 + 12
+    chunks = [list(range(i, min(i + per, n))) for i in range(0, n, per)] or [[]]
+    colhead = img.crop((0, marks["colhead"], W, marks["rows"]))
+    foot = img.crop((0, marks["rows_end"], W, marks["end"]))
+    for k, rows in enumerate(chunks):
+        last = k == len(chunks) - 1
+        body_h = len(rows) * 58
+        H = 150 + colhead.height + body_h + (foot.height if last else 30)
+        pg = Image.new("RGB", (W, H), BG)
+        d = ImageDraw.Draw(pg)
+        d.rectangle((0, 0, W, 120), fill=NAVY)
+        d.text((P, 22), f"{data['cls']} · {data['title']}", font=F("Bold", 40), fill=(255, 255, 255))
+        d.text((P, 74), f"Từng bạn ({k + 1}/{len(chunks)})" if len(chunks) > 1 else "Từng bạn",
+               font=F("Regular", 28), fill=(199, 210, 254))
+        pg.paste(colhead, (0, 150))
+        y = 150 + colhead.height
+        if rows:
+            band = img.crop((0, marks["rows"] + rows[0] * 58, W, marks["rows"] + (rows[-1] + 1) * 58))
+            pg.paste(band, (0, y))
+        y += body_h
+        if last:
+            pg.paste(foot, (0, y))
+        pages.append(png(pg))
+    return pages
 
 
 def draw_inclass(data):
@@ -326,12 +369,15 @@ def draw_inclass(data):
             if scored:
                 chip(d, x + tw(d, p["name"], f_b) + 14, y + row * 60, f"band {p['band']:.1f}", BLUE, (219, 234, 254), f_chip)
         y += half * 60 + 10
+    marks = {"table": y}
     section("Từng bạn")
+    marks["colhead"] = y
     X_HAS, X_RES = 560, 790
     d.rounded_rectangle((P, y, W - P, y + 50), radius=12, fill=GREY_BG)
     for lab, x in (("Họ tên", P + 20), ("Bài viết", X_HAS), ("Kết quả", X_RES)):
         d.text((x, y + 9), lab, font=F("Bold", 27), fill=GREY)
     y += 56
+    marks["rows"] = y
     for i, p in enumerate(pupils):
         if i % 2:
             d.rectangle((P, y, W - P, y + 58), fill=(239, 241, 246))
@@ -347,6 +393,7 @@ def draw_inclass(data):
         else:
             chip(d, X_HAS, y + 9, "Không có bài", RED, RED_BG, f_chip)
         y += 58
+    marks["rows_end"] = y
     y += 30
     d.line((P, y, W - P, y), fill=LINE, width=2)
     foot = ["\"Không có bài\": máy không thấy bài của con trong tập scan của buổi này.",
@@ -356,7 +403,5 @@ def draw_inclass(data):
     for j, ln in enumerate(foot):
         d.text((P, y + 18 + 36 * j), ln, font=f_sm, fill=MUTED)
     y += 36 * len(foot) + 40
-    img = img.crop((0, 0, W, y))
-    out = io.BytesIO()
-    img.quantize(colors=256).save(out, "PNG", optimize=True)
-    return out.getvalue()
+    marks["end"] = y
+    return split(img, data, marks, len(pupils))

@@ -111,6 +111,19 @@ def collect(runner, cls, code, deadline):
 
 
 # ---------------------------------------------------------------- run
+def store(runner, cls, key, title, pages, now):
+    """One row per page in the class tracker's hidden tab; file names sort in page order."""
+    sid = runner.cfg["classes"][cls]
+    ensure_tab(runner.g, sid)
+    rows = []
+    for k, png in enumerate(pages, 1):
+        b64 = base64.b64encode(png).decode()
+        parts = [b64[i:i + CHUNK] for i in range(0, len(b64), CHUNK)][:10]
+        name = title + (f" ({k}-{len(pages)})" if len(pages) > 1 else "")
+        rows.append([f"{key}|{now:%Y%m%d%H%M}|{k}", cls, name, now.strftime("%d/%m/%Y %H:%M"), ""] + parts)
+    runner.g.append_rows(sid, TAB, rows)
+
+
 def ensure_tab(g, sid):
     if TAB not in g.sheet_titles(sid):
         g.add_hidden_sheet(sid, TAB, HEAD)
@@ -231,19 +244,15 @@ def make(runner, now=None):
                                   "pupils": pupils, "crit": {} if nb_only else crit, "notes": [],
                                   "show_band": not nb_only, "notebook_only": nb_only,
                                   "kind": "BÀI TẬP VỀ NHÀ"})
-            b64 = base64.b64encode(png).decode()
-            parts = [b64[i:i + CHUNK] for i in range(0, len(b64), CHUNK)][:10]
-            sid = runner.cfg["classes"][cls]
-            ensure_tab(runner.g, sid)
-            runner.g.append_rows(sid, TAB, [[key + "|" + now.strftime("%Y%m%d%H%M"), cls, f"{cls} – {title}",
-                                             now.strftime("%d/%m/%Y %H:%M"), ""] + parts])
+            store(runner, cls, key, f"{cls} – {title}", png, now)
             done.append(key)
             del done[:-400]
             made.append((cls, title))
             runner.tick("zalo_picture")
     if made:
         import report
-        report.zalo_mail(runner, made, now)
+        for i, item in enumerate(made):   # Cô 11/11: one mail per class, so all its pages save in one go
+            report.zalo_mail(runner, [item], now, i)
     return made
 
 
@@ -305,17 +314,13 @@ def make_inclass(runner, scans_state, now=None):
         png = zalo_draw.draw_inclass({"cls": cls, "title": title, "date": meta["date"], "made": now, "pupils": pupils,
                                       "crit": {k: sum(v) / len(v) for k, v in crit.items()}, "scored": scored,
                                       "unknown": sum(1 for s in studs if s.get("status") == "unidentified")})
-        b64 = base64.b64encode(png).decode()
-        parts = [b64[i:i + CHUNK] for i in range(0, len(b64), CHUNK)][:10]
-        sid = runner.cfg["classes"][cls]
-        ensure_tab(runner.g, sid)
-        runner.g.append_rows(sid, TAB, [[f"scan|{fid}|" + now.strftime("%Y%m%d%H%M"), cls, f"{cls} – {title}",
-                                         now.strftime("%d/%m/%Y %H:%M"), ""] + parts])
+        store(runner, cls, f"scan|{fid}", f"{cls} – {title}", png, now)
         done.append(f"scan|{fid}")
         del done[:-400]
         made.append((cls, title))
         runner.tick("zalo_picture_inclass")
     if made:
         import report
-        report.zalo_mail(runner, made, now)
+        for i, item in enumerate(made):   # Cô 11/11: one mail per class, so all its pages save in one go
+            report.zalo_mail(runner, [item], now, i)
     return made
