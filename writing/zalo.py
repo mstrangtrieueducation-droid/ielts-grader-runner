@@ -329,7 +329,7 @@ def make_inclass(runner, scans_state, now=None):
     08:00–20:00, own mail. Returns [(class, title)]."""
     import scans as sc
     now = now or dt.datetime.now(VN)
-    if not (8 <= now.astimezone(VN).hour < 20):
+    if not (8 <= now.astimezone(VN).hour < 20) or runner.cfg.get("zaloInclassHold"):   # hold: Cô checks a sample first
         return []
     done = runner.state.setdefault("zaloDone", [])
     made = []
