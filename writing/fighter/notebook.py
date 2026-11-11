@@ -466,6 +466,7 @@ PAINT_VERSION = 3           # raise when only the cell colours/sizes change: pub
 BODY_SIZE = 9               # comment text size (Cô 10/11: keep 9, make the row twice as tall instead)
 ROW_FACTOR = 2              # rows holding our comments: twice the class sheet's own row height
 REGRADE = set(PROGRAM_HEAD)   # v28: every kind (second Sonnet look at full size for a failing notebook)
+DEBUG_NAMES = {"le thuy trang"}   # temporary debug print of the reading for these pupils
 REGRADE_FAILED_ONLY = True  # on a VERSION bump only notebooks below 100% are read again (a clean pass stays)      # programmes whose reading rules changed in this VERSION; others are only re-styled
 FLAG = "LỖI: ❌ CẦN NỘP LẠI"   # cell note prefix of our own "redo" mark
 STATUS_RANK = {"missing": 0, "partly": 1, "unclear": 2, "full": 3}
@@ -1142,6 +1143,10 @@ class FighterNotebooks:
             with cf.ThreadPoolExecutor(2) as ex:
                 a, b = ex.map(lambda _: self.call(content, READING_SCHEMA, cat, 20000), range(2))
         reads = [a] if b is a else [a, b]
+        if bare(norm(s["student"])) in DEBUG_NAMES:   # temporary: what Sonnet saw (no names printed)
+            for r in reads:
+                print("FNB_DEBUG", s["code"], json.dumps({"pages": r.get("pages"), "entries": [(e.get("n"), e.get("term"), e.get("type"), e.get("vi"))
+                      for e in r.get("entries", [])][:30], "answers": len(r.get("answers", []))}, ensure_ascii=False)[:3000])
         vocab = score({"entries": ref["words"]}, {"entries": [e for r in reads for e in r.get("entries", [])]})
         key = {q["n"]: q for q in ref["questions"]}
         ans = {}
@@ -1770,6 +1775,9 @@ class FighterNotebooks:
             if LEAN_ALL and s["status"] == "published" and not s.get("haikuRegrade") and "by" not in r and not r.get("lean"):
                 s.update(prevPublished=s.get("published") or "", prevOk=s.get("ok"), status="new", tries=0, regrade=True, haikuRegrade=True)
                 self.tick("regrade_haiku")
+        for s in subs.values():
+            if s["status"] == "published" and bare(norm(s["student"])) in DEBUG_NAMES and not s.get("dbg1"):
+                s.update(status="new", tries=0, regrade=True, dbg1=True)
         for s in subs.values():
             if s["status"] == "published" and s.get("ver", 1) < VERSION:
                 m = re.search(r"đạt (\d+)%", s.get("published") or "")
