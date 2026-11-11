@@ -182,3 +182,7 @@ print("crop/barem ok")
 _a = _nb.unpack({"entries": [], "answers": ["12|B|y", "13|in the city|n", "x|?"]})["answers"]
 assert _a[0] == {"n": 12, "answer": "B", "explained": "yes"} and _a[1]["answer"] == "in the city" and _a[1]["explained"] == "no", _a
 print("answers ok")
+_t = _nb.fix_turn([_jpg(400, 300)], {"pages": [{"page": 1, "turn": "right"}]})
+assert _Im.open(_io.BytesIO(_t[0])).size == (300, 400)
+assert _nb.turned({"pages": [{"turn": "none"}, {"turn": "left"}]}) and not _nb.turned({"pages": [{"turn": "none"}]})
+print("turn ok")

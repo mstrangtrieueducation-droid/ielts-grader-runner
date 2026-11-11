@@ -63,7 +63,7 @@ IMG_FLOOR = 1000                     # pages share the budget, but a page is nev
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 29              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 30              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 0         # Cô 10/11: grade as soon as a notebook is submitted; we write the receipt line ourselves if the sync has not
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -150,12 +150,14 @@ PAGE = {"type": "object", "additionalProperties": False, "required": ["page", "k
         "properties": {"page": I, "kind": {"type": "string", "enum": ["handwritten", "printed_or_screen", "not_a_notebook"]},
                        "readable": {"type": "string", "enum": ["yes", "partly", "no"]},
                        "neat": {"type": "string", "enum": ["neat", "acceptable", "messy"]}}}
+LEAN_PAGE = {"type": "object", "additionalProperties": False, "required": ["page", "kind", "readable", "neat", "turn"],
+             "properties": dict(PAGE["properties"], turn={"type": "string", "enum": ["none", "right", "left", "upside_down"]})}
 OUTLINE_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["parts"],
                   "properties": {"parts": {"type": "array", "items": {"type": "object", "additionalProperties": False,
                                                                        "required": ["name", "starts"],
                                                                        "properties": {"name": S, "starts": S}}}}}
 COPY_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["pages", "parts", "otherLesson"],
-               "properties": {"pages": {"type": "array", "items": PAGE},
+               "properties": {"pages": {"type": "array", "items": LEAN_PAGE},
                               "parts": {"type": "array", "items": {"type": "object", "additionalProperties": False,
                                                                     "required": ["id", "status", "lacking"],
                                                                     "properties": {"id": I, "status": {"type": "string", "enum": ["full", "partly", "missing", "unclear"]},
@@ -169,7 +171,7 @@ starts = vài chữ đầu của phần đó. Trả kết quả qua công cụ r
 TÀI LIỆU:
 {doc}"""
 AP_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["pages", "outline", "model", "vocab", "revised", "otherLesson"],
-             "properties": {"pages": {"type": "array", "items": PAGE},
+             "properties": {"pages": {"type": "array", "items": LEAN_PAGE},
                             "revised": {"type": "object", "additionalProperties": False, "required": ["present", "words"],
                                         "properties": {"present": {"type": "string", "enum": ["yes", "no", "unclear"]}, "words": I}},
                             "outline": {"type": "object", "additionalProperties": False, "required": ["status", "lacking"],
@@ -391,7 +393,7 @@ def copy_result(reads, parts, imgs, hashes, reused, judge=None):
 
 
 LEAN_COPY_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["pages", "parts", "otherLesson"],
-                    "properties": {"pages": {"type": "array", "items": PAGE},
+                    "properties": {"pages": {"type": "array", "items": LEAN_PAGE},
                                    "parts": {"type": "array", "items": {"type": "object", "additionalProperties": False,
                                                                          "required": ["id", "status"],
                                                                          "properties": {"id": I, "status": {"type": "string",
@@ -437,7 +439,7 @@ Trả kết quả DUY NHẤT qua công cụ record."""
 ANS = {"type": "object", "additionalProperties": False, "required": ["n", "answer", "explained"],
        "properties": {"n": I, "answer": S, "explained": {"type": "string", "enum": ["yes", "no", "unclear"]}}}
 READING_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["pages", "entries", "answers"],
-                  "properties": {"pages": {"type": "array", "items": PAGE}, "entries": SCHEMA["properties"]["entries"],
+                  "properties": {"pages": {"type": "array", "items": LEAN_PAGE}, "entries": SCHEMA["properties"]["entries"],
                                  "answers": {"type": "array", "items": ANS}}}
 LEAN_READING_SCHEMA = dict(READING_SCHEMA, properties=dict(READING_SCHEMA["properties"], entries={"type": "array", "items": LEAN_ENTRY},
                                                            answers={"type": "array", "items": S}))
@@ -464,7 +466,7 @@ PAINT_VERSION = 3           # raise when only the cell colours/sizes change: pub
 BODY_SIZE = 9               # comment text size (Cô 10/11: keep 9, make the row twice as tall instead)
 ROW_FACTOR = 2              # rows holding our comments: twice the class sheet's own row height
 REGRADE = set(PROGRAM_HEAD)   # v28: every kind (second Sonnet look at full size for a failing notebook)
-REGRADE_FAILED_ONLY = False  # on a VERSION bump only notebooks below 100% are read again (a clean pass stays)      # programmes whose reading rules changed in this VERSION; others are only re-styled
+REGRADE_FAILED_ONLY = True  # on a VERSION bump only notebooks below 100% are read again (a clean pass stays)      # programmes whose reading rules changed in this VERSION; others are only re-styled
 FLAG = "LỖI: ❌ CẦN NỘP LẠI"   # cell note prefix of our own "redo" mark
 STATUS_RANK = {"missing": 0, "partly": 1, "unclear": 2, "full": 3}
 
@@ -611,6 +613,28 @@ def crop_page(jpeg: bytes) -> bytes:
     return out
 
 
+def turned(read):
+    return any(p.get("turn") in ("right", "left", "upside_down") for p in read.get("pages", []))
+
+
+def fix_turn(imgs, read):
+    """Photos taken sideways/upside down (as the first read reported them) are turned upright for the second look."""
+    from PIL import Image, ImageOps
+    angle = {"right": 90, "left": -90, "upside_down": 180}
+    turn = {p.get("page"): p.get("turn") for p in read.get("pages", [])}
+    out = []
+    for i, b in enumerate(imgs, 1):
+        a = angle.get(turn.get(i))
+        if not a:
+            out.append(b)
+            continue
+        im = ImageOps.exif_transpose(Image.open(io.BytesIO(crop_page(b)))).convert("RGB").rotate(a, expand=True)
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=90)
+        out.append(buf.getvalue())
+    return out
+
+
 def barem_first(content):
     """[label, pupil photos…, lesson blocks…] → [lesson blocks (cached: the barem, same for the whole class), label,
     pupil photos…, short closing line]. The barem is then billed at a tenth for every pupil after the first."""
@@ -624,7 +648,9 @@ def barem_first(content):
         return content
     rest = [dict(b) for b in rest]
     rest[-1]["cache_control"] = {"type": "ephemeral"}
-    return rest + [content[0]] + pics + [{"type": "text", "text": "(Hết ảnh bài làm của học sinh. Ghi kết quả đúng theo hướng dẫn và barem ở trên.)"}]
+    return rest + [content[0]] + pics + [{"type": "text", "text": "(Hết ảnh bài làm của học sinh. Ghi kết quả đúng theo hướng dẫn và barem ở trên. Mỗi trang trong pages ghi thêm turn: "
+                                       "none = chữ nằm ngang đọc bình thường; right = trang bị xoay, dòng chữ chạy từ trên xuống; "
+                                       "left = dòng chữ chạy từ dưới lên; upside_down = trang lộn ngược. Trang bị xoay vẫn cố đọc hết.)"}]
 
 
 def fit_side(imgs, budget=IMG_BUDGET, floor=IMG_FLOOR, cap=SIDE):
@@ -884,9 +910,10 @@ class FighterNotebooks:
         if lean:
             r1 = self.call(content, AP_SCHEMA, cat, model=self.tier(s), batch=True)
             out = self.ap_score([r1], ref, imgs, hashes, reused)
-            if out["kind"] in ("scored", "wrong_unit") and out["pct"] < 50 and side < SIDE and self.tier(s) == LEAN_MODEL:
+            if out["kind"] in ("scored", "wrong_unit") and self.tier(s) == LEAN_MODEL and (
+                    (out["pct"] < 50 and side < SIDE) or (turned(r1) and (out["pct"] < PASS or out["messy"]))):
                 # looks like a misread (half the notebook unseen): second look at full size, merged in the pupil's favour
-                content[1:1 + len(imgs)] = [img_block(b, SIDE) for b in imgs]
+                content[1:1 + len(imgs)] = [img_block(b, SIDE) for b in fix_turn(imgs, r1)]
                 r2 = self.call(content, AP_SCHEMA, cat, model=self.tier(s), batch=True)
                 out = self.ap_score([r1, r2], ref, imgs, hashes, reused)
                 out["secondLook"] = True
@@ -970,9 +997,10 @@ class FighterNotebooks:
             cat = f"{s['cls']} · {KIND_NAME[s['prog']].capitalize()} · {s['code']}"
             read = self.call(content, LEAN_COPY_SCHEMA, cat, model=self.tier(s), batch=True)
             out = lean_copy_result(read, les["parts"], imgs, hashes, reused)
-            if out["kind"] in ("scored", "wrong_unit", "unreadable") and out["pct"] < 50 and side < SIDE and self.tier(s) == LEAN_MODEL:
+            if out["kind"] in ("scored", "wrong_unit", "unreadable") and self.tier(s) == LEAN_MODEL and (
+                    (out["pct"] < 50 and side < SIDE) or (turned(read) and not copy_passes(out))):
                 # looks like a misread (most parts unseen): Sonnet looks again at full size; best of the two
-                content[1:1 + len(imgs)] = [img_block(b, SIDE) for b in imgs]
+                content[1:1 + len(imgs)] = [img_block(b, SIDE) for b in fix_turn(imgs, read)]
                 read2 = self.call(content, LEAN_COPY_SCHEMA, cat, model=self.tier(s), batch=True)
                 rank = {"missing": 0, "unreadable": 1, "copied": 2}
                 both = {x["id"]: x["status"] for x in read.get("parts", [])}
@@ -1106,8 +1134,9 @@ class FighterNotebooks:
             b = a
             v1 = score({"entries": ref["words"]}, {"entries": a.get("entries", [])})
             done = len({x["n"] for x in a.get("answers", [])})
-            if min(v1["pct"], round(100 * done / ref["total"]) if ref["total"] else 0) < 20 and side < SIDE and self.tier(s) == LEAN_MODEL:
-                content[1:1 + len(imgs)] = [img_block(x, SIDE) for x in imgs]   # looks like a misread: full-size second look
+            low = min(v1["pct"], round(100 * done / ref["total"]) if ref["total"] else 0)
+            if self.tier(s) == LEAN_MODEL and ((low < 20 and side < SIDE) or (turned(a) and low < PASS)):
+                content[1:1 + len(imgs)] = [img_block(x, SIDE) for x in fix_turn(imgs, a)]   # looks like a misread: full-size second look
                 b = unpack(self.call(content, LEAN_READING_SCHEMA, cat, 20000, model=self.tier(s), batch=True))
         else:
             with cf.ThreadPoolExecutor(2) as ex:
@@ -1277,8 +1306,9 @@ class FighterNotebooks:
             content[-1] = dict(content[-1], text=content[-1]["text"].replace("Mẫu sổ (ảnh đầu tiên) có", "Sổ có") + LEAN_NOTE)
             a = unpack(self.call(content, LEAN_SCHEMA, cat, model=self.tier(s), batch=True))
             b, c = a, 0.0
-            if score(unit, {"entries": a.get("entries", [])})["pct"] < 20 and side < SIDE and self.tier(s) == LEAN_MODEL:   # looks like a misread
-                content[1:1 + len(imgs)] = [img_block(x, SIDE) for x in imgs]
+            low = score(unit, {"entries": a.get("entries", [])})["pct"]
+            if self.tier(s) == LEAN_MODEL and ((low < 20 and side < SIDE) or (turned(a) and low < PASS)):   # misread / sideways photos
+                content[1:1 + len(imgs)] = [img_block(x, SIDE) for x in fix_turn(imgs, a)]
                 b = unpack(self.call(content, LEAN_SCHEMA, cat, model=self.tier(s), batch=True))
         else:      # two independent Haiku reads, merged in the pupil's favour
             with cf.ThreadPoolExecutor(2) as ex:
