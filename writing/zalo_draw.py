@@ -63,14 +63,16 @@ def logo_tile(img, x, y, h):
 
 
 def header(img, d, kind, cls, title, meta):
-    lw = logo_tile(img, P, 44, 136)
-    spaced(d, P + lw + 28, 80, kind, sans(26, "SemiBold"), NAVY)
-    d.text((P + lw + 28, 116), "Ms. Trang Trieu Education", font=sans(22), fill=MUTED)
-    d.text((P, 206), cls, font=serif(68), fill=NAVY)
-    d.text((P, 290), title, font=serif(40, "Medium"), fill=INK)
-    d.text((P, 354), meta, font=sans(24), fill=MUTED)
-    d.rectangle((P, 406, P + 96, 409), fill=GOLD)
-    return 448
+    """Navy band (the logo's own background), white title, gold rule."""
+    d.rectangle((0, 0, W, 400), fill=NAVY)
+    logo_tile(img, P - 10, 34, 132)
+    d.text((P + 140, 64), kind, font=sans(27, "SemiBold"), fill=GOLD)
+    d.text((P + 140, 102), "Ms. Trang Trieu Education", font=sans(22), fill=(190, 196, 220))
+    d.text((P, 192), cls, font=sans(74, "SemiBold"), fill=(255, 255, 255))
+    d.text((P, 280), title, font=sans(40, "Medium"), fill=(228, 231, 242))
+    d.text((P, 342), meta, font=sans(23), fill=(170, 176, 205))
+    d.rectangle((0, 396, W, 400), fill=GOLD)
+    return 440
 
 
 def section(d, y, label):
@@ -78,18 +80,60 @@ def section(d, y, label):
     return y + 52
 
 
+TINTS = {"navy": ((236, 239, 248), NAVY), "green": ((233, 243, 237), GREEN), "amber": ((251, 242, 226), (150, 100, 20)),
+         "rose": ((248, 233, 231), ROSE), "gold": ((250, 244, 226), GOLD_TEXT)}
+
+
 def stats(d, y, items):
-    """Big numbers in a row, hairline separators, no boxes."""
-    n = len(items)
-    cw = (W - 2 * P) / n
-    for i, (big, lab) in enumerate(items):
-        x = P + i * cw
-        if i:
-            d.line((x, y + 8, x, y + 118), fill=LINE, width=2)
-        x0 = x + (24 if i else 0)
-        d.text((x0, y), big, font=serif(58), fill=NAVY)
-        d.text((x0, y + 82), lab, font=sans(22), fill=MUTED)
-    return y + 150
+    """Tinted cards: (big, label, tint)."""
+    n, gap = len(items), 18
+    cw = (W - 2 * P - gap * (n - 1)) / n
+    for i, it in enumerate(items):
+        big, lab = it[0], it[1]
+        bg, fg = TINTS[it[2] if len(it) > 2 else "navy"]
+        x = P + i * (cw + gap)
+        d.rounded_rectangle((x, y, x + cw, y + 150), radius=20, fill=bg)
+        d.text((x + 22, y + 20), big, font=sans(52, "SemiBold"), fill=fg)
+        d.text((x + 22, y + 96), lab, font=sans(21), fill=(80, 84, 100))
+    return y + 180
+
+
+def wrap(d, text, f, width):
+    lines, cur = [], ""
+    for w in text.split(" "):
+        t = (cur + " " + w).strip()
+        if cur and tw(d, t, f) > width:
+            lines.append(cur)
+            cur = w
+        else:
+            cur = t
+    return lines + ([cur] if cur else [])
+
+
+def attention(d, y, groups):
+    """Cô 11/11: the important part stands out — who needs a reminder, by name, in tinted cards."""
+    f_t, f_n = sans(26, "SemiBold"), sans(25)
+    for label, names, tint in groups:
+        if not names:
+            continue
+        bg, fg = TINTS[tint]
+        lines, cur = [], ""   # break between names, never inside one
+        for nm in names:
+            t = (cur + "  ·  " + nm) if cur else nm
+            if cur and tw(d, t, f_n) > W - 2 * P - 56:
+                lines.append(cur)
+                cur = nm
+            else:
+                cur = t
+        lines += [cur] if cur else []
+        h = 62 + 36 * len(lines) + 22
+        d.rounded_rectangle((P, y, W - P, y + h), radius=18, fill=bg)
+        d.rectangle((P, y + 18, P + 5, y + h - 18), fill=fg)
+        d.text((P + 28, y + 18), f"{label} · {len(names)} bạn", font=f_t, fill=fg)
+        for j, ln in enumerate(lines):
+            d.text((P + 28, y + 62 + 36 * j), ln, font=f_n, fill=INK)
+        y += h + 16
+    return y + 20
 
 
 def bar(d, y, parts, total):
@@ -136,16 +180,18 @@ def note(d, y, lines):
 
 
 def praise(d, y, people, with_band):
-    f, fb = sans(28), sans(24, "SemiBold")
     half = (len(people) + 1) // 2
-    colw = (W - 2 * P) // 2
+    h = half * 58 + 44
+    d.rounded_rectangle((P, y, W - P, y + h), radius=18, fill=TINTS["gold"][0])
+    f, fb, colw = sans(28), sans(24, "SemiBold"), (W - 2 * P) // 2
     for i, p in enumerate(people):
         col, row = (0, i) if i < half else (1, i - half)
-        x, yy = P + col * colw, y + row * 58
-        d.text((x, yy), p["name"], font=f, fill=NAVY)
+        x, yy = P + 28 + col * colw, y + 22 + row * 58
+        d.text((x, yy), "★", font=sans(26), fill=GOLD)
+        d.text((x + 34, yy), p["name"], font=f, fill=NAVY)
         if with_band and p.get("band"):
-            d.text((x + tw(d, p["name"], f) + 16, yy + 2), f"{p['band']:.1f}", font=fb, fill=NAVY)
-    return y + half * 58 + 30
+            d.text((x + 34 + tw(d, p["name"], f) + 14, yy + 2), f"{p['band']:.1f}", font=fb, fill=GOLD_TEXT)
+    return y + h + 36
 
 
 def png(img):
@@ -211,19 +257,34 @@ def draw(data):
     d = ImageDraw.Draw(img)
     y = header(img, d, data.get("kind") or "Bài tập về nhà", data["cls"], data["title"],
                f"Hạn nộp {data['deadline']:%d/%m/%Y}   ·   Tổng kết {data['made']:%H:%M, %d/%m/%Y}")
-    items = [(f"{len(handed)}/{data['total']}", "đã nộp bài"), (f"{len(on)}", "nộp đúng hạn"),
-             (f"{len(ok)}/{len(handed)}", "vở đạt yêu cầu")]
+    items = [(f"{len(handed)}/{data['total']}", "đã nộp bài", "navy"),
+             (f"{len(on)}", "nộp đúng hạn", "green" if len(on) * 2 >= max(len(handed), 1) else "amber"),
+             (f"{len(ok)}/{len(handed)}", "vở đạt yêu cầu", "green" if len(ok) * 2 >= max(len(handed), 1) else "amber")]
     if not nb_only:
-        items.append((f"{sum(bands) / len(bands):.1f}" if bands else "—", f"band TB · {len(bands)} bài"))
+        items.append((f"{sum(bands) / len(bands):.1f}" if bands else "—", f"band TB · {len(bands)} bài", "gold"))
     y = stats(d, y + 10, items)
-    y = section(d, y + 20, "Nộp bài")
-    y = bar(d, y, [("Đúng hạn", len(on), GREEN), ("Muộn", len(handed) - len(on), AMBER),
-                   ("Chưa nộp", data["total"] - len(handed), ROSE)], data["total"])
-    y = section(d, y + 16, "Vở ghi")
-    y = bar(d, y, [("Đạt", len(ok), GREEN), ("Cần bổ sung", sum(1 for p in handed if p.get("nb") == "Cần bổ sung"), AMBER),
-                   ("Chưa đạt", sum(1 for p in handed if p.get("nb") == "Không đạt"), ROSE)], len(handed))
+    if stars:
+        y = section(d, y + 10, "Tuyên dương · bài tốt nhất, nộp đúng hạn")
+        y = praise(d, y + 4, stars, True)
+    late = [p["name"] for p in pupils if p["sub"] == "late"]
+    missing = [p["name"] for p in pupils if p["sub"] == "none"]
+    redo = [p["name"] for p in handed if p.get("nb") in ("Cần bổ sung", "Không đạt")]
+    if late or missing or redo:
+        y = section(d, y + 10, "Cần nhắc")
+        y = attention(d, y + 4, [("Chưa nộp", missing, "rose"), ("Vở cần bổ sung, nộp lại", redo, "amber"),
+                                 ("Nộp muộn" + ("" if nb_only else " · không được chữa bài viết"), late, "amber")])
+    pages = []
+    if crit and y > 1150:   # keep each picture phone-sized: quality on its own page
+        pages.append(png(img.crop((0, 0, W, y + 10))))
+        img = Image.new("RGB", (W, 1400), PAPER)
+        d = ImageDraw.Draw(img)
+        lw = logo_tile(img, P, 30, 104)
+        d.text((P + lw + 24, 46), f"{data['cls']} · {data['title']}", font=sans(34, "SemiBold"), fill=NAVY)
+        d.text((P + lw + 24, 92), "Chất lượng bài viết", font=sans(22), fill=MUTED)
+        d.rectangle((P, 158, P + 96, 161), fill=GOLD)
+        y = 200
     if crit:
-        y = section(d, y + 16, f"Chất lượng bài viết · trung bình {len(bands)} bài được chữa")
+        y = section(d, y, f"Chất lượng bài viết · trung bình {len(bands)} bài được chữa")
         y = criteria(d, y + 4, crit)
     if bands:
         y = note(d, y + 10, ["Band ở đây là chất lượng bài viết của bài tập về nhà này, không phải",
@@ -231,10 +292,7 @@ def draw(data):
                              "được xem tài liệu và dàn ý. Đi thi sẽ khác."])
     elif nb_only:
         y = note(d, y + 10, ["Tuần này chỉ kiểm tra vở chép bài giảng, không có bài viết."])
-    if stars:
-        y = section(d, y, "Tuyên dương · bài tốt nhất, nộp đúng hạn")
-        y = praise(d, y + 6, stars, True)
-    pages = [png(img.crop((0, 0, W, y + 30)))]
+    pages.append(png(img.crop((0, 0, W, y + 30))))
 
     X_SUB, X_NB, X_ES = 440, 625, 822
     cols = [("Họ tên", P), ("Nộp bài", X_SUB), ("Vở ghi", X_NB)] + ([] if nb_only else [("Bài viết", X_ES)])
@@ -284,10 +342,18 @@ def draw_inclass(data):
     d = ImageDraw.Draw(img)
     y = header(img, d, "Bài viết trên lớp", data["cls"], data["title"],
                f"Ngày học {data['date']}   ·   Tổng kết {data['made']:%H:%M, %d/%m/%Y}")
-    items = [(f"{len(has)}/{len(pupils)}", "có bài viết"), (f"{len(pupils) - len(has)}", "không có bài")]
-    items.append((f"{sum(bands) / len(bands):.1f}" if bands else "—", "band TB lớp") if scored
-                 else (f"{sum(1 for p in has if p.get('done'))}", "bài đã chữa"))
+    items = [(f"{len(has)}/{len(pupils)}", "có bài viết", "navy"), (f"{len(pupils) - len(has)}", "không có bài", "rose")]
+    items.append((f"{sum(bands) / len(bands):.1f}" if bands else "—", "band TB lớp", "gold") if scored
+                 else (f"{sum(1 for p in has if p.get('done'))}", "bài đã chữa", "green"))
     y = stats(d, y + 10, items)
+    if stars:
+        y = section(d, y + 10, "Tuyên dương · " + ("bài tốt nhất" if scored else "bài viết cẩn thận, ít lỗi"))
+        y = praise(d, y + 4, stars, scored)
+        stars = []
+    absent = [p["name"] for p in pupils if not p["has"]]
+    if absent:
+        y = section(d, y + 10, "Cần nhắc")
+        y = attention(d, y + 4, [("Không có bài trong tập scan", absent, "rose")])
     if crit:
         y = section(d, y + 20, f"Chất lượng bài viết · trung bình {len(bands)} bài")
         y = criteria(d, y + 4, crit)
