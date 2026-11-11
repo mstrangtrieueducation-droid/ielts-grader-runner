@@ -155,3 +155,15 @@ _o = _nb.lean_copy_result(_r, _parts, [b""], [], [])
 assert _o["missing"] == ["P4", "P5"] and _o["blurry"] == ["P3"] and _o["pct"] == 60 and not _nb.copy_passes(_o), _o
 _s = {"prog": "GF", "code": "GF-U12", "submittedAt": "10/11/2026 20:00:00", "cls": "FIGHTER 9", "student": "X"}
 print("lean ok")
+
+# --- photo budget and compact vocab entries
+import io as _io
+from PIL import Image as _Im
+def _jpg(w, h):
+    b = _io.BytesIO(); _Im.new("RGB", (w, h), "white").save(b, "JPEG"); return b.getvalue()
+assert _nb.fit_side([_jpg(3000, 4000)] * 3) == 1568              # 3 pages: full size fits the budget
+assert _nb.fit_side([_jpg(3000, 4000)] * 20) == _nb.IMG_FLOOR    # 20 pages: never below the floor
+assert 1000 <= _nb.fit_side([_jpg(3000, 4000)] * 5) < 1568
+_u = _nb.unpack({"entries": [{"n": 1, "term": "a", "cols": "fFeu"}]})["entries"][0]
+assert (_u["type"], _u["ipa"], _u["vi"], _u["en"], _u["example"]) == ("filled", "filled", "empty", "unclear", "unclear"), _u
+print("budget ok")
