@@ -1,14 +1,16 @@
 """Picture for the class Zalo group: who handed in the writing homework on time, late, or not yet.
 
 Cô 11/11: one picture per class and week, made at the first report after the deadline and attached to her
-report e-mail, so she can forward it to the class group. Submission status only — no scores or comments,
-since every parent in the group sees it.
+report e-mail, so she can forward it to the class group. Cô chose: submission + notebook verdict + band of
+each pupil, class averages per criterion, praise list (drawing in zalo_draw.py).
 
 The PNG never touches the public repo: it is stored (base64, split over cells) in a hidden tab of the class's
 own tracker (which already holds these names and statuses); the public report only says which classes have
 a new picture, and Cô's mail script opens those trackers, attaches the pictures and marks the rows as sent.
 """
 import base64
+import json
+import math
 import datetime as dt
 import io
 import re
@@ -53,90 +55,58 @@ def roster(runner, cls):
     return out
 
 
-def status(runner, cls, code, deadline):
-    on, late = [], []
-    handed = {}
+def band_of(sub):
+    """Overall band of the corrected essay(s): mean of the four criteria, to the nearest half band."""
+    er = sub.get("essayResult")
+    if isinstance(er, str):
+        try:
+            er = json.loads(er)
+        except Exception:
+            er = None
+    crit, overall = {}, []
+    for e in (er or {}).get("essays") or []:
+        c = {("TR" if k in ("TA_TR", "TA", "TR") else k): (v or {}).get("band") for k, v in (e.get("criteria") or {}).items()}
+        c = {k: v for k, v in c.items() if isinstance(v, (int, float))}
+        if len(c) == 4:
+            overall.append(sum(c.values()) / 4)
+            for k, v in c.items():
+                crit.setdefault(k, []).append(v)
+    if not overall:
+        return None, {}
+    return math.floor(sum(overall) / len(overall) * 2 + 0.5) / 2, {k: sum(v) / len(v) for k, v in crit.items()}
+
+
+def collect(runner, cls, code, deadline):
+    """Pupils on the class list (list order) with: submission status, notebook verdict, essay band."""
+    best = {}
     for s in runner.state.get("subs", {}).values():
         if s.get("className") != cls or s.get("assignment") != code:
             continue
-        t = parse_vn(s.get("firstAt") or s.get("submittedAt") or "")
         k = key_of(s.get("student", ""))
-        if t and (k not in handed or t < handed[k]):
-            handed[k] = t
-    names = roster(runner, cls)
+        t = parse_vn(s.get("firstAt") or s.get("submittedAt") or "")
+        b = best.setdefault(k, {"t": None, "nb": None, "band": None, "crit": {}})
+        if t and (b["t"] is None or t < b["t"]):
+            b["t"] = t
+        if s.get("status") == "published":
+            b["nb"] = s.get("verdict") or b["nb"]
+            band, crit = band_of(s)
+            if band is not None:
+                b["band"], b["crit"] = band, crit
     bare = lambda x: "".join(c for c in unicodedata.normalize("NFD", x) if not unicodedata.combining(c)).replace("Đ", "D")
     by_bare = {}
-    for k, t in handed.items():
-        by_bare.setdefault(bare(k), []).append(t)
-    missing = []
-    for n in names:
+    for k, v in best.items():
+        by_bare.setdefault(bare(k), []).append(v)
+    pupils, crit = [], {}
+    for n in roster(runner, cls):
         k = key_of(n)
-        t = handed.get(k)
-        if t is None and len(by_bare.get(bare(k), [])) == 1:   # form typo in the diacritics
-            t = by_bare[bare(k)][0]
-        if t is None:
-            missing.append(nice(n))
-        elif t <= deadline:
-            on.append(nice(n))
-        else:
-            late.append(nice(n))
-    return names, on, late, missing
-
-
-# ---------------------------------------------------------------- drawing
-W, PAD = 1080, 64
-INK, MUTED, LINE, BG = (31, 41, 55), (107, 114, 128), (229, 231, 235), (255, 255, 255)
-SECTIONS = (("Nộp đúng hạn", (22, 128, 61), (220, 252, 231)),
-            ("Nộp muộn", (180, 83, 9), (254, 243, 199)),
-            ("Chưa nộp", (185, 28, 28), (254, 226, 226)))
-
-
-def font(weight, size):
-    from PIL import ImageFont
-    return ImageFont.truetype(str(FONTS / f"Carlito-{weight}.ttf"), size)   # Carlito: full Vietnamese, OFL
-
-
-def draw(cls, title, deadline, total, groups):
-    from PIL import Image, ImageDraw
-    f_title, f_sub = font("Bold", 58), font("Regular", 34)
-    f_head, f_name, f_foot = font("Bold", 36), font("Regular", 34), font("Regular", 28)
-    col_w = (W - 2 * PAD - 32) // 2
-    row_h = 50
-    # height
-    h = PAD + 70 + 50 + 40
-    for _, names in groups:
-        rows = (len(names) + 1) // 2
-        h += 76 + max(rows, 1) * row_h + 28
-    h += 60 + PAD
-    img = Image.new("RGB", (W, h), BG)
-    d = ImageDraw.Draw(img)
-    y = PAD
-    d.text((PAD, y), f"{cls} · {title}", font=f_title, fill=INK)
-    y += 76
-    handed = len(groups[0][1]) + len(groups[1][1])
-    d.text((PAD, y), f"Hạn nộp: {deadline:%d/%m/%Y}   ·   Đã nộp {handed}/{total} bạn", font=f_sub, fill=MUTED)
-    y += 50
-    d.line((PAD, y + 10, W - PAD, y + 10), fill=LINE, width=2)
-    y += 40
-    for (label, fg, bgc), (_, names) in zip(SECTIONS, groups):
-        d.rounded_rectangle((PAD, y, W - PAD, y + 56), radius=14, fill=bgc)
-        d.text((PAD + 24, y + 9), f"{label} ({len(names)})", font=f_head, fill=fg)
-        y += 76
-        if not names:
-            d.text((PAD + 24, y), "Không có bạn nào", font=f_name, fill=MUTED)
-            y += row_h
-        half = (len(names) + 1) // 2
-        for i, n in enumerate(names):
-            col, row = (0, i) if i < half else (1, i - half)
-            x = PAD + 24 + col * (col_w + 32)
-            d.text((x, y + row * row_h), f"• {n}", font=f_name, fill=INK)
-        y += half * row_h + 28
-    d.line((PAD, y, W - PAD, y), fill=LINE, width=2)
-    d.text((PAD, y + 18), "Nhận xét và kết quả chấm chi tiết của từng bạn: xem trên dashboard phụ huynh.",
-           font=f_foot, fill=MUTED)
-    out = io.BytesIO()
-    img.quantize(colors=64).save(out, "PNG", optimize=True)
-    return out.getvalue()
+        b = best.get(k) or (by_bare[bare(k)][0] if len(by_bare.get(bare(k), [])) == 1 else None)
+        if not b or not b["t"]:
+            pupils.append({"name": nice(n), "sub": "none", "nb": None, "band": None})
+            continue
+        pupils.append({"name": nice(n), "sub": "on" if b["t"] <= deadline else "late", "nb": b["nb"], "band": b["band"]})
+        for c, v in b["crit"].items():
+            crit.setdefault(c, []).append(v)
+    return pupils, {c: sum(v) / len(v) for c, v in crit.items()}
 
 
 # ---------------------------------------------------------------- run
@@ -164,11 +134,13 @@ def make(runner, now=None):
                 continue
             if not col or not deadline or not (deadline < now <= deadline + WINDOW):
                 continue
-            names, on, late, missing = status(runner, cls, code, deadline)
-            if not names:
+            pupils, crit = collect(runner, cls, code, deadline)
+            if not pupils:
                 continue
             title = "Bài viết " + code.rsplit("-", 1)[-1]
-            png = draw(cls, title, deadline, len(names), [(None, on), (None, late), (None, missing)])
+            import zalo_draw   # Cô 11/11: quality + charts, per-pupil band shown, no class-wide notes
+            png = zalo_draw.draw({"cls": cls, "title": title, "deadline": deadline, "made": now, "total": len(pupils),
+                                  "pupils": pupils, "crit": crit, "notes": [], "show_band": True})
             b64 = base64.b64encode(png).decode()
             parts = [b64[i:i + CHUNK] for i in range(0, len(b64), CHUNK)][:10]
             sid = runner.cfg["classes"][cls]
