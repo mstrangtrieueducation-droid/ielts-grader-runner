@@ -13,7 +13,8 @@ from pathlib import Path
 FONTS = Path(__file__).parent / "fonts"
 W, P = 1080, 56
 INK, MUTED, LINE, BG, CARD = (17, 24, 39), (100, 110, 125), (226, 230, 236), (246, 247, 251), (255, 255, 255)
-NAVY = (30, 58, 138)
+NAVY = (11, 17, 53)        # Ms. Trang Trieu Education theme (logo background)
+GOLD = (238, 176, 29)      # logo gold
 GREEN, GREEN_BG = (21, 128, 61), (220, 252, 231)
 AMBER, AMBER_BG = (180, 83, 9), (254, 243, 199)
 RED, RED_BG = (185, 28, 28), (254, 226, 226)
@@ -28,6 +29,14 @@ CRIT = (("TR", "Trả lời đúng đề (TR)"), ("CC", "Mạch lạc, liên k�
 def F(w, s):
     from PIL import ImageFont
     return ImageFont.truetype(str(FONTS / f"Carlito-{w}.ttf"), s)
+
+
+def logo(img, x_right, y, h):
+    """The centre's logo, small, right-aligned in the header."""
+    from PIL import Image
+    lg = Image.open(FONTS / "logo-header.png").convert("RGB")
+    lg = lg.resize((int(lg.width * h / lg.height), h), Image.LANCZOS)
+    img.paste(lg, (x_right - lg.width, y))
 
 
 def tw(d, t, f):
@@ -98,10 +107,12 @@ def draw(data):
     # ---- header
     kind = data.get("kind") or "BÀI TẬP VỀ NHÀ"
     d.rectangle((0, 0, W, 236), fill=NAVY)
-    chip(d, P, 30, kind, NAVY, (255, 255, 255), F("Bold", 26), h=42)
+    d.rectangle((0, 232, W, 236), fill=GOLD)
+    logo(img, W - 30, 20, 96)
+    chip(d, P, 30, kind, NAVY, GOLD, F("Bold", 26), h=42)
     d.text((P, 86), f"{data['cls']} · {data['title']}", font=f_t, fill=(255, 255, 255))
     d.text((P, 158), f"Hạn nộp {data['deadline']:%d/%m/%Y}  ·  Tổng kết lúc {data['made']:%H:%M %d/%m}",
-           font=f_s, fill=(199, 210, 254))
+           font=f_s, fill=(214, 219, 240))
     y = 256
 
     # ---- KPI tiles
@@ -115,7 +126,7 @@ def draw(data):
              (f"{len(on)}", "nộp đúng hạn", GREEN),
              (f"{len(ok)}/{len(handed)}", "vở đạt yêu cầu", GREEN if len(ok) * 2 >= max(len(handed), 1) else AMBER)]
     if not nb_only:
-        tiles.append(((f"{sum(bands) / len(bands):.1f}" if bands else "—"), f"band bài viết TB ({len(bands)} bài)", BLUE))
+        tiles.append(((f"{sum(bands) / len(bands):.1f}" if bands else "—"), f"band TB ({len(bands)} bài)", BLUE))
     tw_ = (W - 2 * P - (len(tiles) - 1) * 20) // len(tiles)
     for i, (big, lab, c) in enumerate(tiles):
         x = P + i * (tw_ + 20)
@@ -273,9 +284,11 @@ def split(img, data, marks, n):
         pg = Image.new("RGB", (W, H), BG)
         d = ImageDraw.Draw(pg)
         d.rectangle((0, 0, W, 120), fill=NAVY)
+        d.rectangle((0, 116, W, 120), fill=GOLD)
+        logo(pg, W - 24, 18, 80)
         d.text((P, 22), f"{data['cls']} · {data['title']}", font=F("Bold", 40), fill=(255, 255, 255))
         d.text((P, 74), f"Từng bạn ({k + 1}/{len(chunks)})" if len(chunks) > 1 else "Từng bạn",
-               font=F("Regular", 28), fill=(199, 210, 254))
+               font=F("Regular", 28), fill=(214, 219, 240))
         pg.paste(colhead, (0, 150))
         y = 150 + colhead.height
         if rows:
@@ -317,9 +330,11 @@ def draw_inclass(data):
     img = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(img)
     d.rectangle((0, 0, W, 236), fill=NAVY)
-    chip(d, P, 30, "BÀI VIẾT TRÊN LỚP", NAVY, (255, 255, 255), F("Bold", 26), h=42)
+    d.rectangle((0, 232, W, 236), fill=GOLD)
+    logo(img, W - 30, 20, 96)
+    chip(d, P, 30, "BÀI VIẾT TRÊN LỚP", NAVY, GOLD, F("Bold", 26), h=42)
     d.text((P, 86), f"{data['cls']} · {data['title']}", font=f_t, fill=(255, 255, 255))
-    d.text((P, 158), f"Ngày học {data['date']}  ·  Tổng kết lúc {data['made']:%H:%M %d/%m}", font=f_s, fill=(199, 210, 254))
+    d.text((P, 158), f"Ngày học {data['date']}  ·  Tổng kết lúc {data['made']:%H:%M %d/%m}", font=f_s, fill=(214, 219, 240))
     y = 256
     tiles = [(f"{len(has)}/{len(pupils)}", "có bài viết", NAVY), (f"{len(pupils) - len(has)}", "không có bài", RED)]
     if scored:
