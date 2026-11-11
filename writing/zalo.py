@@ -274,11 +274,27 @@ def code_names():
     return out
 
 
-def paper_stats(res, fighter):
+SEVERITY = {"S1": 1, "S2": 2, "S3": 4}
+
+
+def quality_pct(errors, words, free_length=False):
+    """Cô 12/11: '% chất lượng' of an unscored Fighter paragraph, computed by code from the corrections:
+    100 − 2.5 × (S1 + 2·S2 + 4·S3 per 150 words), scaled down when shorter than 140 words. Fitted on 124 graded
+    Fighter tests against Cô's /1 rubric (mean gap ≈ 10 points)."""
+    w = words or 0
+    pen = sum(SEVERITY.get(e.get("severity"), 1) for e in errors or [])
+    pct = 100 - 2.5 * pen * 150 / max(w, 100)
+    if not free_length and w < 140:
+        pct *= w / 140
+    return max(0, min(100, round(pct)))
+
+
+def paper_stats(res, fighter, free_length=False):
     """Per pupil, counted from the graded result (free): words and errors per group (+ class conventions)."""
-    st = {"words": None, "vocab": 0, "grammar": 0, "coherence": 0, "ql": 0, "codes": []}
+    st = {"words": None, "vocab": 0, "grammar": 0, "coherence": 0, "ql": 0, "codes": [], "pct": None}
     if fighter:
         st["words"] = (res.get("_qa") or {}).get("words")
+        st["pct"] = quality_pct(res.get("errors"), st["words"], free_length)
         for e in res.get("errors") or []:
             code = str(e.get("code") or "")
             if code.startswith("QL"):
@@ -361,7 +377,7 @@ def make_inclass(runner, scans_state, now=None):
             p = {"name": nice(n), "has": bool(s), "band": None, "level": None, "done": bool(s)}
             if s:
                 res = s.get("result") or {}
-                p["stats"] = paper_stats(res, fighter)
+                p["stats"] = paper_stats(res, fighter, meta.get("buoi") == 13)
                 if not test:
                     comments.append(res.get("overall") or " ".join(t.get("overall", "") for t in res.get("tasks") or []))
                 if scored and fighter:

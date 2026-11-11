@@ -178,7 +178,7 @@ def table_pages(data, cols, rows_draw, n, foot):
                font=sans(23), fill=MUTED)
         y = 150
         for lab, x in cols:
-            d.text((x, y), lab, font=sans(22, "SemiBold"), fill=MUTED)
+            d.text((x, y), lab, font=sans(21, "SemiBold"), fill=MUTED)
         y += 44
         d.line((P, y, SW - P, y), fill=LINE, width=2)
         for i in idx:
@@ -295,7 +295,17 @@ def draw_inclass(data):
     y = heading(d, kind, data["cls"], data["title"],
                 f"Ngày {'kiểm tra' if kind == 'Bài kiểm tra' else 'học'} {data['date']}, tổng kết lúc {data['made']:%H:%M} ngày {data['made']:%d/%m/%Y}")
     y = rule(d, y)
-    if scored and bands:
+    sm0 = data.get("summary") or {}
+    pcts = [p["stats"]["pct"] for p in has if (p.get("stats") or {}).get("pct") is not None] if sm0.get("fighter") else []
+    if pcts:   # Cô 12/11: unscored Fighter paragraphs show a quality percentage
+        best = max(pcts)
+        stars = [p for p in has if (p.get("stats") or {}).get("pct") is not None and p["stats"]["pct"] >= best - 5][:6]
+        caution = ["% chất lượng: máy tính từ số lỗi Cô đã chữa và mức nặng nhẹ (trên mỗi 150 từ,",
+                   "bài ngắn dưới 140 từ bị trừ theo độ dài). Đây là bài viết trên lớp có hướng dẫn,",
+                   "không phải điểm thi."]
+    if pcts:
+        seal(d, P + 112, y + 126, f"{round(sum(pcts) / len(pcts))}%", "chất lượng TB")
+    elif scored and bands:
         seal(d, P + 112, y + 126, seal_val(sum(bands) / len(bands)), "điểm TB /1" if unit == "/1" else "band TB lớp")
     else:
         seal(d, P + 112, y + 126, f"{len(has)}/{len(pupils)}", "có bài viết")
@@ -304,8 +314,11 @@ def draw_inclass(data):
     y += 270
     if stars:
         y = rule(d, y)
-        y = label(d, y, "Tuyên dương: " + ("bài tốt nhất" if scored else "bài viết cẩn thận, ít lỗi"))
-        y = praise(d, y, stars, scored, val)
+        y = label(d, y, "Tuyên dương: " + ("bài tốt nhất" if scored or pcts else "bài viết cẩn thận, ít lỗi"))
+        if pcts:
+            y = praise(d, y, [dict(p, band=p["stats"]["pct"]) for p in stars], True, lambda v: f"{int(v)}%")
+        else:
+            y = praise(d, y, stars, scored, val)
     if crit:
         y = rule(d, y + 10)
         y = label(d, y, f"Chất lượng {len(bands)} bài viết (trung bình)")
@@ -372,8 +385,8 @@ def draw_inclass(data):
     X_HAS, X_RES = 520, 770
     cols = [("Họ tên", P), ("Bài viết", X_HAS), ("Kết quả", X_RES)]
     if sm:   # per-pupil stats instead of a bare "Đã chữa"
-        XS = [372, 462, 572, 692, 812] if sm.get("fighter") else [372, 482, 592, 702, 812]
-        heads = (["Số từ", "Từ vựng", "Ngữ pháp", "Lập luận", "Quy ước"] if sm.get("fighter")
+        XS = [352, 496, 604, 718, 830] if sm.get("fighter") else [372, 482, 592, 702, 812]
+        heads = (["Chất lượng", "Từ vựng", "Ngữ pháp", "Lập luận", "Quy ước"] if sm.get("fighter")
                  else ["Band", "Số từ", "Từ vựng", "Ngữ pháp", "Lập luận"])
         cols = [("Họ tên", P)] + list(zip(heads, XS))
 
@@ -384,20 +397,24 @@ def draw_inclass(data):
                 status(d, XS[0], y, "Không có bài", ROSE)
                 return
             st = p.get("stats") or {}
-            vals = ([st.get("words"), st.get("vocab"), st.get("grammar"), st.get("coherence"), st.get("ql")]
+            vals = ([f"{st['pct']}%" if st.get("pct") is not None else "—", st.get("vocab"), st.get("grammar"),
+                     st.get("coherence"), st.get("ql")]
                     if sm.get("fighter") else
                     [val(p["band"]) if p.get("band") is not None else "—", st.get("words"), st.get("vocab"),
                      st.get("grammar"), st.get("coherence")])
             for k, (x, v) in enumerate(zip(XS, vals)):
-                bold = not sm.get("fighter") and k == 0
+                bold = k == 0
                 d.text((x, y + (13 if bold else 17)), "—" if v is None else str(v),
                        font=sans(29 if bold else 25, "SemiBold" if bold else "Regular"), fill=NAVY if bold else INK)
 
-        foot = ["Số lỗi là số chỗ Cô đã chữa trong bài của con, theo từng nhóm.",
-                f"“Không có bài”: máy không thấy bài của con trong tập scan của buổi này.",
-                "Bài chữa chi tiết và bản sửa gợi ý của từng bạn: xem trên dashboard phụ huynh."]
+        foot = ["Số lỗi là số chỗ Cô đã chữa trong bài của con, theo từng nhóm."]
+        if sm.get("fighter"):
+            foot.append("% chất lượng: máy tính từ số lỗi, mức nặng nhẹ và độ dài bài, không phải điểm thi.")
+        foot += [
+                 "“Không có bài”: máy không thấy bài của con trong tập scan của buổi này.",
+                 "Bài chữa chi tiết và bản sửa gợi ý của từng bạn: xem trên dashboard phụ huynh."]
         if data.get("unknown"):
-            foot.insert(2, f"Có {data['unknown']} tờ chưa đọc được tên học sinh nên chưa ghi vào bảng.")
+            foot.insert(len(foot) - 1, f"Có {data['unknown']} tờ chưa đọc được tên học sinh nên chưa ghi vào bảng.")
         return pages + table_pages(data, cols, rows, len(pupils), foot)
 
     def rows(d, i, y):
