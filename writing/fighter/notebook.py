@@ -52,6 +52,7 @@ VERIFY_MODEL = "claude-sonnet-5-5"
 LEAN_MODEL = "claude-sonnet-5-5"     # Cô 11/11: lecture-copy notebooks (GF, AP) read ONCE by Sonnet, sent as a batch (half price)
 LEAN_PROGS = {"GF", "AP"}
 LEAN_SIDE = 1200                     # photo size for that read: enough to see the handwriting, a third of the image cost
+HAIKU_FIRST = False                  # Cô 11/11 17:01: no Haiku at all, Sonnet reads every notebook once
 AUDIT_EVERY = 10                     # one Haiku pass in 10 is checked by Sonnet as well (keeps Haiku honest, measured)
 LEAN_ALL = True                      # Cô 11/11 ("Sonnet chấm đúng hết"): every notebook — vocab books and reading books too
 COMPARE_SHEET = "1eDLM26_CcNb7PFtxKuJG2wV3f1b7KW-2EqABTabVidA"   # Cô 11/11: Haiku results since 08/11 read again by Sonnet, old vs new
@@ -1514,9 +1515,15 @@ class FighterNotebooks:
 
     def tier(self, s):
         """Cô 11/11 (cost): Haiku reads every notebook first; Sonnet only for a notebook Haiku would not pass (and a 1-in-10 audit)."""
+        if not HAIKU_FIRST:
+            return LEAN_MODEL
         return LEAN_MODEL if s.get("_tier") == "sonnet" else MODEL
 
     def grade_tiered(self, sid, s):
+        if not HAIKU_FIRST:   # Cô 11/11 17:01: "Haiku sai lắm" — Sonnet only
+            r = self.grade(sid, s)
+            r["by"] = "sonnet"
+            return r
         s["_tier"] = "haiku"
         r = self.grade(sid, s)
         ok = r.get("kind") == "scored" and self.comment(dict(s, hadEarlier=False), r, 0)[1]
