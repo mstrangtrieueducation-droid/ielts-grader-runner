@@ -197,7 +197,19 @@ def maybe_send(runner, scans, force=False):
     if not (tag or force):
         return False
     since = _t(state.get("lastReportAt") or "") or now.replace(hour=0, minute=0, second=0, microsecond=0)
+    try:   # Cô 11/11: one picture per class & week for the Zalo group, attached to this mail by her mail script
+        import zalo
+        pics = zalo.make(runner, now)
+    except Exception as e:
+        pics = []
+        runner.tick(f"zalo_failed_{type(e).__name__}")
     mail = build(state, scans, since, now)
+    if pics:   # class names only: the pictures themselves stay in each class tracker
+        mail["zalo"] = pics
+        line = ("Ảnh tình hình nộp bài viết để gửi nhóm Zalo lớp (" + ", ".join(pics) + ") được đính kèm mail này. "
+                "Cô lưu ảnh về điện thoại rồi chuyển vào nhóm lớp nhé.")
+        mail["text"] += "\n\n" + line
+        mail["html"] += "<p>" + line + "</p>"
     reports = state.setdefault("reports", [])
     reports.append({"id": now.isoformat(timespec="seconds"), **mail})
     del reports[:-30]
