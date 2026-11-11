@@ -21,7 +21,7 @@ VN = dt.timezone(dt.timedelta(hours=7))
 TAB = "Ảnh Zalo"
 HEAD = ["id", "lớp", "tiêu đề", "tạo lúc", "đã gửi"] + [f"phần {i}" for i in range(1, 11)]
 CHUNK = 45000
-WINDOW = dt.timedelta(days=3)          # deadlines further back are history: no picture
+WINDOW = dt.timedelta(days=8)          # the lesson day is within a week of the deadline
 FONTS = Path(__file__).parent / "fonts"
 
 
@@ -119,17 +119,32 @@ def ensure_tab(g, sid):
 PENDING = ("new", "submitted", "graded", "essay_new", "essay_submitted")
 
 
+def class_day(runner, cls, deadline):
+    """Cô 11/11: the homework picture goes out on the class's lesson day. The homework deadline is the night
+    before the lesson, so the lesson day is the day after the deadline unless cfg 'classDays' says otherwise
+    (weekday numbers, Monday = 0)."""
+    days = (runner.cfg.get("classDays") or {}).get(cls)
+    d = deadline.astimezone(VN).date() + dt.timedelta(days=1)
+    if days:
+        while d.weekday() not in days:
+            d += dt.timedelta(days=1)
+    return d
+
+
 def ready(runner, cls, code, deadline, now):
-    """Every piece handed in for that class & week has its result (or 36 h passed since the deadline)."""
-    if now > deadline + dt.timedelta(hours=36):
+    """On the lesson day: every piece handed in has its result, or it is 17:00 (send what there is)."""
+    if now.astimezone(VN).date() < class_day(runner, cls, deadline):
+        return False
+    if now.astimezone(VN).hour >= 17 or now.astimezone(VN).date() > class_day(runner, cls, deadline):
         return True
     return not any(s.get("className") == cls and s.get("assignment") == code and s.get("status") in PENDING
                    for s in runner.state.get("subs", {}).values())
 
 
 def make(runner, now=None):
-    """Each cycle (Cô 11/11): a class's picture is made as soon as the whole class has its results, between
-    08:00 and 20:00 only, and sent to Cô in its own mail. Returns [(class, title)] made this time."""
+    """Each cycle (Cô 11/11): a class's homework picture goes out on its lesson day (the day after the deadline),
+    08:00–20:00, once the class has its results (17:00 at the latest), in its own mail. A week without homework
+    has no deadline, so nothing is sent. Returns [(class, title)] made this time."""
     now = now or dt.datetime.now(VN)
     if not (8 <= now.astimezone(VN).hour < 20):
         return []
@@ -196,6 +211,12 @@ def make_inclass(runner, scans_state, now=None):
             continue
         cls = meta["cls"]
         if cls not in runner.cfg["classes"]:
+            continue
+        try:   # Cô 11/11: in-class picture the day after the lesson
+            lesson = dt.datetime.strptime(meta["date"], "%d/%m/%Y").date()
+        except Exception:
+            continue
+        if now.astimezone(VN).date() < lesson + dt.timedelta(days=1):
             continue
         spec = sc.pack_for(meta) or {}
         scored = spec.get("schema") == "ielts"
