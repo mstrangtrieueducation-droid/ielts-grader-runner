@@ -589,6 +589,10 @@ def run(runner, only=None, limit_files=None):
         for rec in sc.st["files"].values():   # a long scan could overflow the page-reading answer: retry once
             if rec["status"] == "error" and rec.get("error") == "JSONDecodeError" and not rec.get("retried"):
                 rec.update(status="new", retried=True, students={})
+        for fid in runner.cfg.get("scanDone") or []:   # Cô already graded these in the old system: leave them alone
+            rec = sc.st["files"].get(fid)
+            if rec and rec["status"] != "teacher_done":
+                rec.update(status="teacher_done", rescued=2, retried=True)
         for fid in runner.cfg.get("scanApprovedOld") or []:   # papers from before go-live that Cô asked to grade
             rec = sc.st["files"].get(fid)
             if rec and not rec.get("approvedOld") and rec.get("meta") and rec["meta"].get("cls") in runner.cfg["classes"]:
