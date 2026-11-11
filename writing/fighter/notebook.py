@@ -52,6 +52,7 @@ VERIFY_MODEL = "claude-sonnet-5-5"
 LEAN_MODEL = "claude-sonnet-5-5"     # Cô 11/11: lecture-copy notebooks (GF, AP) read ONCE by Sonnet, sent as a batch (half price)
 LEAN_PROGS = {"GF", "AP"}
 LEAN_SIDE = 1200                     # photo size for that read: enough to see the handwriting, a third of the image cost
+AUDIT_EVERY = 10                     # one Haiku pass in 10 is checked by Sonnet as well (keeps Haiku honest, measured)
 LEAN_ALL = True                      # Cô 11/11 ("Sonnet chấm đúng hết"): every notebook — vocab books and reading books too
 COMPARE_SHEET = "1eDLM26_CcNb7PFtxKuJG2wV3f1b7KW-2EqABTabVidA"   # Cô 11/11: Haiku results since 08/11 read again by Sonnet, old vs new
 LEAN_TABLE_SIDE = 1400               # vocab tables have 7 narrow columns: a little sharper
@@ -176,7 +177,7 @@ những gì nhìn thấy. Học sinh phải có: đoạn REVISED VERSION tự vi
    REVISED VERSION, cùng đề bài, khác bài mẫu); words = số chữ ước lượng (0 nếu không có).
 3. model: present = yes nếu có chép bài mẫu; lastSentence = SỐ THỨ TỰ câu cuối cùng của bài mẫu (đánh số bên dưới) mà học sinh
    đã chép tới (đọc hết ô Bài mẫu tham khảo, kể cả dòng cuối trang và trang sau). Chép hết → số câu cuối cùng; không chép → 0.
-4. vocab: danh sách các từ/cụm từ tiếng Anh học sinh đã ghi (mục từ vựng ở bất kỳ chỗ nào trên trang), mỗi mục một chuỗi, nguyên văn.
+4. vocab: danh sách các từ/cụm từ tiếng Anh học sinh đã ghi trong MỤC TỪ VỰNG RIÊNG (danh sách từ kèm nghĩa, ở bất kỳ chỗ nào trên trang), mỗi mục một chuỗi, nguyên văn. KHÔNG tính các cụm chỉ nằm trong câu của bài mẫu hay đoạn văn — các cụm đó có sẵn trong bài mẫu.
 5. otherLesson = true nếu vở chủ yếu là bài của một buổi khác (đề bài khác).
 
 BÀI MẪU (để đối chiếu, đã đánh số câu):
@@ -787,12 +788,12 @@ class FighterNotebooks:
                                                                  vocab="\n".join(ref["vocab"]))})
         cat = f"{s['cls']} · {KIND_NAME[s['prog']].capitalize()} · {s['code']}"
         if lean:
-            r1 = self.call(content, AP_SCHEMA, cat, model=LEAN_MODEL, batch=True)
+            r1 = self.call(content, AP_SCHEMA, cat, model=self.tier(s), batch=True)
             out = self.ap_score([r1], ref, imgs, hashes, reused)
-            if out["kind"] in ("scored", "wrong_unit") and out["pct"] < 50 and side < SIDE:
+            if out["kind"] in ("scored", "wrong_unit") and out["pct"] < 50 and side < SIDE and self.tier(s) == LEAN_MODEL:
                 # looks like a misread (half the notebook unseen): second look at full size, merged in the pupil's favour
                 content[1:1 + len(imgs)] = [img_block(b, SIDE) for b in imgs]
-                r2 = self.call(content, AP_SCHEMA, cat, model=LEAN_MODEL, batch=True)
+                r2 = self.call(content, AP_SCHEMA, cat, model=self.tier(s), batch=True)
                 out = self.ap_score([r1, r2], ref, imgs, hashes, reused)
                 out["secondLook"] = True
             return out
@@ -870,12 +871,12 @@ class FighterNotebooks:
             content.append({"type": "text", "text": LEAN_COPY_PROMPT.format(
                 title=COPY[s["prog"]][s["code"]].get("title") or s["code"], parts=parts)})
             cat = f"{s['cls']} · {KIND_NAME[s['prog']].capitalize()} · {s['code']}"
-            read = self.call(content, LEAN_COPY_SCHEMA, cat, model=LEAN_MODEL, batch=True)
+            read = self.call(content, LEAN_COPY_SCHEMA, cat, model=self.tier(s), batch=True)
             out = lean_copy_result(read, les["parts"], imgs, hashes, reused)
-            if out["kind"] in ("scored", "wrong_unit", "unreadable") and out["pct"] < 50 and side < SIDE:
+            if out["kind"] in ("scored", "wrong_unit", "unreadable") and out["pct"] < 50 and side < SIDE and self.tier(s) == LEAN_MODEL:
                 # looks like a misread (most parts unseen): Sonnet looks again at full size; best of the two
                 content[1:1 + len(imgs)] = [img_block(b, SIDE) for b in imgs]
-                read2 = self.call(content, LEAN_COPY_SCHEMA, cat, model=LEAN_MODEL, batch=True)
+                read2 = self.call(content, LEAN_COPY_SCHEMA, cat, model=self.tier(s), batch=True)
                 rank = {"missing": 0, "unreadable": 1, "copied": 2}
                 both = {x["id"]: x["status"] for x in read.get("parts", [])}
                 for x in read2.get("parts", []):
@@ -1001,13 +1002,13 @@ class FighterNotebooks:
         cat = f"{s['cls']} · {KIND_NAME[s['prog']].capitalize()} · {s['code']}"
         if lean:   # one Sonnet read (Message Batch); a failing book gets a second look at full size, merged as before
             content[-1] = dict(content[-1], text=content[-1]["text"] + LEAN_NOTE)
-            a = unpack(self.call(content, LEAN_READING_SCHEMA, cat, 20000, model=LEAN_MODEL, batch=True))
+            a = unpack(self.call(content, LEAN_READING_SCHEMA, cat, 20000, model=self.tier(s), batch=True))
             b = a
             v1 = score({"entries": ref["words"]}, {"entries": a.get("entries", [])})
             done = len({x["n"] for x in a.get("answers", [])})
-            if min(v1["pct"], round(100 * done / ref["total"]) if ref["total"] else 0) < 20 and side < SIDE:
+            if min(v1["pct"], round(100 * done / ref["total"]) if ref["total"] else 0) < 20 and side < SIDE and self.tier(s) == LEAN_MODEL:
                 content[1:1 + len(imgs)] = [img_block(x, SIDE) for x in imgs]   # looks like a misread: full-size second look
-                b = unpack(self.call(content, LEAN_READING_SCHEMA, cat, 20000, model=LEAN_MODEL, batch=True))
+                b = unpack(self.call(content, LEAN_READING_SCHEMA, cat, 20000, model=self.tier(s), batch=True))
         else:
             with cf.ThreadPoolExecutor(2) as ex:
                 a, b = ex.map(lambda _: self.call(content, READING_SCHEMA, cat, 20000), range(2))
@@ -1068,10 +1069,14 @@ class FighterNotebooks:
                     raise RuntimeError("BATCH_" + got["_error"])
                 return got["out"]
             if key not in self.st.setdefault("batchPending", {}):
-                self.queue[key] = {"cat": category, "params": {
-                    "model": model, "max_tokens": max_tokens, "thinking": {"type": "between_tools"},
-                    "output_config": {"format": {"type": "json_schema", "schema": schema}},
-                    "messages": [{"role": "user", "content": content}]}}
+                params = ({"model": model, "max_tokens": max_tokens, "thinking": {"type": "disabled"},
+                           "tools": [{"name": "record", "description": "Ghi lại kết quả", "input_schema": schema}],
+                           "tool_choice": {"type": "tool", "name": "record"}, "messages": [{"role": "user", "content": content}]}
+                          if model == MODEL else
+                          {"model": model, "max_tokens": max_tokens, "thinking": {"type": "between_tools"},
+                           "output_config": {"format": {"type": "json_schema", "schema": schema}},
+                           "messages": [{"role": "user", "content": content}]})
+                self.queue[key] = {"cat": category, "params": params}
             raise Pending()
         if model == MODEL:
             r = self.cl.messages.create(model=model, max_tokens=max_tokens, thinking={"type": "disabled"},
@@ -1167,11 +1172,11 @@ class FighterNotebooks:
         if lean:   # one Sonnet read (Message Batch); a failing book gets a second look at full size, merged as before
             cat = f"{s['cls']} · Sổ từ vựng · {s['code']}"
             content[-1] = dict(content[-1], text=content[-1]["text"].replace("Mẫu sổ (ảnh đầu tiên) có", "Sổ có") + LEAN_NOTE)
-            a = unpack(self.call(content, LEAN_SCHEMA, cat, model=LEAN_MODEL, batch=True))
+            a = unpack(self.call(content, LEAN_SCHEMA, cat, model=self.tier(s), batch=True))
             b, c = a, 0.0
-            if score(unit, {"entries": a.get("entries", [])})["pct"] < 20 and side < SIDE:   # looks like a misread
+            if score(unit, {"entries": a.get("entries", [])})["pct"] < 20 and side < SIDE and self.tier(s) == LEAN_MODEL:   # looks like a misread
                 content[3:3 + len(imgs)] = [img_block(x, SIDE) for x in imgs]
-                b = unpack(self.call(content, LEAN_SCHEMA, cat, model=LEAN_MODEL, batch=True))
+                b = unpack(self.call(content, LEAN_SCHEMA, cat, model=self.tier(s), batch=True))
         else:      # two independent Haiku reads, merged in the pupil's favour
             with cf.ThreadPoolExecutor(2) as ex:
                 (a, ca), (b, cb) = ex.map(lambda _: read(), range(2))
@@ -1507,6 +1512,28 @@ class FighterNotebooks:
                 tr.write(s["cell"], prefix.rstrip())
                 self.tick("unpublished_partial_read")
 
+    def tier(self, s):
+        """Cô 11/11 (cost): Haiku reads every notebook first; Sonnet only for a notebook Haiku would not pass (and a 1-in-10 audit)."""
+        return LEAN_MODEL if s.get("_tier") == "sonnet" else MODEL
+
+    def grade_tiered(self, sid, s):
+        s["_tier"] = "haiku"
+        r = self.grade(sid, s)
+        ok = r.get("kind") == "scored" and self.comment(dict(s, hadEarlier=False), r, 0)[1]
+        audit = int(h(sid, 8), 16) % AUDIT_EVERY == 0
+        if ok and not audit:
+            s.pop("_tier", None)
+            r["by"] = "haiku"
+            return r
+        s["_tier"] = "sonnet"
+        r2 = self.grade(sid, s)
+        s.pop("_tier", None)
+        if ok:   # audit of a Haiku pass
+            ok2 = r2.get("kind") == "scored" and self.comment(dict(s, hadEarlier=False), r2, 0)[1]
+            self.tick("audit_agree" if ok2 else "audit_haiku_wrong")
+        r2["by"] = "sonnet"
+        return r2
+
     def collect_batches(self):
         pend, res = self.st.setdefault("batchPending", {}), self.st.setdefault("batchRes", {})
         for bid, info in list(self.st.setdefault("batches", {}).items()):
@@ -1535,8 +1562,9 @@ class FighterNotebooks:
                     self.tick("batch_reads")
                     self.tick("batch_read_vnd", round(c * cw.USD_VND))
                     txt = "".join(x.get("text") or "" for x in m["content"] if x.get("type") == "text")
+                    tool = next((x.get("input") for x in m["content"] if x.get("type") == "tool_use"), None)
                     try:
-                        res[key] = {"out": json.loads(txt), "at": now().isoformat()}
+                        res[key] = {"out": tool if tool is not None else json.loads(txt), "at": now().isoformat()}
                     except ValueError:
                         res[key] = {"_error": "truncated" if m.get("stop_reason") == "max_tokens" else "bad_json"}
             for key in info["keys"]:
@@ -1600,7 +1628,7 @@ class FighterNotebooks:
                 self.tick("regrade_reuse_order")
         for s in subs.values():   # Cô 11/11: every notebook Haiku graded is read again once by Sonnet, old result kept for comparison
             r = s.get("result") or {}
-            if LEAN_ALL and s["status"] == "published" and not s.get("haikuRegrade") and r.get("by") != "sonnet" and not r.get("lean"):
+            if LEAN_ALL and s["status"] == "published" and not s.get("haikuRegrade") and "by" not in r and not r.get("lean"):
                 s.update(prevPublished=s.get("published") or "", prevOk=s.get("ok"), status="new", tries=0, regrade=True, haikuRegrade=True)
                 self.tick("regrade_haiku")
         for s in subs.values():
@@ -1644,13 +1672,11 @@ class FighterNotebooks:
             s["cell"], s["deadline"] = a1, deadline.isoformat() if deadline else None
             todo.append((sid, s))
         with cf.ThreadPoolExecutor(6) as ex:
-            futs = {ex.submit(self.grade, sid, s): (sid, s) for sid, s in todo}
+            futs = {ex.submit(self.grade_tiered if LEAN_ALL else self.grade, sid, s): (sid, s) for sid, s in todo}
             for fu in cf.as_completed(futs):
                 sid, s = futs[fu]
                 try:
                     s["result"] = fu.result()
-                    if LEAN_ALL:
-                        s["result"]["by"] = "sonnet"
                     s["status"] = "graded"
                     self.tick("graded")
                 except Pending:
