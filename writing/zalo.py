@@ -193,9 +193,10 @@ def make(runner, now=None):
     08:00–20:00, once the class has its results (17:00 at the latest), in its own mail. A week without homework
     has no deadline, so nothing is sent. Returns [(class, title)] made this time."""
     now = now or dt.datetime.now(VN)
-    if not (8 <= now.astimezone(VN).hour < 20):
-        return []
+    force = set(runner.cfg.get("zaloForce") or [])   # Cô asks for a picture now: "IELTS 47|IELTS-WRITING-W28"
     done = runner.state.setdefault("zaloDone", [])
+    if not (8 <= now.astimezone(VN).hour < 20) and not (force - set(done)):
+        return []
     made = []
     for cls in sorted(runner.cfg["classes"]):
         for a in runner.cfg["assignments"]:
@@ -209,10 +210,13 @@ def make(runner, now=None):
                 col, deadline = runner.tracker(cls).column(code)
             except Exception:
                 continue
-            if not col or not deadline or not (deadline < now <= deadline + WINDOW):
+            if not col or not deadline:
                 continue
-            if not ready(runner, cls, code, deadline, now):
-                continue
+            if key not in force:
+                if not (8 <= now.astimezone(VN).hour < 20) or not (deadline < now <= deadline + WINDOW):
+                    continue
+                if not ready(runner, cls, code, deadline, now):
+                    continue
             pupils, crit = collect(runner, cls, code, deadline)
             if not pupils:
                 continue
