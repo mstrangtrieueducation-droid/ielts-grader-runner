@@ -133,7 +133,8 @@ def class_day(runner, cls, deadline):
 
 def ready(runner, cls, code, deadline, now):
     """On the lesson day: every piece handed in has its result, or it is 17:00 (send what there is)."""
-    if now.astimezone(VN).date() < class_day(runner, cls, deadline):
+    day = class_day(runner, cls, deadline)
+    if not (day <= now.astimezone(VN).date() <= day + dt.timedelta(days=1)):   # missed by > 1 day: not sent late
         return False
     if now.astimezone(VN).hour >= 17 or now.astimezone(VN).date() > class_day(runner, cls, deadline):
         return True
