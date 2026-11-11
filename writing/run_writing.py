@@ -783,6 +783,7 @@ def main():
             try:   # Cô 11/11: Zalo picture per class & week as soon as the class is complete (08:00–20:00)
                 import zalo
                 zalo.make(run)
+                zalo.make_inclass(run, load_json(STATE_DIR / "scans.json", {}))
             except Exception as e:
                 run.tick(f"zalo_failed_{type(e).__name__}")
         if mode in ("cycle", "report"):

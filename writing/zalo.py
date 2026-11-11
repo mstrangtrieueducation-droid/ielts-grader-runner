@@ -49,7 +49,7 @@ def roster(runner, cls):
     tr = runner.tracker(cls)
     vals = runner.g.values(tr.id, f"'{tr.tab}'!A1:B200") or []
     out = []
-    for r in vals[5:]:
+    for r in vals[1:]:
         if len(r) >= 2 and str(r[0]).strip().isdigit() and r[1].strip():
             out.append(r[1].strip().split("\n")[0])
     return out
@@ -169,6 +169,74 @@ def make(runner, now=None):
             del done[:-400]
             made.append((cls, title))
             runner.tick("zalo_picture")
+    if made:
+        import report
+        report.zalo_mail(runner, made, now)
+    return made
+
+
+FINAL = ("published", "dropped", "unidentified")
+
+
+def make_inclass(runner, scans_state, now=None):
+    """In-class writing (Cô 11/11): one picture per scanned in-class file once every paper in it has its result,
+    08:00–20:00, own mail. Returns [(class, title)]."""
+    import scans as sc
+    now = now or dt.datetime.now(VN)
+    if not (8 <= now.astimezone(VN).hour < 20):
+        return []
+    done = runner.state.setdefault("zaloDone", [])
+    made = []
+    for fid, rec in (scans_state or {}).get("files", {}).items():
+        meta = rec.get("meta") or {}
+        if meta.get("kind") != "inclass" or rec.get("status") != "graded" or f"scan|{fid}" in done:
+            continue
+        studs = [s for s in rec.get("students", {}).values()]
+        if not studs or any(s.get("status") not in FINAL for s in studs):
+            continue
+        cls = meta["cls"]
+        if cls not in runner.cfg["classes"]:
+            continue
+        spec = sc.pack_for(meta) or {}
+        scored = spec.get("schema") == "ielts"
+        got = {key_of(s["name"]): s for s in studs if s.get("name") and s.get("status") == "published"}
+        pupils, crit = [], {}
+        for n in roster(runner, cls):
+            s = got.get(key_of(n))
+            p = {"name": nice(n), "has": bool(s), "band": None, "level": None, "done": bool(s)}
+            if s:
+                res = s.get("result") or {}
+                if scored:
+                    for t in res.get("tasks", []):
+                        ca = ((t.get("_qa") or {}).get("classScore") or {}).get("classAssessment") or {}
+                        if ca.get("overallBand") is not None:
+                            p["band"] = float(ca["overallBand"])
+                        for k, v in (ca.get("criteria") or {}).items():
+                            k = "TR" if k in ("TA", "TR") else k
+                            if isinstance(v, (int, float)):
+                                crit.setdefault(k, []).append(v)
+                else:
+                    p["level"] = (res.get("_qa") or {}).get("level")
+            pupils.append(p)
+        if not pupils:
+            continue
+        title = (f"Đoạn văn Buổi {meta['buoi']}" if meta.get("buoi") else f"Bài viết W{meta.get('week')}")
+        if meta.get("task"):
+            title += f" · Task {meta['task']}"
+        import zalo_draw
+        png = zalo_draw.draw_inclass({"cls": cls, "title": title, "date": meta["date"], "made": now, "pupils": pupils,
+                                      "crit": {k: sum(v) / len(v) for k, v in crit.items()}, "scored": scored,
+                                      "unknown": sum(1 for s in studs if s.get("status") == "unidentified")})
+        b64 = base64.b64encode(png).decode()
+        parts = [b64[i:i + CHUNK] for i in range(0, len(b64), CHUNK)][:10]
+        sid = runner.cfg["classes"][cls]
+        ensure_tab(runner.g, sid)
+        runner.g.append_rows(sid, TAB, [[f"scan|{fid}|" + now.strftime("%Y%m%d%H%M"), cls, f"{cls} – {title}",
+                                         now.strftime("%d/%m/%Y %H:%M"), ""] + parts])
+        done.append(f"scan|{fid}")
+        del done[:-400]
+        made.append((cls, title))
+        runner.tick("zalo_picture_inclass")
     if made:
         import report
         report.zalo_mail(runner, made, now)

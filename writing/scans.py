@@ -58,12 +58,40 @@ def parse_name(title):
     lan = re.search(r"lần\s*(\d+)", t)
     task = re.search(r"task\s*([12])", t)
     kind = "test" if lan else ("inclass" if "trên lớp" in t or "buổi" in t else None)
-    return {"cls": f"{prog.upper()} {int(n)}", "date": f"{int(d):02d}/{int(mo):02d}/{y}", "kind": kind,
-            "n": int(lan.group(1)) if lan else None, "task": int(task.group(1)) if task else None}
+    out = {"cls": f"{prog.upper()} {int(n)}", "date": f"{int(d):02d}/{int(mo):02d}/{y}", "kind": kind,
+           "n": int(lan.group(1)) if lan else None, "task": int(task.group(1)) if task else None}
+    if kind == "inclass":   # Cô 11/11: in-class writing graded automatically too
+        b = re.search(r"buổi\s*0*(\d+)", t)
+        w = re.search(r"(?:bài|tuần|\bw)\s*0*(\d+)", t)
+        out["buoi"] = int(b.group(1)) if b else None
+        out["week"] = int(w.group(1)) if w else None
+    return out
+
+
+def label(meta):
+    """Human name of the paper: 'Kiểm tra lần 2', 'Viết trên lớp Buổi 5', 'Viết trên lớp bài 28'."""
+    if meta.get("kind") == "inclass":
+        if meta.get("buoi"):
+            return f"Viết trên lớp Buổi {meta['buoi']}"
+        return f"Viết trên lớp bài {meta.get('week')}"
+    return f"Kiểm tra lần {meta.get('n')}"
 
 
 def pack_for(meta):
     """Which approved pack grades this paper (None = not prepared yet → reported, not graded)."""
+    if meta["kind"] == "inclass":
+        if meta["cls"].startswith("FIGHTER"):
+            b = meta.get("buoi")
+            if not b:
+                return None
+            # rulebook v4 §1: Buổi 2–15 guided, no score; from Buổi 16 the /1 scale
+            return {"pack": "TEST-FIGHTER", "item": f"B{b:02d}", "mode": "khong-diem" if b <= 15 else "1-diem",
+                    "schema": "fighter", "inclass": True}
+        w = meta.get("week")
+        if not w or not (BUNDLE / "packs" / f"ESSAY-W{w:02d}" / "head.md").exists():
+            return None
+        task = json.loads((BUNDLE / "packs" / f"ESSAY-W{w:02d}" / "meta.json").read_text(encoding="utf-8")).get("task") or 2
+        return {"pack": f"ESSAY-W{w:02d}", "item": None, "mode": "ielts", "schema": "ielts", "tasks": [task], "inclass": True}
     if meta["kind"] != "test":
         return None
     if meta["cls"].startswith("FIGHTER"):
@@ -231,7 +259,7 @@ class Scans:
             key = h(g["name"], 10)
             content = self.reference_blocks(spec) + [img(jpeg(doc[i - 1], 1568)) for i in g["pages"]]
             content.append({"type": "text", "text":
-                f"Lớp {meta['cls']} · học sinh {g['name']} (đã đối chiếu danh sách lớp) · ngày kiểm tra {meta['date']} · "
+                f"Lớp {meta['cls']} · học sinh {g['name']} (đã đối chiếu danh sách lớp) · {label(meta)} · ngày {meta['date']} · "
                 f"{len(g['pages'])} trang ảnh theo thứ tự trên.\n{task_text}\nChép bài, chấm và chữa theo hướng dẫn."})
             schema = FIGHTER_SCHEMA if spec["schema"] == "fighter" else IELTS_SCHEMA
             cid = h(fid + key + rec["modified"], 40)
@@ -275,7 +303,21 @@ class Scans:
             b = self.cl.messages.batches.create(requests=reqs)
             self.st["batches"][b.id] = {"at": now().isoformat(), "map": mapping}
 
-    def task_text(self, spec):
+    def task_text(self, spec, meta=None):
+        if spec.get("inclass") and spec["schema"] == "fighter":
+            b = int(spec["item"][1:])
+            length = {12: "Buổi 12: tối thiểu 140 từ, không giới hạn trên.", 13: "Buổi 13: không giới hạn độ dài."}.get(
+                b, "Độ dài: 140–160 từ; 161–170 chấp nhận; dưới 140 cần phát triển; trên 170 cần rút gọn.")
+            mode = ("Chế độ: KHÔNG ĐIỂM (mục 1: viết trên lớp có hướng dẫn) — `score` = null; chỉ chữa lỗi, nhận xét, bản sửa."
+                    if spec["mode"] == "khong-diem" else "Chế độ: 1-điểm (mục 13) — từ Buổi 16.")
+            src = f"Nguồn đúng buổi: mục 'NGUỒN BUỔI {b}' trong tài liệu." if b <= 15 else "Buổi này chưa có nguồn riêng: không bắt em phải có ý của bài mẫu."
+            return (f"Bài viết đoạn văn TRÊN LỚP — Buổi {b}. {mode}\n{src} Đề: đọc trên ảnh bài làm; nếu ảnh không có đề, "
+                    f"dùng đề của buổi trong nguồn.\n{length}")
+        if spec.get("inclass"):
+            return (f"Bài viết TRÊN LỚP (viết tay), cùng chủ đề {spec['pack'].replace('ESSAY-', 'bài ')} trong tài liệu. "
+                    "Chấm như bài viết của tuần đó nhưng là bài viết tay trên lớp, không chấm phần vở. "
+                    f"Chấm Task {spec['tasks'][0]} (một mục trong `tasks`). Nếu đề trên giấy khác đề trong tài liệu, chấm theo đề "
+                    "trên giấy và ghi rõ ở `doubts`. Task 1 tối thiểu 150 từ, Task 2 tối thiểu 250 từ.")
         if spec["pack"] == "TEST-FIGHTER":
             kt = json.loads((BUNDLE / "packs/TEST-FIGHTER/kt.json").read_text(encoding="utf-8"))[spec["item"]]
             return (f"Bài kiểm tra tự viết {spec['item']} — chủ đề {kt['topic']}. Chế độ: 1-điểm (mục 13).\n"
@@ -333,7 +375,7 @@ class Scans:
                     continue
                 resp = item.result.message.model_dump()
                 c = cw.cost_usd(MODEL, resp["usage"], batch=True)
-                cw.ledger({"at": cw.now_iso(), "category": f"{rec['meta']['cls']} · Kiểm tra lần {rec['meta']['n']}",
+                cw.ledger({"at": cw.now_iso(), "category": f"{rec['meta']['cls']} · {label(rec['meta'])}",
                            "step": "grade-batch", "model": MODEL, "usage": resp["usage"], "usd": c,
                            "vnd": round(c * cw.USD_VND)})
                 try:
@@ -342,8 +384,11 @@ class Scans:
                     stu["status"] = "retry"
                     continue
                 res = self.checks(rec, res)
-                if res.get("_qa") and (res["_qa"].get("bannedInRevision") or not 140 <= res["_qa"]["revisionWords"] <= 170):
-                    res = self.fix_revision(rec, res)
+                sp = pack_for(rec["meta"]) or {}
+                free_len = sp.get("item") in ("B12", "B13")   # rulebook: Buổi 12 no upper limit, Buổi 13 no limit
+                if res.get("_qa") and (res["_qa"].get("bannedInRevision") or
+                                       (not free_len and not 140 <= res["_qa"]["revisionWords"] <= 170)):
+                    res = self.fix_revision(rec, res, free_len)
                 stu.update(result=res, status="graded", vnd=round(c * cw.USD_VND))
                 self.tick("graded")
             del self.st["batches"][bid]
@@ -351,13 +396,13 @@ class Scans:
             if rec["status"] == "submitted" and all(s["status"] in ("graded", "unidentified") for s in rec["students"].values()):
                 rec["status"] = "graded"
 
-    def fix_revision(self, rec, res):
+    def fix_revision(self, rec, res, free_len=False):
         """Fighter rule-breaks left in the suggested revision (banned linkers, length) are fixed by a small cheap call."""
         q = res["_qa"]
         prompt = ("Sửa ĐOẠN VĂN tiếng Anh dưới đây (bản sửa gợi ý cho học sinh) theo đúng các yêu cầu, giữ nguyên ý, ví dụ và "
                   "cách diễn đạt còn lại; chỉ trả đoạn văn đã sửa, một đoạn, không lời dẫn.\n"
-                  f"- Độ dài 140–160 từ (hiện {q['revisionWords']} từ).\n"
-                  "- Không dùng: so, because, because of, but (đối lập), like (nêu ví dụ), you, your, and so on, '...', "
+                  + ("- Giữ nguyên độ dài hiện có.\n" if free_len else f"- Độ dài 140–160 từ (hiện {q['revisionWords']} từ).\n")
+                  + "- Không dùng: so, because, because of, but (đối lập), like (nêu ví dụ), you, your, and so on, '...', "
                   "viết tắt. Thay bằng cách nối học thuật đúng nghĩa: as a result, thereby, owing to, whereas, however, such as.\n\n"
                   + res["revision"])
         try:
@@ -369,7 +414,7 @@ class Scans:
                        "model": "claude-haiku-5-5", "usage": u, "usd": c, "vnd": round(c * cw.USD_VND)})
             new = "".join(b.text for b in r.content if b.type == "text").strip()
             allowed = re.sub(r"(?i)not only\b.*?\bbut also|last but not least|but also", " ", new)
-            if new and "\n" not in new and not BANNED_FIGHTER.search(allowed) and 135 <= words(new) <= 175:
+            if new and "\n" not in new and not BANNED_FIGHTER.search(allowed) and (free_len or 135 <= words(new) <= 175):
                 res["_qa"]["revisionBefore"] = res["revision"]
                 res["revision"] = new
                 res["_qa"].update(revisionWords=words(new), bannedInRevision=[], revisionFixed=True)
@@ -483,12 +528,51 @@ class Scans:
         return True
 
     @staticmethod
+    def inclass_key(meta):
+        return label(meta).replace("Viết trên lớp ", "") + (f" · Task {meta['task']}" if meta.get("task") else "")
+
+    def inclass_column(self, tr, grid, meta, create=True):
+        """In-class writing: its own column, row 2 'VIẾT TRÊN LỚP', row 3 '<Buổi N | bài N> · dd/mm/yyyy'.
+        Created at the first empty column after the tracker's used area (no merged header is touched)."""
+        row = lambda r: grid[r] if r < len(grid) else []
+        key = self.inclass_key(meta)
+        width = max((len(x) for x in grid), default=0)
+        for c in range(width):
+            top = unicodedata.normalize("NFC", str(row(1)[c]) if c < len(row(1)) else "").upper()
+            sub = unicodedata.normalize("NFC", str(row(2)[c]) if c < len(row(2)) else "")
+            if "VIẾT TRÊN LỚP" in top and sub.split("\n")[0].strip() == key and meta["date"] in sub:
+                return c
+        if not create:
+            return None
+        info = self.g._req(f"https://sheets.googleapis.com/v4/spreadsheets/{tr.id}?fields=sheets.properties(sheetId,title,gridProperties)")
+        p = next((x["properties"] for x in info["sheets"] if x["properties"]["title"] == tr.tab), None)
+        if p is None:
+            return None
+        gid, cols = p["sheetId"], p.get("gridProperties", {}).get("columnCount", 0)
+        reqs = []
+        if width >= cols:
+            reqs.append({"appendDimension": {"sheetId": gid, "dimension": "COLUMNS", "length": 1}})
+        if width > 0:
+            reqs.append({"copyPaste": {"source": {"sheetId": gid, "startColumnIndex": width - 1, "endColumnIndex": width},
+                                       "destination": {"sheetId": gid, "startColumnIndex": width, "endColumnIndex": width + 1},
+                                       "pasteType": "PASTE_FORMAT"}})
+        if reqs:
+            self.g._req(f"https://sheets.googleapis.com/v4/spreadsheets/{tr.id}:batchUpdate", "POST", {"requests": reqs})
+        self.g.set_cell(tr.id, f"'{tr.tab}'!{col_letter(width)}2", "VIẾT TRÊN LỚP")
+        self.g.set_cell(tr.id, f"'{tr.tab}'!{col_letter(width)}3", f"{key}\n{meta['date']}")
+        tr._hdr = None
+        self.tick("inclass_column_added")
+        return width
+
+    @staticmethod
     def fmt(x):
         return f"{x:.2f}".replace(".", ",") if abs(x * 10 - round(x * 10)) > 1e-9 else f"{x:.1f}".replace(".", ",")
 
     def cell_text(self, rec, res, task=None):
         if rec["meta"]["cls"].startswith("FIGHTER"):
             sc = res.get("score") or {}
+            if not sc and rec["meta"].get("kind") == "inclass":   # Buổi 2–15: corrected, no score (rulebook §1)
+                return f"Đã chữa: {label(rec['meta'])}\n{res['overall'].strip()}\nSố từ: {res['_qa']['words']}"
             if not sc:
                 return None
             return f"{self.fmt(sc['tong'])}/1\n{res['overall'].strip()}\nSố từ: {res['_qa']['words']}"
@@ -529,8 +613,16 @@ class Scans:
             tr.cached("A", 1)
             grid = tr._grid
             spec = pack_for(rec["meta"])
-            cols = self.find_columns(grid, rec["meta"], spec.get("tasks") or [])
-            if not cols and rec["meta"]["cls"].startswith("FIGHTER"):
+            if spec.get("inclass"):
+                c = self.inclass_column(tr, grid, rec["meta"])
+                if c is not None:
+                    tr._grid = None
+                    tr.cached("A", 1)
+                    grid = tr._grid
+                cols = {} if c is None else {(spec.get("tasks") or [0])[0] if spec["schema"] == "ielts" else 0: c}
+            else:
+                cols = self.find_columns(grid, rec["meta"], spec.get("tasks") or [])
+            if not cols and not spec.get("inclass") and rec["meta"]["cls"].startswith("FIGHTER"):
                 if self.add_fighter_column(tr, grid, rec["meta"]["n"]):   # Cô 10/11: open the KT column automatically
                     tr._grid = None
                     tr.cached("A", 1)

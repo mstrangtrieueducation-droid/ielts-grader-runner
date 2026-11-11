@@ -239,3 +239,120 @@ def draw(data):
     out = io.BytesIO()
     img.quantize(colors=256).save(out, "PNG", optimize=True)
     return out.getvalue()
+
+
+def draw_inclass(data):
+    """In-class writing (Cô 11/11). data: cls, title, date (str), made, pupils [{name, has, band, level, done}],
+    crit {TR,CC,LR,GRA} (IELTS only), scored (bool: IELTS band shown), fighter (bool)."""
+    from PIL import Image, ImageDraw
+    pupils, crit = data["pupils"], data.get("crit") or {}
+    scored = data.get("scored")
+    f_t, f_s = F("Bold", 50), F("Regular", 30)
+    f_big, f_lab = F("Bold", 56), F("Regular", 26)
+    f_h, f_b, f_sm, f_chip = F("Bold", 36), F("Regular", 31), F("Regular", 26), F("Bold", 25)
+    has = [p for p in pupils if p["has"]]
+    bands = [p["band"] for p in has if p.get("band")]
+    if scored:
+        stars = sorted([p for p in has if p.get("band")], key=lambda p: -p["band"])
+        stars = [p for p in stars if p["band"] >= stars[0]["band"] - 0.5][:6] if stars else []
+        caution = ["Band ở đây là CHẤT LƯỢNG BÀI VIẾT TRÊN LỚP này (chủ đề đã học, có hướng",
+                   "dẫn của Cô), chưa phải trình độ hay band thi thật của các con."]
+    else:
+        stars = [p for p in has if p.get("level") == 1][:8]
+        caution = ["Viết đoạn văn trên lớp có hướng dẫn: Cô KHÔNG CHẤM ĐIỂM, chỉ chữa lỗi chi tiết",
+                   "và gợi ý bản sửa để các con rút kinh nghiệm."]
+    H = 256 + 210 + 40 + 36 * len(caution) + 70 + 150
+    if crit:
+        H += 90 + len(CRIT) * 62 + 20
+    if stars:
+        H += 90 + ((len(stars) + 1) // 2) * 60 + 10
+    H += 90 + 56 + len(pupils) * 58 + 240
+    img = Image.new("RGB", (W, H), BG)
+    d = ImageDraw.Draw(img)
+    d.rectangle((0, 0, W, 236), fill=NAVY)
+    chip(d, P, 30, "BÀI VIẾT TRÊN LỚP", NAVY, (255, 255, 255), F("Bold", 26), h=42)
+    d.text((P, 86), f"{data['cls']} · {data['title']}", font=f_t, fill=(255, 255, 255))
+    d.text((P, 158), f"Ngày học {data['date']}  ·  Tổng kết lúc {data['made']:%H:%M %d/%m}", font=f_s, fill=(199, 210, 254))
+    y = 256
+    tiles = [(f"{len(has)}/{len(pupils)}", "có bài viết", NAVY), (f"{len(pupils) - len(has)}", "không có bài", RED)]
+    if scored:
+        tiles.append(((f"{sum(bands) / len(bands):.1f}" if bands else "—"), "band TB lớp", BLUE))
+    else:
+        tiles.append((f"{sum(1 for p in has if p.get('done'))}", "bài đã chữa", GREEN))
+    tw_ = (W - 2 * P - (len(tiles) - 1) * 20) // len(tiles)
+    for i, (big, lab, c) in enumerate(tiles):
+        x = P + i * (tw_ + 20)
+        d.rounded_rectangle((x, y, x + tw_, y + 180), radius=22, fill=CARD, outline=LINE, width=2)
+        d.text((x + (tw_ - tw(d, big, f_big)) / 2, y + 34), big, font=f_big, fill=c)
+        d.text((x + (tw_ - tw(d, lab, f_lab)) / 2, y + 114), lab, font=f_lab, fill=MUTED)
+    y += 220
+
+    def section(title):
+        nonlocal y
+        d.text((P, y + 20), title, font=f_h, fill=INK)
+        y += 80
+
+    if crit:
+        section(f"Chất lượng bài viết – trung bình từng tiêu chí ({len(bands)} bài)")
+        bw = W - 2 * P - 330 - 80
+        for k, lab in CRIT:
+            v = crit.get(k)
+            if v is None:
+                continue
+            d.text((P, y + 4), lab, font=f_sm, fill=INK)
+            x0 = P + 330
+            d.rounded_rectangle((x0, y + 6, x0 + bw, y + 36), radius=15, fill=GREY_BG)
+            d.rounded_rectangle((x0, y + 6, x0 + max(30, bw * v / 9), y + 36), radius=15, fill=BLUE)
+            d.text((x0 + bw + 16, y + 2), f"{v:.1f}", font=F("Bold", 30), fill=BLUE)
+            y += 62
+        y += 20
+    bh = 36 * len(caution) + 36
+    d.rounded_rectangle((P, y, W - P, y + bh), radius=16, fill=(255, 251, 235), outline=(253, 230, 138), width=2)
+    d.text((P + 24, y + 16), "Lưu ý", font=F("Bold", 27), fill=AMBER)
+    for j, ln in enumerate(caution):
+        d.text((P + 120, y + 16 + 36 * j), ln, font=F("Regular", 25), fill=INK)
+    y += bh + 34
+    if stars:
+        section("Tuyên dương: " + ("bài tốt nhất" if scored else "bài viết cẩn thận, ít lỗi"))
+        half = (len(stars) + 1) // 2
+        for i, p in enumerate(stars):
+            col, row = (0, i) if i < half else (1, i - half)
+            x = P + col * ((W - 2 * P) // 2)
+            d.text((x, y + row * 60), p["name"], font=f_b, fill=INK)
+            if scored:
+                chip(d, x + tw(d, p["name"], f_b) + 14, y + row * 60, f"band {p['band']:.1f}", BLUE, (219, 234, 254), f_chip)
+        y += half * 60 + 10
+    section("Từng bạn")
+    X_HAS, X_RES = 560, 790
+    d.rounded_rectangle((P, y, W - P, y + 50), radius=12, fill=GREY_BG)
+    for lab, x in (("Họ tên", P + 20), ("Bài viết", X_HAS), ("Kết quả", X_RES)):
+        d.text((x, y + 9), lab, font=F("Bold", 27), fill=GREY)
+    y += 56
+    for i, p in enumerate(pupils):
+        if i % 2:
+            d.rectangle((P, y, W - P, y + 58), fill=(239, 241, 246))
+        d.text((P + 20, y + 11), p["name"], font=f_sm, fill=INK)
+        if p["has"]:
+            chip(d, X_HAS, y + 9, "Có bài", GREEN, GREEN_BG, f_chip)
+            if scored and p.get("band"):
+                chip(d, X_RES, y + 9, f"band {p['band']:.1f}", BLUE, (219, 234, 254), f_chip)
+            elif p.get("done"):
+                chip(d, X_RES, y + 9, "Đã chữa", GREEN, GREEN_BG, f_chip)
+            else:
+                d.text((X_RES, y + 13), "đang chấm", font=F("Regular", 23), fill=MUTED)
+        else:
+            chip(d, X_HAS, y + 9, "Không có bài", RED, RED_BG, f_chip)
+        y += 58
+    y += 30
+    d.line((P, y, W - P, y), fill=LINE, width=2)
+    foot = ["\"Không có bài\": máy không thấy bài của con trong tập scan của buổi này.",
+            "Bài chữa chi tiết của từng bạn: xem trên dashboard / file theo dõi của lớp."]
+    if data.get("unknown"):
+        foot.insert(1, f"Có {data["unknown"]} tờ máy chưa đọc được tên học sinh nên chưa ghi vào bảng.")
+    for j, ln in enumerate(foot):
+        d.text((P, y + 18 + 36 * j), ln, font=f_sm, fill=MUTED)
+    y += 36 * len(foot) + 40
+    img = img.crop((0, 0, W, y))
+    out = io.BytesIO()
+    img.quantize(colors=256).save(out, "PNG", optimize=True)
+    return out.getvalue()
