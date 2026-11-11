@@ -63,7 +63,7 @@ IMG_FLOOR = 1000                     # pages share the budget, but a page is nev
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 30              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 31              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 0         # Cô 10/11: grade as soon as a notebook is submitted; we write the receipt line ourselves if the sync has not
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -135,7 +135,7 @@ Việc cần làm:
    neat = neat / acceptable / messy. CHỈ chọn messy khi trang thật sự ẩu: nét chữ nguệch ngoạc khó đọc, gạch xoá hoặc bôi
    bẩn nhiều chỗ, trang lem nhem, viết tràn lộn xộn không theo cột/dòng. Chữ nghiêng, chữ nối, chữ nhỏ, chữ không đẹp nhưng
    đọc được đều là acceptable. Ảnh mờ/tối do chụp KHÔNG phải messy. Phân vân thì chọn acceptable.
-2. entries: mỗi mục từ em ĐÃ VIẾT trong sổ, một dòng: n = số thứ tự em ghi (nếu em không ghi số, lấy số của từ tương ứng
+2. entries: mỗi mục từ CÓ trong sổ (kể cả sổ IN SẴN cột từ — em chỉ tự điền các cột còn lại), một dòng: n = số thứ tự em ghi (nếu em không ghi số, lấy số của từ tương ứng
    trong danh sách trên; nhiều em tự đánh số lại từ 1 — vẫn ghi số em viết), term = từ/cụm từ tiếng Anh em viết (chép nguyên văn). Với từng cột type, ipa, vi, en, example:
    filled = có viết nội dung; empty = để trống; unclear = không nhìn rõ (ảnh mờ, bị cắt, che khuất).
    Ví dụ dài xuống dòng vẫn là filled. KHÔNG liệt kê mục em không viết. Không đoán: không chắc thì unclear.
@@ -455,7 +455,8 @@ Các từ của phần A:
 1. pages: với MỖI ảnh, theo thứ tự 1, 2, 3…: kind = handwritten / printed_or_screen (bản in, ảnh chụp màn hình, chữ đánh máy) /
    not_a_notebook; readable = yes / partly / no; neat = neat / acceptable / messy (CHỈ messy khi nét chữ nguệch ngoạc khó đọc,
    gạch xoá/bôi bẩn nhiều, trang lem nhem lộn xộn; chữ không đẹp nhưng đọc được là acceptable; phân vân thì chọn acceptable).
-2. entries (phần A): mỗi mục từ em ĐÃ VIẾT trong sổ: n = số của từ đó trong danh sách trên, term = từ em viết (nguyên văn);
+2. entries (phần A): mỗi mục từ CÓ trong sổ: n = số của từ đó trong danh sách trên, term = từ đó (nguyên văn). Sổ có thể là
+   SỔ IN SẴN cột Từ/cụm từ (từ in sẵn, học sinh tự điền các cột còn lại) — vẫn liệt kê các từ in sẵn đó, rồi xét các cột em tự điền;
    type, ipa, vi, en, example = filled / empty / unclear. KHÔNG liệt kê từ em không viết; không chắc thì unclear.
 3. answers (phần B): mỗi câu em ĐÃ LÀM LẠI trong vở: n = số câu, answer = đáp án em viết (nguyên văn, ngắn), explained = yes
    (có viết giải thích/lí do cho câu đó) / no / unclear. KHÔNG liệt kê câu em không làm.
@@ -466,7 +467,8 @@ PAINT_VERSION = 3           # raise when only the cell colours/sizes change: pub
 BODY_SIZE = 9               # comment text size (Cô 10/11: keep 9, make the row twice as tall instead)
 ROW_FACTOR = 2              # rows holding our comments: twice the class sheet's own row height
 REGRADE = set(PROGRAM_HEAD)   # v28: every kind (second Sonnet look at full size for a failing notebook)
-DEBUG_NAMES = {"le thuy trang"}   # temporary debug print of the reading for these pupils
+DEBUG_NAMES = set()               # pupils whose reading is printed to the run log (debugging only)
+REGRADE_MATCH = r"có 0/\d+ từ"   # v31: only notebooks where no word was found are read again (printed-word workbooks)
 REGRADE_FAILED_ONLY = True  # on a VERSION bump only notebooks below 100% are read again (a clean pass stays)      # programmes whose reading rules changed in this VERSION; others are only re-styled
 FLAG = "LỖI: ❌ CẦN NỘP LẠI"   # cell note prefix of our own "redo" mark
 STATUS_RANK = {"missing": 0, "partly": 1, "unclear": 2, "full": 3}
@@ -1782,7 +1784,8 @@ class FighterNotebooks:
             if s["status"] == "published" and s.get("ver", 1) < VERSION:
                 m = re.search(r"đạt (\d+)%", s.get("published") or "")
                 clean = s.get("ok") and m and int(m.group(1)) >= 100
-                if s["prog"] in REGRADE and not (REGRADE_FAILED_ONLY and clean):
+                if s["prog"] in REGRADE and not (REGRADE_FAILED_ONLY and clean) and (
+                        not REGRADE_MATCH or re.search(REGRADE_MATCH, s.get("published") or "")):
                     s.update(status="new", tries=0, regrade=True, prevPublished=s.get("published") or "", prevOk=s.get("ok"))
                     self.tick("regrade_new_rules")
                 else:   # same result, today's wording/colours: no new reading
