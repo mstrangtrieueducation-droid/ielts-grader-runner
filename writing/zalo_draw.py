@@ -111,7 +111,7 @@ def label(d, y, text):
     return y + 54
 
 
-def praise(d, y, people, with_band):
+def praise(d, y, people, with_band, val=lambda v: f"{v:.1f}"):
     f, fb = sans(28), sans(25, "SemiBold")
     half = (len(people) + 1) // 2
     colw = (SW - 2 * P) // 2
@@ -121,7 +121,7 @@ def praise(d, y, people, with_band):
         d.text((x, yy - 2), "★", font=sans(26), fill=GOLD)
         d.text((x + 36, yy), p["name"], font=f, fill=INK)
         if with_band and p.get("band"):
-            d.text((x + 36 + tw(d, p["name"], f) + 12, yy + 2), f"{p['band']:.1f}", font=fb, fill=GOLD_DEEP)
+            d.text((x + 36 + tw(d, p["name"], f) + 12, yy + 2), val(p["band"]), font=fb, fill=GOLD_DEEP)
     return y + half * 54 + 14
 
 
@@ -200,7 +200,7 @@ def draw(data):
                 f"Hạn nộp {data['deadline']:%d/%m/%Y}, tổng kết lúc {data['made']:%H:%M} ngày {data['made']:%d/%m/%Y}")
     y = rule(d, y)
     if bands and not nb_only:
-        seal(d, P + 112, y + 126, f"{sum(bands) / len(bands):.1f}", "band TB lớp")
+        seal(d, P + 112, y + 126, seal_val(sum(bands) / len(bands)), "điểm TB /1" if unit == "/1" else "band TB lớp")
     else:
         seal(d, P + 112, y + 126, f"{len(ok)}/{len(handed)}", "vở đạt")
     fl = [(f"{len(handed)}/{data['total']}", "bạn đã nộp bài"), (f"{len(on)}", "bạn nộp đúng hạn"),
@@ -256,33 +256,44 @@ def draw(data):
 
 
 def draw_inclass(data):
+    """In-class writing and paper tests. unit "band" (IELTS) or "/1" (Fighter test score)."""
     pupils, crit, scored = data["pupils"], data.get("crit") or {}, data.get("scored")
+    kind, unit = data.get("kind") or "Bài viết trên lớp", data.get("unit") or "band"
+    val = (lambda v: f"{v:.2f}".rstrip("0").rstrip(".").replace(".", ",") + "/1") if unit == "/1" else (lambda v: f"{v:.1f}")
+    seal_val = (lambda v: f"{v:.2f}".rstrip("0").rstrip(".").replace(".", ",")) if unit == "/1" else (lambda v: f"{v:.1f}")
     has = [p for p in pupils if p["has"]]
-    bands = [p["band"] for p in has if p.get("band")]
+    bands = [p["band"] for p in has if p.get("band") is not None]
     if scored:
-        stars = sorted([p for p in has if p.get("band")], key=lambda p: -p["band"])
-        stars = [p for p in stars if p["band"] >= stars[0]["band"] - 0.5][:6] if stars else []
-        caution = ["Band là chất lượng bài viết trên lớp này (chủ đề đã học, có hướng dẫn",
-                   "của Cô), chưa phải trình độ hay band thi thật của các con."]
+        stars = sorted([p for p in has if p.get("band") is not None], key=lambda p: -p["band"])
+        stars = [p for p in stars if p["band"] >= stars[0]["band"] - (0.1 if unit == "/1" else 0.5)][:6] if stars else []
+        if kind == "Bài kiểm tra" and unit == "/1":
+            caution = ["Điểm bài kiểm tra đoạn văn chấm theo thang 1 điểm (4 tiêu chí, mỗi tiêu chí",
+                       "0,25). Nhận xét chi tiết của từng bạn có trong file theo dõi của lớp."]
+        elif kind == "Bài kiểm tra":
+            caution = ["Band là kết quả bài kiểm tra viết trên lớp (làm bài có giới hạn thời gian,",
+                       "không tài liệu), chấm theo tiêu chí IELTS của lớp."]
+        else:
+            caution = ["Band là chất lượng bài viết trên lớp này (chủ đề đã học, có hướng dẫn",
+                       "của Cô), chưa phải trình độ hay band thi thật của các con."]
     else:
         stars = [p for p in has if p.get("level") == 1][:8]
         caution = ["Viết đoạn văn trên lớp có hướng dẫn: Cô không chấm điểm, chỉ chữa lỗi",
                    "chi tiết và gợi ý bản sửa để các con rút kinh nghiệm."]
     img, d = sheet_canvas(2000)
-    y = heading(d, "Bài viết trên lớp", data["cls"], data["title"],
-                f"Ngày học {data['date']}, tổng kết lúc {data['made']:%H:%M} ngày {data['made']:%d/%m/%Y}")
+    y = heading(d, kind, data["cls"], data["title"],
+                f"Ngày {'kiểm tra' if kind == 'Bài kiểm tra' else 'học'} {data['date']}, tổng kết lúc {data['made']:%H:%M} ngày {data['made']:%d/%m/%Y}")
     y = rule(d, y)
     if scored and bands:
-        seal(d, P + 112, y + 126, f"{sum(bands) / len(bands):.1f}", "band TB lớp")
+        seal(d, P + 112, y + 126, seal_val(sum(bands) / len(bands)), "điểm TB /1" if unit == "/1" else "band TB lớp")
     else:
         seal(d, P + 112, y + 126, f"{len(has)}/{len(pupils)}", "có bài viết")
     facts(d, P + 280, y + 40, [(f"{len(has)}/{len(pupils)}", "bạn có bài viết"),
-                               (f"{sum(1 for p in has if p.get('done'))}", "bài đã chữa")])
+                               (f"{sum(1 for p in has if p.get('done'))}", "bài đã chấm" if scored else "bài đã chữa")])
     y += 270
     if stars:
         y = rule(d, y)
         y = label(d, y, "Tuyên dương: " + ("bài tốt nhất" if scored else "bài viết cẩn thận, ít lỗi"))
-        y = praise(d, y, stars, scored)
+        y = praise(d, y, stars, scored, val)
     if crit:
         y = rule(d, y + 10)
         y = label(d, y, f"Chất lượng {len(bands)} bài viết (trung bình)")
@@ -300,12 +311,12 @@ def draw_inclass(data):
             status(d, X_HAS, y, "Không có bài", ROSE)
             return
         status(d, X_HAS, y, "Có bài", GREEN)
-        if scored and p.get("band"):
-            d.text((X_RES, y + 12), f"{p['band']:.1f}", font=sans(30, "SemiBold"), fill=NAVY)
+        if scored and p.get("band") is not None:
+            d.text((X_RES, y + 12), val(p["band"]), font=sans(30, "SemiBold"), fill=NAVY)
         elif p.get("done"):
             status(d, X_RES, y, "Đã chữa", NAVY)
 
-    foot = ["“Không có bài”: máy không thấy bài của con trong tập scan của buổi này.",
+    foot = [f"“Không có bài”: máy không thấy bài của con trong tập scan {'bài kiểm tra' if kind == 'Bài kiểm tra' else 'của buổi'} này.",
             "Bài chữa chi tiết của từng bạn: xem trên dashboard phụ huynh."]
     if data.get("unknown"):
         foot.insert(1, f"Có {data['unknown']} tờ chưa đọc được tên học sinh nên chưa ghi vào bảng.")

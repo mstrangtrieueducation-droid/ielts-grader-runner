@@ -65,15 +65,15 @@ def parse_name(title):
         w = re.search(r"(?:bài|tuần|\bw)\s*0*(\d+)", t)
         out["buoi"] = int(b.group(1)) if b else None
         out["week"] = int(w.group(1)) if w else None
+        if out["cls"].startswith("IELTS") and out["week"] is None:   # IELTS 'Buổi N' = lesson N = week WN
+            out["week"], out["buoi"] = out["buoi"], None
     return out
 
 
 def label(meta):
     """Human name of the paper: 'Kiểm tra lần 2', 'Viết trên lớp Buổi 5', 'Viết trên lớp bài 28'."""
     if meta.get("kind") == "inclass":
-        if meta.get("buoi"):
-            return f"Viết trên lớp Buổi {meta['buoi']}"
-        return f"Viết trên lớp bài {meta.get('week')}"
+        return f"Viết trên lớp Buổi {meta.get('buoi') or meta.get('week')}"
     return f"Kiểm tra lần {meta.get('n')}"
 
 

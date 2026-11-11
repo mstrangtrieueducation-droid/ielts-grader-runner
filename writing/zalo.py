@@ -257,6 +257,7 @@ def make(runner, now=None):
 
 
 FINAL = ("published", "dropped", "unidentified")
+ZALO_SINCE = dt.date(2026, 11, 9)   # papers before the pictures existed get none
 
 
 def make_inclass(runner, scans_state, now=None):
@@ -270,8 +271,8 @@ def make_inclass(runner, scans_state, now=None):
     made = []
     for fid, rec in (scans_state or {}).get("files", {}).items():
         meta = rec.get("meta") or {}
-        if meta.get("kind") != "inclass" or rec.get("status") != "graded" or f"scan|{fid}" in done:
-            continue
+        if meta.get("kind") not in ("inclass", "test") or rec.get("status") != "graded" or f"scan|{fid}" in done:
+            continue   # Cô 11/11: every graded paper (in-class writing and paper tests) gets its picture
         studs = [s for s in rec.get("students", {}).values()]
         if not studs or any(s.get("status") not in FINAL for s in studs):
             continue
@@ -282,10 +283,13 @@ def make_inclass(runner, scans_state, now=None):
             lesson = dt.datetime.strptime(meta["date"], "%d/%m/%Y").date()
         except Exception:
             continue
-        if now.astimezone(VN).date() < lesson + dt.timedelta(days=1):
+        if now.astimezone(VN).date() < lesson + dt.timedelta(days=1) or lesson < ZALO_SINCE:
             continue
         spec = sc.pack_for(meta) or {}
-        scored = spec.get("schema") == "ielts"
+        test = meta["kind"] == "test"
+        fighter = cls.startswith("FIGHTER")
+        scored = spec.get("schema") == "ielts" or (test and fighter)
+        unit = "/1" if fighter else "band"
         got = {key_of(s["name"]): s for s in studs if s.get("name") and s.get("status") == "published"}
         pupils, crit = [], {}
         for n in roster(runner, cls):
@@ -293,10 +297,15 @@ def make_inclass(runner, scans_state, now=None):
             p = {"name": nice(n), "has": bool(s), "band": None, "level": None, "done": bool(s)}
             if s:
                 res = s.get("result") or {}
-                if scored:
+                if scored and fighter:
+                    tong = (res.get("score") or {}).get("tong")
+                    p["band"] = float(tong) if isinstance(tong, (int, float)) else None
+                elif scored:
+                    if res.get("_overall") is not None:
+                        p["band"] = float(res["_overall"])
                     for t in res.get("tasks", []):
                         ca = ((t.get("_qa") or {}).get("classScore") or {}).get("classAssessment") or {}
-                        if ca.get("overallBand") is not None:
+                        if ca.get("overallBand") is not None and res.get("_overall") is None:
                             p["band"] = float(ca["overallBand"])
                         for k, v in (ca.get("criteria") or {}).items():
                             k = "TR" if k in ("TA", "TR") else k
@@ -307,12 +316,16 @@ def make_inclass(runner, scans_state, now=None):
             pupils.append(p)
         if not pupils:
             continue
-        title = (f"Đoạn văn Buổi {meta['buoi']}" if meta.get("buoi") else f"Bài viết W{meta.get('week')}")
+        if test:
+            title = f"Kiểm tra lần {meta['n']}"
+        else:
+            title = (f"Đoạn văn Buổi {meta['buoi']}" if fighter else f"Bài viết Buổi {meta.get('week')}")
         if meta.get("task"):
             title += f" · Task {meta['task']}"
         import zalo_draw
         png = zalo_draw.draw_inclass({"cls": cls, "title": title, "date": meta["date"], "made": now, "pupils": pupils,
                                       "crit": {k: sum(v) / len(v) for k, v in crit.items()}, "scored": scored,
+                                      "kind": "Bài kiểm tra" if test else "Bài viết trên lớp", "unit": unit,
                                       "unknown": sum(1 for s in studs if s.get("status") == "unidentified")})
         store(runner, cls, f"scan|{fid}", f"{cls} – {title}", png, now)
         done.append(f"scan|{fid}")
