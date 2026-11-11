@@ -1,5 +1,5 @@
 """Zalo pictures (Cô 11/11) — v3, the centre's look: warm white paper, navy ink, a touch of gold,
-Lora for titles and Inter for text, hairlines instead of boxes, quiet status colours.
+Inter only (Cô 11/11: plain, not fussy), hairlines instead of boxes, quiet status colours.
 
 draw(data) / draw_inclass(data) → [PNG bytes]: page 1 = summary, then the per-pupil table on even pages.
 
@@ -31,7 +31,8 @@ def F(name, size):
 
 
 def serif(size, w="Bold"):
-    return F(f"Lora-{w}.ttf", size)
+    """Cô 11/11 'hơi điệu': titles in the same plain sans as the text."""
+    return F("Inter-SemiBold.otf" if w == "Bold" else "Inter-Medium.otf", size)
 
 
 def sans(size, w="Regular"):
@@ -42,12 +43,10 @@ def tw(d, t, f):
     return d.textlength(t, font=f)
 
 
-def spaced(d, x, y, text, f, fill, gap=3):
-    """Small caps label with letter spacing."""
-    for ch in text:
-        d.text((x, y), ch, font=f, fill=fill)
-        x += tw(d, ch, f) + gap
-    return x
+def spaced(d, x, y, text, f, fill, gap=0):
+    """Plain label (no letter spacing)."""
+    d.text((x, y), text, font=f, fill=fill)
+    return x + tw(d, text, f)
 
 
 def dot(d, x, y, c, r=7):
@@ -65,7 +64,7 @@ def logo_tile(img, x, y, h):
 
 def header(img, d, kind, cls, title, meta):
     lw = logo_tile(img, P, 44, 136)
-    spaced(d, P + lw + 28, 82, kind.upper(), sans(21, "SemiBold"), GOLD_TEXT, 3)
+    spaced(d, P + lw + 28, 80, kind, sans(26, "SemiBold"), NAVY)
     d.text((P + lw + 28, 116), "Ms. Trang Trieu Education", font=sans(22), fill=MUTED)
     d.text((P, 206), cls, font=serif(68), fill=NAVY)
     d.text((P, 290), title, font=serif(40, "Medium"), fill=INK)
@@ -75,8 +74,8 @@ def header(img, d, kind, cls, title, meta):
 
 
 def section(d, y, label):
-    spaced(d, P, y, label.upper(), sans(20, "SemiBold"), GOLD_TEXT, 3)
-    return y + 48
+    spaced(d, P, y, label, sans(26, "SemiBold"), NAVY)
+    return y + 52
 
 
 def stats(d, y, items):
@@ -128,16 +127,16 @@ def criteria(d, y, crit):
 
 
 def note(d, y, lines):
-    f = F("Lora-Italic.ttf", 25)
+    f = sans(24)
     h = 34 * len(lines) + 40
-    d.rectangle((P, y, P + 4, y + h), fill=GOLD)
+    d.rounded_rectangle((P, y, W - P, y + h), radius=12, fill=(243, 241, 235))
     for j, ln in enumerate(lines):
         d.text((P + 28, y + 20 + 34 * j), ln, font=f, fill=INK)
     return y + h + 44
 
 
 def praise(d, y, people, with_band):
-    f, fb = serif(30, "Medium"), sans(22, "SemiBold")
+    f, fb = sans(28), sans(24, "SemiBold")
     half = (len(people) + 1) // 2
     colw = (W - 2 * P) // 2
     for i, p in enumerate(people):
@@ -145,7 +144,7 @@ def praise(d, y, people, with_band):
         x, yy = P + col * colw, y + row * 58
         d.text((x, yy), p["name"], font=f, fill=NAVY)
         if with_band and p.get("band"):
-            d.text((x + tw(d, p["name"], f) + 16, yy + 8), f"{p['band']:.1f}", font=fb, fill=GOLD_TEXT)
+            d.text((x + tw(d, p["name"], f) + 16, yy + 2), f"{p['band']:.1f}", font=fb, fill=NAVY)
     return y + half * 58 + 30
 
 
@@ -173,7 +172,7 @@ def table_pages(data, cols, rows_draw, n, foot):
         d.rectangle((P, 158, P + 96, 161), fill=GOLD)
         y = 200
         for lab, x in cols:
-            spaced(d, x, y, lab.upper(), sans(19, "SemiBold"), FAINT, 2)
+            spaced(d, x, y, lab, sans(22, "SemiBold"), MUTED)
         y += 44
         d.line((P, y, W - P, y), fill=LINE, width=2)
         for i in idx:
@@ -251,9 +250,9 @@ def draw(data):
         if p.get("band") and show_band:
             d.text((X_ES, y + 14), f"{p['band']:.1f}", font=serif(30), fill=NAVY)
         elif p["sub"] == "late":
-            d.text((X_ES, y + 20), "không chữa · muộn", font=F("Lora-Italic.ttf", 21), fill=FAINT)
+            d.text((X_ES, y + 20), "không chữa · muộn", font=sans(21), fill=FAINT)
         elif p.get("nb") and p["nb"] != "Đạt":
-            d.text((X_ES, y + 20), "không chữa · vở", font=F("Lora-Italic.ttf", 21), fill=FAINT)
+            d.text((X_ES, y + 20), "không chữa · vở", font=sans(21), fill=FAINT)
 
     if nb_only:
         foot = ["Tuần này chỉ kiểm tra vở chép bài giảng, không có bài viết.",
