@@ -148,6 +148,18 @@ def note(d, y, lines):
     return y + 34 * len(lines) + 10
 
 
+def wrap_text(d, text, f, width):
+    lines, cur = [], ""
+    for w in str(text).split():
+        t = (cur + " " + w).strip()
+        if cur and tw(d, t, f) > width:
+            lines.append(cur)
+            cur = w
+        else:
+            cur = t
+    return lines + ([cur] if cur else [])
+
+
 def status(d, x, y, text, c):
     d.ellipse((x, y + ROW // 2 - 6, x + 12, y + ROW // 2 + 6), fill=c)
     d.text((x + 22, y + 16), text, font=sans(24, "Medium"), fill=c)
@@ -298,11 +310,95 @@ def draw_inclass(data):
         y = rule(d, y + 10)
         y = label(d, y, f"Chất lượng {len(bands)} bài viết (trung bình)")
         y = criteria(d, y, crit)
-    y = rule(d, y + 10)
-    y = note(d, y, caution)
-    pages = [png(compose(img.crop((0, 0, SW, y + 40))))]
+    sm = data.get("summary") or {}
+    pages = []
+    if sm:   # Cô 12/11: in-class writing — what the class did well / must fix, on its own sheet
+        y = rule(d, y + 10)
+        y = note(d, y, caution)
+        pages.append(png(compose(img.crop((0, 0, SW, y + 40)))))
+        img, d = sheet_canvas(2000)
+        d.text((P, 46), f"{data['cls']} – {data['title']}", font=sans(36, "SemiBold"), fill=NAVY)
+        d.text((P, 96), "Nhận xét chung cả lớp", font=sans(23), fill=MUTED)
+        y = 160
+        if sm.get("note"):
+            for ln in wrap_text(d, sm["note"], sans(27), SW - 2 * P):
+                d.text((P, y), ln, font=sans(27), fill=INK)
+                y += 42
+            y += 20
+        if sm.get("top"):
+            y = rule(d, y)
+            y = label(d, y, f"Lỗi gặp nhiều nhất trong {sm['n']} bài")
+            f, fb = sans(25), sans(25, "SemiBold")
+            for name, k in sm["top"]:
+                lines = wrap_text(d, name, f, SW - 2 * P - 150)
+                d.text((P, y), f"{k} bài", font=fb, fill=NAVY)
+                for j, ln in enumerate(lines):
+                    d.text((P + 130, y + 36 * j), ln, font=f, fill=INK)
+                y += 36 * len(lines) + 16
+        tot = sm.get("totals") or {}
+        if tot:
+            y = rule(d, y + 6)
+            y = label(d, y, "Tổng số lỗi đã chữa theo nhóm")
+            groups = [("Từ vựng", tot.get("vocab", 0), NAVY), ("Ngữ pháp", tot.get("grammar", 0), GOLD),
+                      ("Lập luận, liên kết", tot.get("coherence", 0), GREEN)]
+            if sm.get("fighter"):
+                groups.append(("Quy ước lớp", tot.get("ql", 0), AMBER))
+            total = max(1, sum(g[1] for g in groups))
+            x, w = P, SW - 2 * P
+            d.rounded_rectangle((x, y, x + w, y + 14), radius=7, fill=TRACK)
+            for _, k, c in groups:
+                if k:
+                    seg = w * k / total
+                    d.rounded_rectangle((x, y, x + seg, y + 14), radius=7, fill=c)
+                    x += seg
+            y += 36
+            lx = P
+            for lab, k, c in groups:
+                t = f"{lab} {k}"
+                d.ellipse((lx, y + 9, lx + 12, y + 21), fill=c)
+                d.text((lx + 20, y), t, font=sans(23), fill=INK)
+                lx += 20 + tw(d, t, sans(23)) + 34
+            y += 60
+        ws = sm.get("words") or []
+        if ws:
+            d.text((P, y), f"Độ dài trung bình {round(sum(ws) / len(ws))} từ (ngắn nhất {min(ws)}, dài nhất {max(ws)}).",
+                   font=sans(23), fill=MUTED)
+            y += 50
+        pages.append(png(compose(img.crop((0, 0, SW, y + 30)), top_logo=False)))
+    else:
+        y = rule(d, y + 10)
+        y = note(d, y, caution)
+        pages.append(png(compose(img.crop((0, 0, SW, y + 40)))))
     X_HAS, X_RES = 520, 770
     cols = [("Họ tên", P), ("Bài viết", X_HAS), ("Kết quả", X_RES)]
+    if sm:   # per-pupil stats instead of a bare "Đã chữa"
+        XS = [372, 462, 572, 692, 812] if sm.get("fighter") else [372, 482, 592, 702, 812]
+        heads = (["Số từ", "Từ vựng", "Ngữ pháp", "Lập luận", "Quy ước"] if sm.get("fighter")
+                 else ["Band", "Số từ", "Từ vựng", "Ngữ pháp", "Lập luận"])
+        cols = [("Họ tên", P)] + list(zip(heads, XS))
+
+        def rows(d, i, y):
+            p = pupils[i]
+            d.text((P, y + 16), p["name"], font=sans(26), fill=INK)
+            if not p["has"]:
+                status(d, XS[0], y, "Không có bài", ROSE)
+                return
+            st = p.get("stats") or {}
+            vals = ([st.get("words"), st.get("vocab"), st.get("grammar"), st.get("coherence"), st.get("ql")]
+                    if sm.get("fighter") else
+                    [val(p["band"]) if p.get("band") is not None else "—", st.get("words"), st.get("vocab"),
+                     st.get("grammar"), st.get("coherence")])
+            for k, (x, v) in enumerate(zip(XS, vals)):
+                bold = not sm.get("fighter") and k == 0
+                d.text((x, y + (13 if bold else 17)), "—" if v is None else str(v),
+                       font=sans(29 if bold else 25, "SemiBold" if bold else "Regular"), fill=NAVY if bold else INK)
+
+        foot = ["Số lỗi là số chỗ Cô đã chữa trong bài của con, theo từng nhóm.",
+                f"“Không có bài”: máy không thấy bài của con trong tập scan của buổi này.",
+                "Bài chữa chi tiết và bản sửa gợi ý của từng bạn: xem trên dashboard phụ huynh."]
+        if data.get("unknown"):
+            foot.insert(2, f"Có {data['unknown']} tờ chưa đọc được tên học sinh nên chưa ghi vào bảng.")
+        return pages + table_pages(data, cols, rows, len(pupils), foot)
 
     def rows(d, i, y):
         p = pupils[i]

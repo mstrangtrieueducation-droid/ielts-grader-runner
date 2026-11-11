@@ -257,6 +257,70 @@ def make(runner, now=None):
 
 
 FINAL = ("published", "dropped", "unidentified")
+GROUPS = ("vocab", "grammar", "coherence")
+
+
+def code_names():
+    """Fighter error codes → short Vietnamese names, read from the rulebook table in the (decrypted) pack."""
+    try:
+        from run_writing import BUNDLE
+        head = (BUNDLE / "packs" / "TEST-FIGHTER" / "head.md").read_text(encoding="utf-8")
+    except Exception:
+        return {}
+    out = {}
+    for m in re.finditer(r"^\|\s*((?:QL|VOC|GRA|COH)-[A-Z]+)\s*\|\s*([^|]+)\|", head, re.M):
+        name = re.sub(r"\s*\(.*?\)", "", m.group(2)).replace("**", "").split(";")[0].strip().rstrip(",.")
+        out[m.group(1)] = name[:1].upper() + name[1:]
+    return out
+
+
+def paper_stats(res, fighter):
+    """Per pupil, counted from the graded result (free): words and errors per group (+ class conventions)."""
+    st = {"words": None, "vocab": 0, "grammar": 0, "coherence": 0, "ql": 0, "codes": []}
+    if fighter:
+        st["words"] = (res.get("_qa") or {}).get("words")
+        for e in res.get("errors") or []:
+            code = str(e.get("code") or "")
+            if code.startswith("QL"):
+                st["ql"] += 1
+            elif e.get("group") in GROUPS:
+                st[e["group"]] += 1
+            st["codes"].append(code)
+    else:
+        w = 0
+        for t in res.get("tasks") or []:
+            w += ((t.get("_qa") or {}).get("classScore") or {}).get("wordCount") or 0
+            for a in t.get("annotations") or []:
+                if a.get("kind") == "error" and a.get("group") in GROUPS:
+                    st[a["group"]] += 1
+                    st["codes"].append(str(a.get("label") or "").strip().lower())
+        st["words"] = w or None
+    return st
+
+
+def class_notes(runner, cls, title, fighter, comments, top):
+    """Short class-level comment written by Haiku from the comments already given (no names)."""
+    if not comments:
+        return ""
+    try:
+        import claude_worker as cw
+        text = "\n".join(f"Bài {i + 1}: {c.strip()[:900]}" for i, c in enumerate(comments))
+        common = "; ".join(f"{n} ({k} bài)" for n, k in top)
+        prompt = (f"Đây là nhận xét đã chấm cho từng bài viết trên lớp của lớp {cls} ({title}), "
+                  f"{'đoạn văn học thuật lớp Fighter' if fighter else 'bài viết IELTS'}. Lỗi gặp nhiều nhất (máy đếm): {common}.\n\n"
+                  f"{text}\n\nViết NHẬN XÉT CHUNG CẢ LỚP gửi phụ huynh, 3–4 câu tiếng Việt, giọng cô giáo ấm áp nhưng thẳng thắn: "
+                  "lớp làm tốt điều gì, lỗi chung cần sửa là gì, buổi sau các con cần chú ý gì. Không nêu tên học sinh, "
+                  "không cho điểm, không bịa điều không có trong nhận xét. Chỉ trả về đoạn văn.")
+        r = cw.client().messages.create(model="claude-haiku-5-5", max_tokens=500, thinking={"type": "disabled"},
+                                        messages=[{"role": "user", "content": prompt}])
+        u = r.usage.model_dump()
+        c = cw.cost_usd("claude-haiku-5-5", u)
+        cw.ledger({"at": cw.now_iso(), "category": f"{cls} · Nhận xét chung ảnh Zalo", "step": "zalo-notes",
+                   "model": "claude-haiku-5-5", "usage": u, "usd": c, "vnd": round(c * cw.USD_VND)})
+        return " ".join(b.text for b in r.content if getattr(b, "type", "") == "text").strip()
+    except Exception as e:
+        runner.tick(f"zalo_notes_failed_{type(e).__name__}")
+        return ""
 ZALO_SINCE = dt.date(2026, 11, 9)   # papers before the pictures existed get none
 
 
@@ -291,12 +355,15 @@ def make_inclass(runner, scans_state, now=None):
         scored = spec.get("schema") == "ielts" or (test and fighter)
         unit = "/1" if fighter else "band"
         got = {key_of(s["name"]): s for s in studs if s.get("name") and s.get("status") == "published"}
-        pupils, crit = [], {}
+        pupils, crit, comments = [], {}, []
         for n in roster(runner, cls):
             s = got.get(key_of(n))
             p = {"name": nice(n), "has": bool(s), "band": None, "level": None, "done": bool(s)}
             if s:
                 res = s.get("result") or {}
+                p["stats"] = paper_stats(res, fighter)
+                if not test:
+                    comments.append(res.get("overall") or " ".join(t.get("overall", "") for t in res.get("tasks") or []))
                 if scored and fighter:
                     tong = (res.get("score") or {}).get("tong")
                     p["band"] = float(tong) if isinstance(tong, (int, float)) else None
@@ -322,8 +389,23 @@ def make_inclass(runner, scans_state, now=None):
             title = (f"Đoạn văn Buổi {meta['buoi']}" if fighter else f"Bài viết Buổi {meta.get('week')}")
         if meta.get("task"):
             title += f" · Task {meta['task']}"
+        summary = {}
+        if not test:   # Cô 12/11: in-class writing — class stats (free) + a short class comment (Haiku) + per-pupil stats
+            names = code_names() if fighter else {}
+            per_code = {}
+            for p in pupils:
+                for c in set((p.get("stats") or {}).get("codes") or []):
+                    if c:
+                        per_code[c] = per_code.get(c, 0) + 1
+            top = sorted(per_code.items(), key=lambda kv: -kv[1])[:4]
+            top = [((names.get(c) or c) if fighter else c[:1].upper() + c[1:], k) for c, k in top]
+            done_n = sum(1 for p in pupils if p["has"])
+            tot = {g: sum((p.get("stats") or {}).get(g, 0) for p in pupils) for g in GROUPS + ("ql",)}
+            ws = [p["stats"]["words"] for p in pupils if p.get("stats") and p["stats"].get("words")]
+            summary = {"top": top, "n": done_n, "totals": tot, "words": ws, "fighter": fighter,
+                       "note": class_notes(runner, cls, title, fighter, comments, top)}
         import zalo_draw
-        png = zalo_draw.draw_inclass({"cls": cls, "title": title, "date": meta["date"], "made": now, "pupils": pupils,
+        png = zalo_draw.draw_inclass({"summary": summary,"cls": cls, "title": title, "date": meta["date"], "made": now, "pupils": pupils,
                                       "crit": {k: sum(v) / len(v) for k, v in crit.items()}, "scored": scored,
                                       "kind": "Bài kiểm tra" if test else "Bài viết trên lớp", "unit": unit,
                                       "unknown": sum(1 for s in studs if s.get("status") == "unidentified")})
