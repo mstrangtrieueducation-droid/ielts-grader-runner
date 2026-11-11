@@ -58,7 +58,7 @@ LEAN_TABLE_SIDE = 1400               # vocab tables have 7 narrow columns: a lit
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 27              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 28              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 0         # Cô 10/11: grade as soon as a notebook is submitted; we write the receipt line ourselves if the sync has not
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -421,7 +421,7 @@ DOCS_VERSION = 1            # lecture split + reference picture; kept stable so 
 PAINT_VERSION = 3           # raise when only the cell colours/sizes change: published cells are repainted, not re-read
 BODY_SIZE = 9               # comment text size (Cô 10/11: keep 9, make the row twice as tall instead)
 ROW_FACTOR = 2              # rows holding our comments: twice the class sheet's own row height
-REGRADE = {"GF", "AP"}
+REGRADE = set(PROGRAM_HEAD)   # v28: every kind (second Sonnet look at full size for a failing notebook)
 REGRADE_FAILED_ONLY = True  # on a VERSION bump only notebooks below 100% are read again (a clean pass stays)      # programmes whose reading rules changed in this VERSION; others are only re-styled
 FLAG = "LỖI: ❌ CẦN NỘP LẠI"   # cell note prefix of our own "redo" mark
 STATUS_RANK = {"missing": 0, "partly": 1, "unclear": 2, "full": 3}
@@ -748,7 +748,15 @@ class FighterNotebooks:
                                                                  vocab="\n".join(ref["vocab"]))})
         cat = f"{s['cls']} · {KIND_NAME[s['prog']].capitalize()} · {s['code']}"
         if lean:
-            return self.ap_score([self.call(content, AP_SCHEMA, cat, model=LEAN_MODEL, batch=True)], ref, imgs, hashes, reused)
+            r1 = self.call(content, AP_SCHEMA, cat, model=LEAN_MODEL, batch=True)
+            out = self.ap_score([r1], ref, imgs, hashes, reused)
+            if out["kind"] in ("scored", "wrong_unit") and (out["pct"] < PASS or out["messy"]):
+                # second look at full-size photos; the two reads are merged in the pupil's favour
+                content[1:1 + len(imgs)] = [img_block(b, SIDE) for b in imgs]
+                r2 = self.call(content, AP_SCHEMA, cat, model=LEAN_MODEL, batch=True)
+                out = self.ap_score([r1, r2], ref, imgs, hashes, reused)
+                out["secondLook"] = True
+            return out
         with cf.ThreadPoolExecutor(2) as ex:
             reads = list(ex.map(lambda _: self.call(content, AP_SCHEMA, cat), range(2)))
         first = self.ap_score(reads, ref, imgs, hashes, reused)
@@ -823,7 +831,23 @@ class FighterNotebooks:
                 title=COPY[s["prog"]][s["code"]].get("title") or s["code"], parts=parts)})
             cat = f"{s['cls']} · {KIND_NAME[s['prog']].capitalize()} · {s['code']}"
             read = self.call(content, LEAN_COPY_SCHEMA, cat, model=LEAN_MODEL, batch=True)
-            return lean_copy_result(read, les["parts"], imgs, hashes, reused)
+            out = lean_copy_result(read, les["parts"], imgs, hashes, reused)
+            if out["kind"] in ("scored", "wrong_unit", "unreadable") and not copy_passes(out):
+                # never fail a pupil on one look at small photos: Sonnet looks again at full size; best of the two
+                content[1:1 + len(imgs)] = [img_block(b, SIDE) for b in imgs]
+                read2 = self.call(content, LEAN_COPY_SCHEMA, cat, model=LEAN_MODEL, batch=True)
+                rank = {"missing": 0, "unreadable": 1, "copied": 2}
+                both = {x["id"]: x["status"] for x in read.get("parts", [])}
+                for x in read2.get("parts", []):
+                    if rank[x["status"]] > rank.get(both.get(x["id"]), -1):
+                        both[x["id"]] = x["status"]
+                merged = dict(read2, parts=[{"id": i, "status": v} for i, v in both.items()],
+                              otherLesson=read.get("otherLesson") and read2.get("otherLesson"))
+                if not all(p.get("neat") == "messy" for p in read.get("pages", [])):
+                    merged["pages"] = [dict(p, neat="acceptable") for p in read2.get("pages", [])]
+                out = lean_copy_result(merged, les["parts"], imgs, hashes, reused)
+                out["secondLook"] = True
+            return out
         content = [{"type": "text", "text": f"Vở của học sinh ({len(imgs)} ảnh):"}] + [img_block(b) for b in imgs]
         content.append({"type": "text", "text": COPY_PROMPT.format(title=COPY[s["prog"]][s["code"]].get("title") or s["code"],
                                                                    parts=parts, doc=les["text"])})
@@ -934,9 +958,14 @@ class FighterNotebooks:
         content.append({"type": "text", "text": READING_PROMPT.format(title=ref["title"], total=ref["total"], listing=listing,
                                                                      book="SỔ LUYỆN ĐỀ" if s["prog"] == "PT" else "VỞ CHỮA BÀI")})
         cat = f"{s['cls']} · {KIND_NAME[s['prog']].capitalize()} · {s['code']}"
-        if lean:   # one Sonnet read (Message Batch)
+        if lean:   # one Sonnet read (Message Batch); a failing book gets a second look at full size, merged as before
             a = self.call(content, READING_SCHEMA, cat, 20000, model=LEAN_MODEL, batch=True)
             b = a
+            v1 = score({"entries": ref["words"]}, {"entries": a.get("entries", [])})
+            done = len({x["n"] for x in a.get("answers", [])})
+            if min(v1["pct"], round(100 * done / ref["total"]) if ref["total"] else 0) < PASS:
+                content[1:1 + len(imgs)] = [img_block(x, SIDE) for x in imgs]
+                b = self.call(content, READING_SCHEMA, cat, 20000, model=LEAN_MODEL, batch=True)
         else:
             with cf.ThreadPoolExecutor(2) as ex:
                 a, b = ex.map(lambda _: self.call(content, READING_SCHEMA, cat, 20000), range(2))
@@ -991,7 +1020,7 @@ class FighterNotebooks:
     def call(self, content, schema, category, max_tokens=12000, model=MODEL, batch=False):
         if batch:   # answered by a Message Batch (half price): queued now, the answer is picked up by a later cycle
             key = h(json.dumps([model, schema, content], ensure_ascii=False, sort_keys=True), 40)
-            got = self.st.setdefault("batchRes", {}).pop(key, None)
+            got = self.st.setdefault("batchRes", {}).get(key)
             if got is not None:
                 if "_error" in got:
                     raise RuntimeError("BATCH_" + got["_error"])
@@ -1092,9 +1121,13 @@ class FighterNotebooks:
             cw.ledger({"at": cw.now_iso(), "category": f"{s['cls']} · Sổ từ vựng · {s['code']}", "step": "fighter-notebook",
                        "model": MODEL, "usage": u, "usd": c, "vnd": round(c * cw.USD_VND)})
             return json.loads(json.dumps(next(b.input for b in r.content if b.type == "tool_use"))), c
-        if lean:   # one Sonnet read (Message Batch); the merge below then sees the same read twice
-            a = self.call(content, SCHEMA, f"{s['cls']} · Sổ từ vựng · {s['code']}", model=LEAN_MODEL, batch=True)
+        if lean:   # one Sonnet read (Message Batch); a failing book gets a second look at full size, merged as before
+            cat = f"{s['cls']} · Sổ từ vựng · {s['code']}"
+            a = self.call(content, SCHEMA, cat, model=LEAN_MODEL, batch=True)
             b, c = a, 0.0
+            if score(unit, {"entries": a.get("entries", [])})["pct"] < PASS:
+                full = [content[0], img_block(SAMPLE.read_bytes()), content[2]] + [img_block(x) for x in imgs] + content[3 + len(imgs):]
+                b = self.call(full, SCHEMA, cat, model=LEAN_MODEL, batch=True)
         else:      # two independent Haiku reads, merged in the pupil's favour
             with cf.ThreadPoolExecutor(2) as ex:
                 (a, ca), (b, cb) = ex.map(lambda _: read(), range(2))
@@ -1459,12 +1492,19 @@ class FighterNotebooks:
                     self.tick("batch_read_vnd", round(c * cw.USD_VND))
                     txt = "".join(x.get("text") or "" for x in m["content"] if x.get("type") == "text")
                     try:
-                        res[key] = {"out": json.loads(txt)}
+                        res[key] = {"out": json.loads(txt), "at": now().isoformat()}
                     except ValueError:
                         res[key] = {"_error": "truncated" if m.get("stop_reason") == "max_tokens" else "bad_json"}
             for key in info["keys"]:
                 pend.pop(key, None)
             del self.st["batches"][bid]
+        for key, v in list(res.items()):   # answers are kept 3 days, errors one cycle
+            if "_error" in v and v.get("seen"):
+                res.pop(key)
+            elif "_error" in v:
+                v["seen"] = True
+            elif now() - dt.datetime.fromisoformat(v.get("at", now().isoformat())) > dt.timedelta(days=3):
+                res.pop(key)
 
     def compare_row(self, s, old, old_ok, new, ok):
         def verdict(txt, good):
