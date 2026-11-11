@@ -119,12 +119,58 @@ def ensure_tab(g, sid):
 PENDING = ("new", "submitted", "graded", "essay_new", "essay_submitted")
 
 
+SCHEDULE = "1NHZ6N2fp-ptJ9p7_HN65fFSs-A_lohiGVTwndm3ud6Q"   # "* SCHEDULE updated 7/2026" (weekly tabs)
+TAB_RE = re.compile(r"^\s*(\d{2})\.(\d{2})\.(\d{4})\s*-\s*(\d{2})\.(\d{2})\.(\d{4})\s*$")
+
+
+def lessons(runner):
+    """{class: sorted [dates]} of Cô Trang's own lessons that take place ('Học'), from the centre's weekly
+    schedule tabs (DAY | TIME | … | CLASS | TEACHER | … | CLASS STATUS). Read once per run."""
+    if getattr(runner, "_lessons", None) is not None:
+        return runner._lessons
+    out = {}
+    sid = runner.cfg.get("scheduleSheet") or SCHEDULE
+    try:
+        tabs = runner.g.sheet_titles(sid)
+        today = dt.datetime.now(VN).date()
+        for t in tabs:
+            m = TAB_RE.match(t)
+            if not m:
+                continue
+            a = dt.date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+            if not (today - dt.timedelta(days=21) <= a <= today + dt.timedelta(days=14)):
+                continue
+            rows = runner.g.values(sid, f"'{t}'!A1:M400") or []
+            head = next((i for i, r in enumerate(rows) if len(r) > 4 and str(r[0]).strip().upper() == "DAY"
+                         and str(r[3]).strip().upper() == "CLASS"), None)
+            if head is None:
+                continue
+            day = None
+            for r in rows[head + 1:]:
+                r = list(r) + [""] * (13 - len(r))
+                dm = re.search(r"(\d{2})\.(\d{2})\.(\d{4})", str(r[0]))
+                if dm:
+                    day = dt.date(int(dm.group(3)), int(dm.group(2)), int(dm.group(1)))
+                cls = runner.class_of(r[3]) if hasattr(runner, "class_of") else str(r[3]).strip()
+                if (day and re.fullmatch(r"(IELTS|FIGHTER) \d+", cls) and "TRANG TRIEU" in str(r[4]).upper()
+                        and str(r[12]).strip().lower() == "học" and not re.search(r"\d+\.\d+", str(r[3]))):
+                    out.setdefault(cls, set()).add(day)
+    except Exception:
+        runner.tick("schedule_read_failed")
+    runner._lessons = {k: sorted(v) for k, v in out.items()}
+    return runner._lessons
+
+
 def class_day(runner, cls, deadline):
-    """Cô 11/11: the homework picture goes out on the class's lesson day. The homework deadline is the night
-    before the lesson, so the lesson day is the day after the deadline unless cfg 'classDays' says otherwise
-    (weekday numbers, Monday = 0)."""
+    """Cô 11/11: the homework picture goes out on the day Cô teaches that class (centre schedule), the first
+    such lesson after the deadline. Without schedule data: cfg 'classDays' (weekday numbers, Monday = 0),
+    else the day after the deadline."""
+    after = deadline.astimezone(VN).date()
+    for d in lessons(runner).get(cls, []):
+        if d > after:
+            return d
     days = (runner.cfg.get("classDays") or {}).get(cls)
-    d = deadline.astimezone(VN).date() + dt.timedelta(days=1)
+    d = after + dt.timedelta(days=1)
     if days:
         while d.weekday() not in days:
             d += dt.timedelta(days=1)
