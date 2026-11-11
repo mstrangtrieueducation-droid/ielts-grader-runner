@@ -200,7 +200,7 @@ def draw(data):
                 f"Hạn nộp {data['deadline']:%d/%m/%Y}, tổng kết lúc {data['made']:%H:%M} ngày {data['made']:%d/%m/%Y}")
     y = rule(d, y)
     if bands and not nb_only:
-        seal(d, P + 112, y + 126, seal_val(sum(bands) / len(bands)), "điểm TB /1" if unit == "/1" else "band TB lớp")
+        seal(d, P + 112, y + 126, f"{sum(bands) / len(bands):.1f}", "band TB lớp")
     else:
         seal(d, P + 112, y + 126, f"{len(ok)}/{len(handed)}", "vở đạt")
     fl = [(f"{len(handed)}/{data['total']}", "bạn đã nộp bài"), (f"{len(on)}", "bạn nộp đúng hạn"),
