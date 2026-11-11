@@ -167,3 +167,18 @@ assert 1000 <= _nb.fit_side([_jpg(3000, 4000)] * 5) < 1568
 _u = _nb.unpack({"entries": [{"n": 1, "term": "a", "cols": "fFeu"}]})["entries"][0]
 assert (_u["type"], _u["ipa"], _u["vi"], _u["en"], _u["example"]) == ("filled", "filled", "empty", "unclear", "unclear"), _u
 print("budget ok")
+
+# --- crop: a white page on a dark desk is cut out; a full-frame page is left alone
+_b = _io.BytesIO(); _im = _Im.new("RGB", (1000, 1000), (60, 40, 30)); _im.paste((250, 250, 245), (200, 150, 800, 850)); _im.save(_b, "JPEG")
+_w, _h2 = _Im.open(_io.BytesIO(_nb.crop_page(_b.getvalue()))).size
+assert 600 <= _w <= 680 and 700 <= _h2 <= 780, (_w, _h2)
+_f = _jpg(800, 1000)
+assert _nb.crop_page(_f) == _f
+# --- barem first, pupil photos last
+_c = [{"type": "text", "text": "label"}, {"type": "image", "x": 1}, {"type": "image", "x": 2}, {"type": "text", "text": "barem"}]
+_o = _nb.barem_first(_c)
+assert [x.get("text", x.get("x")) for x in _o][:4] == ["barem", "label", 1, 2] and _o[0].get("cache_control"), _o
+print("crop/barem ok")
+_a = _nb.unpack({"entries": [], "answers": ["12|B|y", "13|in the city|n", "x|?"]})["answers"]
+assert _a[0] == {"n": 12, "answer": "B", "explained": "yes"} and _a[1]["answer"] == "in the city" and _a[1]["explained"] == "no", _a
+print("answers ok")

@@ -14,6 +14,7 @@ Cô's decisions (10/11/2026):
 """
 from __future__ import annotations
 
+import hashlib
 import base64
 import concurrent.futures as cf
 import datetime as dt
@@ -62,7 +63,7 @@ IMG_FLOOR = 1000                     # pages share the budget, but a page is nev
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 28              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 29              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 0         # Cô 10/11: grade as soon as a notebook is submitted; we write the receipt line ourselves if the sync has not
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -107,7 +108,19 @@ def unpack(read):
             continue
         c = (str(e["cols"]).strip().lower() + "uuuuu")[:5]
         out.append(dict({"n": e["n"], "term": e["term"]}, **{f: m.get(ch, "unclear") for (f, _), ch in zip(FIELDS, c)}))
-    return dict(read, entries=out)
+    ans = []
+    m2 = {"y": "yes", "n": "no", "u": "unclear"}
+    for a in read.get("answers", []):
+        if isinstance(a, dict):
+            ans.append(a)
+            continue
+        parts = str(a).split("|")
+        try:
+            ans.append({"n": int(re.sub(r"\D", "", parts[0])), "answer": "|".join(parts[1:-1]).strip() if len(parts) > 2 else (parts[1] if len(parts) > 1 else ""),
+                        "explained": m2.get(parts[-1].strip().lower()[:1], "unclear") if len(parts) > 2 else "unclear"})
+        except ValueError:
+            continue
+    return dict(read, entries=out, answers=ans) if "answers" in read else dict(read, entries=out)
 
 
 PROMPT = """Bạn đọc ảnh SỔ TỪ VỰNG viết tay của một học sinh. Bạn KHÔNG chấm, KHÔNG nhận xét; chỉ ghi lại đúng những gì nhìn thấy.
@@ -384,7 +397,7 @@ LEAN_COPY_SCHEMA = {"type": "object", "additionalProperties": False, "required":
                                                                          "properties": {"id": I, "status": {"type": "string",
                                                                                         "enum": ["copied", "missing", "unreadable"]}}}},
                                    "otherLesson": {"type": "boolean"}}}
-LEAN_COPY_PROMPT = """Ảnh trên là VỞ CHÉP BÀI GIẢNG viết tay của một học sinh. Bài giảng phải chép: {title}. Bài giảng gồm các phần:
+LEAN_COPY_PROMPT = """Các ảnh bài làm là VỞ CHÉP BÀI GIẢNG viết tay của một học sinh. Bài giảng phải chép: {title}. Bài giảng gồm các phần:
 {parts}
 
 Chỉ ghi lại những gì nhìn thấy, không chấm, không nhận xét.
@@ -426,7 +439,10 @@ ANS = {"type": "object", "additionalProperties": False, "required": ["n", "answe
 READING_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["pages", "entries", "answers"],
                   "properties": {"pages": {"type": "array", "items": PAGE}, "entries": SCHEMA["properties"]["entries"],
                                  "answers": {"type": "array", "items": ANS}}}
-LEAN_READING_SCHEMA = dict(READING_SCHEMA, properties=dict(READING_SCHEMA["properties"], entries={"type": "array", "items": LEAN_ENTRY}))
+LEAN_READING_SCHEMA = dict(READING_SCHEMA, properties=dict(READING_SCHEMA["properties"], entries={"type": "array", "items": LEAN_ENTRY},
+                                                           answers={"type": "array", "items": S}))
+LEAN_ANS_NOTE = ("\nCÁCH GHI GỌN phần answers: mỗi câu đã làm lại là MỘT chuỗi 'số|đáp án|giải thích', giải thích = y (có) / n (không) "
+                 "/ u (không đọc rõ). Ví dụ: '12|B|y', '13|TRUE|n', '14|in the city|u'.")
 READING_PROMPT = """Bạn đọc ảnh bài nộp của một học sinh cho bài chữa {title}. Bạn KHÔNG chấm, KHÔNG nhận xét; chỉ ghi lại đúng những gì nhìn thấy.
 Bài nộp gồm 2 phần: (A) SỔ TỪ VỰNG các từ cô in đỏ — mỗi từ 7 cột: STT · Từ/cụm từ · Từ loại · Phiên âm · Nghĩa tiếng Việt ·
 Nghĩa tiếng Anh · Ví dụ; (B) {book} — học sinh làm lại {total} câu của đề vào vở và viết giải thích cho từng câu.
@@ -448,7 +464,7 @@ PAINT_VERSION = 3           # raise when only the cell colours/sizes change: pub
 BODY_SIZE = 9               # comment text size (Cô 10/11: keep 9, make the row twice as tall instead)
 ROW_FACTOR = 2              # rows holding our comments: twice the class sheet's own row height
 REGRADE = set(PROGRAM_HEAD)   # v28: every kind (second Sonnet look at full size for a failing notebook)
-REGRADE_FAILED_ONLY = True  # on a VERSION bump only notebooks below 100% are read again (a clean pass stays)      # programmes whose reading rules changed in this VERSION; others are only re-styled
+REGRADE_FAILED_ONLY = False  # on a VERSION bump only notebooks below 100% are read again (a clean pass stays)      # programmes whose reading rules changed in this VERSION; others are only re-styled
 FLAG = "LỖI: ❌ CẦN NỘP LẠI"   # cell note prefix of our own "redo" mark
 STATUS_RANK = {"missing": 0, "partly": 1, "unclear": 2, "full": 3}
 
@@ -545,12 +561,78 @@ def ham(a, b):
     return bin(int(a, 16) ^ int(b, 16)).count("1")
 
 
+_CROPS = {}
+
+
+def crop_page(jpeg: bytes) -> bytes:
+    """Cut the desk/hands/background around the notebook page (code, free): the bright paper region found by row and
+    column brightness. Conservative: no crop unless the page clearly covers less of the photo."""
+    key = hashlib.sha1(jpeg).hexdigest()
+    if key in _CROPS:
+        return _CROPS[key]
+    from PIL import Image, ImageOps
+    out = jpeg
+    try:
+        im = ImageOps.exif_transpose(Image.open(io.BytesIO(jpeg))).convert("RGB")
+        g = im.convert("L")
+        sm = g.resize((max(1, g.width * 160 // max(g.size)), max(1, g.height * 160 // max(g.size))))
+        hist = sm.histogram()
+        total = sum(hist)
+        best, thr, sb, wb = 0, 128, 0, 0   # Otsu threshold
+        sum_all = sum(i * h_ for i, h_ in enumerate(hist))
+        for i, h_ in enumerate(hist):
+            wb += h_
+            if not wb or wb == total:
+                continue
+            sb += i * h_
+            mb, mf = sb / wb, (sum_all - sb) / (total - wb)
+            between = wb * (total - wb) * (mb - mf) ** 2
+            if between > best:
+                best, thr = between, i
+        px = sm.load()
+        W, H = sm.size
+        rows = [sum(px[x, y] > thr for x in range(W)) / W for y in range(H)]
+        cols = [sum(px[x, y] > thr for y in range(H)) / H for x in range(W)]
+        ys = [y for y, r in enumerate(rows) if r > 0.35]
+        xs = [x for x, c in enumerate(cols) if c > 0.35]
+        if ys and xs:
+            y0, y1, x0, x1 = ys[0], ys[-1] + 1, xs[0], xs[-1] + 1
+            frac = (y1 - y0) * (x1 - x0) / (W * H)
+            if 0.3 <= frac <= 0.85:   # a clear page inside a larger photo
+                mx, my = max(1, W // 40), max(1, H // 40)
+                kx, ky = im.width / W, im.height / H
+                box = (int(max(0, x0 - mx) * kx), int(max(0, y0 - my) * ky), int(min(W, x1 + mx) * kx), int(min(H, y1 + my) * ky))
+                buf = io.BytesIO()
+                im.crop(box).save(buf, "JPEG", quality=90)
+                out = buf.getvalue()
+    except Exception:
+        out = jpeg
+    _CROPS[key] = out
+    return out
+
+
+def barem_first(content):
+    """[label, pupil photos…, lesson blocks…] → [lesson blocks (cached: the barem, same for the whole class), label,
+    pupil photos…, short closing line]. The barem is then billed at a tenth for every pupil after the first."""
+    if not content or content[0].get("type") != "text":
+        return content
+    i = 1
+    while i < len(content) and content[i].get("type") == "image":
+        i += 1
+    pics, rest = content[1:i], content[i:]
+    if not pics or not rest:
+        return content
+    rest = [dict(b) for b in rest]
+    rest[-1]["cache_control"] = {"type": "ephemeral"}
+    return rest + [content[0]] + pics + [{"type": "text", "text": "(Hết ảnh bài làm của học sinh. Ghi kết quả đúng theo hướng dẫn và barem ở trên.)"}]
+
+
 def fit_side(imgs, budget=IMG_BUDGET, floor=IMG_FLOOR, cap=SIDE):
     """Longest side for every page so that all pages together cost about `budget` image tokens (≈ w·h/750 each)."""
     from PIL import Image
     area = 0
     for b in imgs:
-        w, h = Image.open(io.BytesIO(b)).size
+        w, h = Image.open(io.BytesIO(crop_page(b))).size
         k = min(1.0, cap / max(w, h))
         area += (w * k) * (h * k)
     if not area:
@@ -559,9 +641,9 @@ def fit_side(imgs, budget=IMG_BUDGET, floor=IMG_FLOOR, cap=SIDE):
     return int(max(floor, min(cap, cap * k)))
 
 
-def img_block(jpeg: bytes, side=SIDE):
+def img_block(jpeg: bytes, side=SIDE, crop=True):
     from PIL import Image, ImageOps
-    im = ImageOps.exif_transpose(Image.open(io.BytesIO(jpeg))).convert("RGB")
+    im = ImageOps.exif_transpose(Image.open(io.BytesIO(crop_page(jpeg) if crop else jpeg))).convert("RGB")
     im.thumbnail((side, side))
     buf = io.BytesIO()
     im.save(buf, "JPEG", quality=85)
@@ -756,7 +838,15 @@ class FighterNotebooks:
                 out.append(to_jpeg(data))
             if len(out) >= limit:
                 break
-        return out[:limit]
+        keep, seen = [], []   # the same page sent twice is read once
+        for b in out[:limit]:
+            d = dhash(b)
+            if any(ham(d, x) <= 30 for x in seen):
+                self.tick("duplicate_page_dropped")
+                continue
+            seen.append(d)
+            keep.append(b)
+        return keep
 
     def reused_pages(self, sid, s, hashes):
         reused = []
@@ -778,6 +868,9 @@ class FighterNotebooks:
             return {"kind": "no_photos", "type": "ap"}
         hashes = [dhash(b) for b in imgs]
         reused = self.reused_pages(sid, s, hashes)
+        if reused and len(reused) * 2 >= len(imgs):   # half the photos are an earlier notebook's: refused by code, nothing read
+            self.tick("reused_no_read")
+            return {"kind": "reused", "reusedFrom": reused[0], "pages": len(imgs), "hashes": hashes, "pct": 0}
         lean = s["prog"] in LEAN_PROGS
         side = fit_side(imgs) if lean else SIDE
         content = [{"type": "text", "text": f"Vở của học sinh ({len(imgs)} ảnh):"}] + [img_block(b, side) for b in imgs]
@@ -865,6 +958,9 @@ class FighterNotebooks:
             return {"kind": "no_photos", "type": "copy"}
         hashes = [dhash(b) for b in imgs]
         reused = self.reused_pages(sid, s, hashes)
+        if reused and len(reused) * 2 >= len(imgs):   # half the photos are an earlier notebook's: refused by code, nothing read
+            self.tick("reused_no_read")
+            return {"kind": "reused", "reusedFrom": reused[0], "pages": len(imgs), "hashes": hashes, "pct": 0}
         parts = "\n".join(f"{i}. {p['name']} (bắt đầu: {p['starts'][:60]})" for i, p in enumerate(les["parts"], 1))
         if s["prog"] in LEAN_PROGS:
             side = fit_side(imgs)
@@ -994,6 +1090,9 @@ class FighterNotebooks:
             return {"kind": "no_photos", "type": "reading"}
         hashes = [dhash(b) for b in imgs]
         reused = self.reused_pages(sid, s, hashes)
+        if reused and len(reused) * 2 >= len(imgs):   # half the photos are an earlier notebook's: refused by code, nothing read
+            self.tick("reused_no_read")
+            return {"kind": "reused", "reusedFrom": reused[0], "pages": len(imgs), "hashes": hashes, "pct": 0}
         listing = "\n".join(f"{w['n']}. {w['term']} ({w['type']}) — {w['vi']}" for w in ref["words"])
         lean = LEAN_ALL
         side = fit_side(imgs) if lean else SIDE
@@ -1002,7 +1101,7 @@ class FighterNotebooks:
                                                                      book="SỔ LUYỆN ĐỀ" if s["prog"] == "PT" else "VỞ CHỮA BÀI")})
         cat = f"{s['cls']} · {KIND_NAME[s['prog']].capitalize()} · {s['code']}"
         if lean:   # one Sonnet read (Message Batch); a failing book gets a second look at full size, merged as before
-            content[-1] = dict(content[-1], text=content[-1]["text"] + LEAN_NOTE)
+            content[-1] = dict(content[-1], text=content[-1]["text"] + LEAN_NOTE + LEAN_ANS_NOTE)
             a = unpack(self.call(content, LEAN_READING_SCHEMA, cat, 20000, model=self.tier(s), batch=True))
             b = a
             v1 = score({"entries": ref["words"]}, {"entries": a.get("entries", [])})
@@ -1070,6 +1169,7 @@ class FighterNotebooks:
                     raise RuntimeError("BATCH_" + got["_error"])
                 return got["out"]
             if key not in self.st.setdefault("batchPending", {}):
+                content = barem_first(content)
                 params = ({"model": model, "max_tokens": max_tokens, "thinking": {"type": "disabled"},
                            "tools": [{"name": "record", "description": "Ghi lại kết quả", "input_schema": schema}],
                            "tool_choice": {"type": "tool", "name": "record"}, "messages": [{"role": "user", "content": content}]}
@@ -1145,15 +1245,17 @@ class FighterNotebooks:
         if not imgs:
             return {"kind": "no_photos"}
         hashes = [dhash(b) for b in imgs]
-        reused = self.reused_pages(sid, s, hashes)   # 1024-bit hash: different pages differ by ~350, a re-saved photo by <50
+        reused = self.reused_pages(sid, s, hashes)
+        if reused and len(reused) * 2 >= len(imgs):   # half the photos are an earlier notebook's: refused by code, nothing read
+            self.tick("reused_no_read")
+            return {"kind": "reused", "reusedFrom": reused[0], "pages": len(imgs), "hashes": hashes, "pct": 0}
         ents = unit["entries"]
         step = max(1, len(ents) // 5)
         spot = [e["n"] for e in ents[::step]][:5]
         listing = "\n".join(f"{e['n']}. {e['term']} — {e['vi']}" for e in ents)
         lean = LEAN_ALL
         side = fit_side(imgs) if lean else SIDE
-        content = ([{"type": "text", "text": "(Sổ 7 cột như mô tả bên dưới.)"}, {"type": "text", "text": "."}] if lean else
-                   [{"type": "text", "text": "Ảnh mẫu sổ 7 cột:"}, img_block(SAMPLE.read_bytes(), side)])
+        content = [] if lean else [{"type": "text", "text": "Ảnh mẫu sổ 7 cột:"}, img_block(SAMPLE.read_bytes(), side)]
         content += [{"type": "text", "text": f"Bài làm của học sinh ({len(imgs)} ảnh):"}]
         content += [img_block(b, side) for b in imgs]
         content.append({"type": "text", "text": PROMPT.format(code=s["code"], title=unit["title"], first=ents[0]["n"],
@@ -1176,7 +1278,7 @@ class FighterNotebooks:
             a = unpack(self.call(content, LEAN_SCHEMA, cat, model=self.tier(s), batch=True))
             b, c = a, 0.0
             if score(unit, {"entries": a.get("entries", [])})["pct"] < 20 and side < SIDE and self.tier(s) == LEAN_MODEL:   # looks like a misread
-                content[3:3 + len(imgs)] = [img_block(x, SIDE) for x in imgs]
+                content[1:1 + len(imgs)] = [img_block(x, SIDE) for x in imgs]
                 b = unpack(self.call(content, LEAN_SCHEMA, cat, model=self.tier(s), batch=True))
         else:      # two independent Haiku reads, merged in the pupil's favour
             with cf.ThreadPoolExecutor(2) as ex:
@@ -1643,7 +1745,7 @@ class FighterNotebooks:
                 m = re.search(r"đạt (\d+)%", s.get("published") or "")
                 clean = s.get("ok") and m and int(m.group(1)) >= 100
                 if s["prog"] in REGRADE and not (REGRADE_FAILED_ONLY and clean):
-                    s.update(status="new", tries=0, regrade=True)
+                    s.update(status="new", tries=0, regrade=True, prevPublished=s.get("published") or "", prevOk=s.get("ok"))
                     self.tick("regrade_new_rules")
                 else:   # same result, today's wording/colours: no new reading
                     self.restyle(s)
