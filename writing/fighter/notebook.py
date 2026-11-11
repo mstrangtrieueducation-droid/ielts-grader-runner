@@ -468,6 +468,7 @@ BODY_SIZE = 9               # comment text size (Cô 10/11: keep 9, make the row
 ROW_FACTOR = 2              # rows holding our comments: twice the class sheet's own row height
 REGRADE = set(PROGRAM_HEAD)   # v28: every kind (second Sonnet look at full size for a failing notebook)
 DEBUG_NAMES = set()               # pupils whose reading is printed to the run log (debugging only)
+DAILY_CAP_VND = 50000          # Cô 11/11 "xót tiền": no new reads are sent once a day's notebook reading costs this much
 REGRADE_MATCH = r"có 0/\d+ từ"   # v31: only notebooks where no word was found are read again (printed-word workbooks)
 REGRADE_FAILED_ONLY = True  # on a VERSION bump only notebooks below 100% are read again (a clean pass stays)      # programmes whose reading rules changed in this VERSION; others are only re-styled
 FLAG = "LỖI: ❌ CẦN NỘP LẠI"   # cell note prefix of our own "redo" mark
@@ -1705,6 +1706,11 @@ class FighterNotebooks:
                     cw.ledger({"at": cw.now_iso(), "category": cat, "step": "fighter-notebook-batch", "model": m["model"],
                                "usage": m["usage"], "usd": c, "vnd": round(c * cw.USD_VND)})
                     self.r.tick("fnb_cost_vnd", round(c * cw.USD_VND))
+                    day = now().strftime("%Y-%m-%d")
+                    sp = self.st.setdefault("spend", {})
+                    sp[day] = sp.get(day, 0) + round(c * cw.USD_VND)
+                    for d in sorted(sp)[:-14]:
+                        sp.pop(d)
                     self.tick("batch_reads")
                     self.tick("batch_read_vnd", round(c * cw.USD_VND))
                     txt = "".join(x.get("text") or "" for x in m["content"] if x.get("type") == "text")
@@ -1746,6 +1752,11 @@ class FighterNotebooks:
 
     def submit_batch(self):
         if not self.queue:
+            return
+        spent = self.st.get("spend", {}).get(now().strftime("%Y-%m-%d"), 0)
+        if spent >= DAILY_CAP_VND:   # the day's budget is used: the notebooks wait for tomorrow
+            self.tick("daily_cap_reached")
+            self.queue = {}
             return
         reqs = [{"custom_id": k, "params": v["params"]} for k, v in self.queue.items()]
         try:
