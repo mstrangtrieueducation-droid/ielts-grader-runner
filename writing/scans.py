@@ -70,6 +70,19 @@ NO_COUNT = (" Không chép tên học sinh vào `transcript`. Chữ em gạch b�
             "chính xác rồi tự ghi số từ và phần trừ điểm vào kết quả.")
 
 
+def ielts_pct(t):
+    """Cô 12/11 tối: in-class IELTS writing shows a '% chất lượng' instead of a band. Computed by code like Fighter:
+    100 − 4 × (errors Cô corrected per minimum length), scaled down by words/minimum when under the minimum.
+    Fitted on 93 graded IELTS papers against band/9 (mean gap ≈ 2 points, mean |gap| ≈ 10)."""
+    cs = (t.get("_qa") or {}).get("classScore") or {}
+    w, mn = cs.get("wordCount") or 0, cs.get("minimum") or (150 if t.get("task") == 1 else 250)
+    errs = sum(1 for a in t.get("annotations") or [] if a.get("kind") == "error")
+    pct = 100 - 4 * errs * mn / max(w, 100)
+    if w < mn:
+        pct *= w / mn
+    return max(15, min(100, round(pct)))
+
+
 def paper_words(t):
     """Cô 12/11: word count of a handwritten paper = what the pupil left as the essay. Not the [gạch bỏ …] parts,
     not the transcriber's notes, not the name or heading line at the top."""
@@ -638,7 +651,7 @@ class Scans:
     def fmt(x):
         return f"{x:.2f}".replace(".", ",") if abs(x * 10 - round(x * 10)) > 1e-9 else f"{x:.1f}".replace(".", ",")
 
-    def cell_text(self, rec, res, task=None):
+    def cell_text(self, rec, res, task=None, legacy=False):
         if rec["meta"]["cls"].startswith("FIGHTER"):
             sc = res.get("score") or {}
             if not sc and rec["meta"].get("kind") == "inclass":   # Buổi 2–15: corrected, no score (rulebook §1)
@@ -647,10 +660,20 @@ class Scans:
                 return None
             return f"{self.fmt(sc['tong'])}/1\n{res['overall'].strip()}\nSố từ: {res['_qa']['words']}"
         lines = []
+        pct_mode = rec["meta"].get("kind") == "inclass" and not legacy   # Cô 12/11 tối: in-class IELTS → %, tests keep band
         for t in res.get("tasks", []):
             if task and t["task"] != task:
                 continue
             cs = t["_qa"]["classScore"]
+            if pct_mode:
+                g = {k: sum(1 for a in t.get("annotations") or [] if a.get("kind") == "error" and a.get("group") == k)
+                     for k in ("grammar", "vocab", "coherence")}
+                note = f"Số từ: {cs['wordCount']}/{cs['minimum']}"
+                if cs["shortfall"] > 0:
+                    note += f"; thiếu {cs['shortfall']} từ (lỗi rất nặng, % chất lượng đã trừ theo độ dài)"
+                lines.append(f"{ielts_pct(t)}% chất lượng\nĐã chữa: {g['grammar']} lỗi ngữ pháp, {g['vocab']} lỗi từ vựng, "
+                             f"{g['coherence']} lỗi mạch lạc/liên kết\n{t['overall'].strip()}\n{note}.")
+                continue
             cr = cs["classAssessment"]["criteria"]
             ta = cr.get("TA", cr.get("TR"))
             band = cs["classAssessment"]["overallBand"]

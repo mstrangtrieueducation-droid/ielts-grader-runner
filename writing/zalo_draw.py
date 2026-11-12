@@ -367,13 +367,17 @@ def draw_inclass(data):
                 f"Ngày {'kiểm tra' if kind == 'Bài kiểm tra' else 'học'} {data['date']}, tổng kết lúc {data['made']:%H:%M} ngày {data['made']:%d/%m/%Y}")
     y = rule(d, y)
     sm0 = data.get("summary") or {}
-    pcts = [p["stats"]["pct"] for p in has if (p.get("stats") or {}).get("pct") is not None] if sm0.get("fighter") else []
-    if pcts:   # Cô 12/11: unscored Fighter paragraphs show a quality percentage
-        best = max(pcts)
-        stars = [p for p in has if (p.get("stats") or {}).get("pct") is not None and p["stats"]["pct"] >= best - 5][:6]
-        caution = ["% chất lượng: máy tính từ số lỗi Cô đã chữa và mức nặng nhẹ (trên mỗi 150 từ,",
-                   "bài ngắn dưới 140 từ bị trừ theo độ dài). Đây là bài viết trên lớp có hướng dẫn,",
-                   "không phải điểm thi."]
+    pcts = [p["stats"]["pct"] for p in has if (p.get("stats") or {}).get("pct") is not None] if data.get("pct") else []
+    if pcts:   # Cô 12/11: in-class writing (Fighter, and IELTS from 12/11 tối) shows a quality percentage
+        ok = [p for p in has if (p.get("stats") or {}).get("pct") is not None and p not in short]
+        best = max((p["stats"]["pct"] for p in ok), default=None)
+        stars = sorted([p for p in ok if p["stats"]["pct"] >= best - 5], key=lambda p: -p["stats"]["pct"])[:6] if ok else []
+        caution = (["% chất lượng: máy tính từ số lỗi Cô đã chữa và mức nặng nhẹ (trên mỗi 150 từ,",
+                    "bài ngắn dưới 140 từ bị trừ theo độ dài). Đây là bài viết trên lớp có hướng dẫn,",
+                    "không phải điểm thi."] if sm0.get("fighter") else
+                   ["% chất lượng: máy tính từ số lỗi Cô đã chữa (trên mỗi 150 từ với Task 1, 250 từ",
+                    "với Task 2); bài thiếu số từ tối thiểu bị trừ theo độ dài. Đây là bài viết trên lớp",
+                    "có hướng dẫn, không phải band thi."])
     if pcts:
         seal(d, P + 112, y + 126, f"{round(sum(pcts) / len(pcts))}%", "chất lượng TB")
     elif scored and bands:
@@ -473,9 +477,9 @@ def draw_inclass(data):
     X_HAS, X_RES = 520, 770
     cols = [("Họ tên", P), ("Bài viết", X_HAS), ("Kết quả", X_RES)]
     if sm:   # per-pupil stats instead of a bare "Đã chữa"
-        XS = [380, 510, 612, 722, 832] if sm.get("fighter") else [372, 482, 592, 702, 812]
+        XS = [380, 510, 612, 722, 832] if sm.get("fighter") else ([372, 520, 614, 718, 832] if data.get("pct") else [372, 482, 592, 702, 812])
         heads = (["Chất lượng", "Từ vựng", "Ngữ pháp", "Lập luận", "Quy ước"] if sm.get("fighter")
-                 else ["Band", "Số từ", "Từ vựng", "Ngữ pháp", "Liên kết"])   # IELTS: coherence & cohesion (Task 1 has no argument)
+                 else [("Chất lượng" if data.get("pct") else "Band"), "Số từ", "Từ vựng", "Ngữ pháp", "Liên kết"])   # IELTS: coherence & cohesion (Task 1 has no argument)
         cols = [("Họ tên", P)] + list(zip(heads, XS))
 
         def rows(d, i, y):
@@ -491,7 +495,8 @@ def draw_inclass(data):
             vals = ([f"{st['pct']}%" if st.get("pct") is not None else "—", st.get("vocab"), st.get("grammar"),
                      st.get("coherence"), st.get("ql")]
                     if sm.get("fighter") else
-                    [val(p["band"]) if p.get("band") is not None else "—", st.get("words"), st.get("vocab"),
+                    [(f"{st['pct']}%" if st.get("pct") is not None else "—") if data.get("pct") else
+                     (val(p["band"]) if p.get("band") is not None else "—"), st.get("words"), st.get("vocab"),
                      st.get("grammar"), st.get("coherence")])
             for k, (x, v) in enumerate(zip(XS, vals)):
                 if k == 1 and not sm.get("fighter") and st.get("short") and v is not None:
@@ -504,8 +509,11 @@ def draw_inclass(data):
         foot = ["Số lỗi là số chỗ Cô đã chữa trong bài của con, theo từng nhóm."]
         if sm.get("fighter"):
             foot.append("% chất lượng: máy tính từ số lỗi, mức nặng nhẹ và độ dài bài, không phải điểm thi.")
-        elif short:
-            foot.append(f"Số từ tô đỏ: thiếu số từ tối thiểu ({min_label(mins)}), lỗi rất nặng.")
+        else:
+            if data.get("pct"):
+                foot.append("% chất lượng: máy tính từ số lỗi Cô đã chữa và độ dài bài, không phải band thi.")
+            if short:
+                foot.append(f"Số từ tô đỏ: thiếu số từ tối thiểu ({min_label(mins)}), lỗi rất nặng.")
         foot += [
                  "“Không có bài”: máy không thấy bài của con trong tập scan của buổi này.",
                  "Bài chữa chi tiết và bản sửa gợi ý của từng bạn: xem trên dashboard phụ huynh."]

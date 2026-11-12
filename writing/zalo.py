@@ -366,6 +366,8 @@ def paper_stats(res, fighter, free_length=False):
                     st[a["group"]] += 1
                     st["codes"].append(str(a.get("label") or "").strip().lower())
         st["words"] = w or None
+        ps = [__import__("scans").ielts_pct(t) for t in res.get("tasks") or [] if (t.get("_qa") or {}).get("classScore")]
+        st["pct"] = round(sum(ps) / len(ps)) if ps else None
     return st
 
 
@@ -439,7 +441,7 @@ def make_inclass(runner, scans_state, now=None):
         spec = sc.pack_for(meta) or {}
         test = meta["kind"] == "test"
         fighter = cls.startswith("FIGHTER")
-        scored = spec.get("schema") == "ielts" or (test and fighter)
+        scored = (spec.get("schema") == "ielts" and test) or (test and fighter)   # Cô 12/11 tối: in-class IELTS → % chất lượng
         unit = "/1" if fighter else "band"
         got = {key_of(s["name"]): s for s in studs if s.get("name") and s.get("status") == "published"}
         pupils, crit, comments = [], {}, []
@@ -502,6 +504,7 @@ def make_inclass(runner, scans_state, now=None):
         import zalo_draw
         png = zalo_draw.draw_inclass({"summary": summary,"cls": cls, "title": title, "date": meta["date"], "made": now, "pupils": pupils,
                                       "crit": {k: sum(v) / len(v) for k, v in crit.items()}, "scored": scored,
+                                      "pct": not scored,
                                       "kind": "Bài kiểm tra" if test else "Bài viết trên lớp", "unit": unit,
                                       "unknown": sum(1 for s in studs if s.get("status") == "unidentified")})
         store(runner, cls, f"scan|{skey}", f"{cls} – {title}", png, now)

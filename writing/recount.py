@@ -195,6 +195,13 @@ def run_cells(runner):
     if not path.exists():
         return
     items = json.loads(path.read_text(encoding="utf-8"))
+    apply_cells(runner, items, "recount2")
+    runner.state["recount1112bDone"] = True
+
+
+def apply_cells(runner, items, tag):
+    """Rewrite each {cls, name, old, new, mode} where the old text still stands in the pupil's row."""
+    from run_writing import MARK, col_letter, norm
     by_cls = {}
     for it in items:
         by_cls.setdefault(it["cls"], []).append(it)
@@ -205,12 +212,12 @@ def run_cells(runner):
             tr.cached("A", 1)
             grid = tr._grid
         except Exception as ex:
-            runner.tick(f"recount2_tracker_failed_{type(ex).__name__}")
+            runner.tick(f"{tag}_tracker_failed_{type(ex).__name__}")
             continue
         for it in its:
             row = tr.row_of(norm(it["name"]))
             if not row:
-                runner.tick("recount2_no_row")
+                runner.tick(f"{tag}_no_row")
                 continue
             cells = grid[row - 1] if row - 1 < len(grid) else []
             old = it["old"].strip()
@@ -218,23 +225,44 @@ def run_cells(runner):
                                                        else (MARK in str(v) and it["old"] in str(v)))]
             if len(hits) != 1:
                 done = any(str(v).strip() == it["new"].strip() or (it["mode"] != "exact" and it["new"] in str(v)) for v in cells)
-                runner.tick("recount2_already" if done else ("recount2_not_found" if not hits else "recount2_ambiguous"))
+                runner.tick(f"{tag}_already" if done else (f"{tag}_not_found" if not hits else f"{tag}_ambiguous"))
                 continue
             a1 = f"{col_letter(hits[0])}{row}"
             cur = tr.cell(a1)   # live read right before the write
             if it["mode"] == "exact":
                 if cur.strip() != old:
-                    runner.tick("recount2_changed_meanwhile")
+                    runner.tick(f"{tag}_changed_meanwhile")
                     continue
                 new = it["new"]
             else:
                 if it["old"] not in cur:
-                    runner.tick("recount2_changed_meanwhile")
+                    runner.tick(f"{tag}_changed_meanwhile")
                     continue
                 new = cur.replace(it["old"], it["new"])
             tr.write(a1, new)
             ok = tr.cell(a1).strip() == new.strip()
-            runner.tick("recount2_rewritten" if ok else "recount2_readback")
+            runner.tick(f"{tag}_rewritten" if ok else f"{tag}_readback")
             if ok and it.get("sub") in runner.state.get("subs", {}):
                 runner.state["subs"][it["sub"]].update(publishedComment=it["comment"], publishedBlock=it["new"], cell=a1)
-    runner.state["recount1112bDone"] = True
+
+
+def run_pct(runner):
+    """Cô 12/11 tối: in-class IELTS writing already published with a band → the same cell with '% chất lượng'."""
+    if runner.state.get("inclassPct1112Done"):
+        return
+    scans = sc_mod()
+    sc = scans.Scans(runner)
+    items = []
+    for rec in sc.st.get("files", {}).values():
+        meta = rec.get("meta") or {}
+        if meta.get("kind") != "inclass" or not str(meta.get("cls", "")).startswith("IELTS"):
+            continue
+        for s in rec.get("students", {}).values():
+            if s.get("status") != "published" or not s.get("result"):
+                continue
+            for t in [t.get("task") for t in s["result"].get("tasks") or []]:
+                old, new = sc.cell_text(rec, s["result"], t, legacy=True), sc.cell_text(rec, s["result"], t)
+                if old and new and old != new:
+                    items.append({"cls": meta["cls"], "name": s["name"], "old": old, "new": new, "mode": "exact"})
+    apply_cells(runner, items, "inclass_pct")
+    runner.state["inclassPct1112Done"] = True
