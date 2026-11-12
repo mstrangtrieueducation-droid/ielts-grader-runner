@@ -63,7 +63,7 @@ IMG_FLOOR = 1000                     # pages share the budget, but a page is nev
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 32              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 33              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 0         # Cô 10/11: grade as soon as a notebook is submitted; we write the receipt line ourselves if the sync has not
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -1363,9 +1363,8 @@ class FighterNotebooks:
         label, unit = unit_label(s["code"])
         what = KIND_NAME.get(s["prog"], "sổ từ vựng")
         book = "vở" if s["prog"] in KIND_NAME else "sổ"
-        # "NHẬN XÉT CỦA GV: Lỗi:" is what the class dashboards and the class web app already read as "Cần bổ sung /
-        # cần nộp lại" (no cell note needed): a failing notebook stays owed there too, like KIDS.
-        OWED = "⚠ NHẬN XÉT CỦA GV: Lỗi: bài CHƯA ĐẠT — vẫn tính là CHƯA NỘP BÀI, con CẦN NỘP LẠI cho tới khi đạt yêu cầu."
+        # Cô 12/11: no teacher-note wording at all (same as KIDS / IELTS).
+        OWED = "⚠ Bài chưa đạt nên vẫn tính là CHƯA NỘP BÀI cho tới khi con nộp lại đạt yêu cầu."
         def refuse(why, ask):
             return (f"❌ Chất lượng: Chưa đạt (Yêu cầu nộp lại).\n• Lý do yêu cầu nộp lại: {why}\n{OWED}\n→ Yêu cầu: {ask}"), False, None
 
@@ -1528,7 +1527,7 @@ class FighterNotebooks:
                 pass
             first = re.sub(r"CHƯA ĐẠT(?:, CẦN NỘP LẠI)? \(yêu cầu từ (\d+)%\)\.", r"Chưa đạt (Yêu cầu nộp lại, cần từ \1%).", first)
             rest = rest.replace("⛔ Bài chưa đạt", "⚠ Bài chưa đạt")
-            rest = rest.replace("⚠ Bài chưa đạt nên vẫn tính là CHƯA NỘP BÀI cho tới khi con nộp lại đạt yêu cầu.", "⚠ NHẬN XÉT CỦA GV: Lỗi: bài CHƯA ĐẠT — vẫn tính là CHƯA NỘP BÀI, con CẦN NỘP LẠI cho tới khi đạt yêu cầu.")
+            rest = rest.replace("⚠ NHẬN XÉT CỦA GV: Lỗi: bài CHƯA ĐẠT — vẫn tính là CHƯA NỘP BÀI, con CẦN NỘP LẠI cho tới khi đạt yêu cầu.", "⚠ Bài chưa đạt nên vẫn tính là CHƯA NỘP BÀI cho tới khi con nộp lại đạt yêu cầu.")
             rest = re.sub(r"mới chép đủ (\d+)/\1 phần", r"đã chép đủ \1/\1 phần", rest)
             new = first + sep + rest
             dl = dt.datetime.fromisoformat(s["deadline"]) if s.get("deadline") else None
