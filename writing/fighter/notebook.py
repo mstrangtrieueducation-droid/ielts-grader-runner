@@ -482,8 +482,8 @@ REGRADE_ONLY = set()          # Cô 12/11 13:01: no paid re-reads; wrong results
 HAND_FIXED = {   # cells corrected by hand after checking the photos (Cô 12/11 13:01: no paid re-reads); (name, unit): (submitted up to, passed, comment)
     ("le tran thao nhi", "AP-B03"): ("2026-11-12T13:30:00+07:00", False, "❌ Chất lượng: đạt 72% — Chưa đạt (Yêu cầu nộp lại, cần từ 90%).\n• Revised version (đoạn văn con viết lại sau khi chữa): CHƯA CÓ.\n• Outline: đã chép đủ.\n• Bài mẫu: đã chép đủ.\n• Từ vựng và cụm từ: có 7/8 — thiếu: recharge one’s energy.\n⚠ Bài chưa đạt nên vẫn tính là CHƯA NỘP BÀI cho tới khi con nộp lại đạt yêu cầu.\n→ Yêu cầu: con bổ sung ĐỦ các mục còn thiếu ở trên vào vở, chụp lại toàn bộ và NỘP LẠI trước buổi học tới."),
     ("nguyen minh ngoc", "AP-B03"): ("2026-11-12T15:30:00+07:00", False, "❌ Chất lượng: đạt 75% — Chưa đạt (Yêu cầu nộp lại, cần từ 90%).\n• Revised version (đoạn văn con viết lại sau khi chữa): đã có.\n• Outline: đã chép đủ.\n• Bài mẫu: đã chép đủ.\n• Từ vựng và cụm từ: có 0/8 — thiếu: prevalent; broaden one’s horizons; immerse oneself in; ethnic minorities; cultural appreciation; hectic schedules; recharge one’s energy; strengthen bonds.\n⚠ Bài chưa đạt nên vẫn tính là CHƯA NỘP BÀI cho tới khi con nộp lại đạt yêu cầu.\n→ Yêu cầu: con bổ sung ĐỦ các mục còn thiếu ở trên vào vở, chụp lại toàn bộ và NỘP LẠI trước buổi học tới."),
-    ("do ngoc bao tram", "RI2-C04"): ("2026-11-12T15:30:00+07:00", False, "❌ Chất lượng: đạt 89% — Chưa đạt (Yêu cầu nộp lại, cần từ 90%).\n• Sổ từ vựng (từ cô in đỏ): 95% — có 10/10 từ.\n• Vở chữa bài: 89% — làm lại 66/66 câu, giải thích 21/36 câu cần giải thích.\n• Bỏ trống cột Từ loại ở 1 từ: số 4.\n• Bỏ trống cột Phiên âm ở 1 từ: số 4.\n• Bỏ trống cột Ví dụ ở 1 từ: số 4.\n• Chưa chép giải thích câu: 1–15.\n⚠ Bài chưa đạt nên vẫn tính là CHƯA NỘP BÀI cho tới khi con nộp lại đạt yêu cầu.\n→ Yêu cầu: con bổ sung đủ các mục trên vào sổ từ vựng và vở chữa bài, chụp lại toàn bộ và NỘP LẠI trước buổi học tới."),
-    ("phung mai vy", "RI2-C04"): ("2026-11-12T15:30:00+07:00", True, "✅ Chất lượng: đạt 100% — Đạt yêu cầu.\n• Sổ từ vựng (từ cô in đỏ): 100% — có 10/10 từ.\n• Vở chữa bài: 100% — làm lại 66/66 câu, giải thích 36/36 câu cần giải thích."),
+    ("do ngoc bao tram", "RI2-C04"): ("2026-11-12T15:30:00+07:00", False, "❌ Chất lượng: đạt 89% — Chưa đạt (Yêu cầu nộp lại, cần từ 90%).\n• Sổ từ vựng (từ cô in đỏ): 95% — có 10/10 từ.\n• Vở chữa bài: 89% — làm lại 66/66 câu, giải thích 21/36 câu cần giải thích.\n• Bỏ trống cột Từ loại ở 1 từ: số 4.\n• Bỏ trống cột Phiên âm ở 1 từ: số 4.\n• Bỏ trống cột Ví dụ ở 1 từ: số 4.\n• Chưa chép giải thích câu: 1–15.\n• Đáp án làm lại vẫn sai ở câu: 57 — con đối chiếu lại phần chữa đề.\n⚠ Bài chưa đạt nên vẫn tính là CHƯA NỘP BÀI cho tới khi con nộp lại đạt yêu cầu.\n→ Yêu cầu: con bổ sung đủ các mục trên vào sổ từ vựng và vở chữa bài, chụp lại toàn bộ và NỘP LẠI trước buổi học tới."),
+    ("phung mai vy", "RI2-C04"): ("2026-11-12T15:30:00+07:00", True, "✅ Chất lượng: đạt 100% — Đạt yêu cầu.\n• Sổ từ vựng (từ cô in đỏ): 100% — có 10/10 từ.\n• Vở chữa bài: 100% — làm lại 66/66 câu, giải thích 36/36 câu cần giải thích.\n• Đáp án làm lại vẫn sai ở câu: 57 — con đối chiếu lại phần chữa đề."),
     ("ha khanh an", "AP-B03"): ("2026-11-12T13:30:00+07:00", True, "✅ Chất lượng: đạt 97% — Đạt yêu cầu.\n• Revised version (đoạn văn con viết lại sau khi chữa): đã có.\n• Outline: đã chép đủ.\n• Bài mẫu: đã chép đủ.\n• Từ vựng và cụm từ: có 7/8 — thiếu: strengthen bonds."),
 }
 REGRADE_MATCH = r"(?!)"          # v32: wording only — nothing is read again   # v31: only notebooks where no word was found are read again (printed-word workbooks)
@@ -1104,8 +1104,8 @@ class FighterNotebooks:
                           for k, w in enumerate(words, 1)], "questions": qs}
 
     def reading_ref(self, code):
-        if self.st.get("refsVersion") != f"{VERSION}-doc-key":   # 12/11: refs rebuilt once so Cô's doc key applies
-            self.st["readingRefs"], self.st["refsVersion"] = {}, f"{VERSION}-doc-key"
+        if self.st.get("refsVersion") != f"{VERSION}-web-key":   # 12/11: refs rebuilt once so Cô's doc key applies
+            self.st["readingRefs"], self.st["refsVersion"] = {}, f"{VERSION}-web-key"
         ref = self.st.setdefault("readingRefs", {})
         if code not in ref and code.startswith("PT"):
             ref[code] = self.practice_ref(code)
@@ -1138,7 +1138,7 @@ class FighterNotebooks:
             if why:   # Cô's correction doc decides which answers need a written explanation
                 for q, w in zip(sorted(qs, key=lambda q: q["n"]), why):
                     q["needsWhy"] = w
-            docans = getattr(self, "_doc_answers", None) if why else None
+            docans = None   # Cô 12/11 15:10: the web answer key is the key (Q57 = D); the doc only says which answers need explaining
             if docans:   # Cô's correction is the key: a web answer that differs from it is not used to mark pupils wrong
                 for q, a in zip(sorted(qs, key=lambda q: q["n"]), docans):
                     if re.fullmatch(r"[A-Za-z]", a) and re.fullmatch(r"[A-Za-z]", q["answer"].strip()) and a.upper() != q["answer"].strip().upper():
@@ -1832,6 +1832,36 @@ class FighterNotebooks:
         except Exception as e:
             self.tick("unpaint_error_" + type(e).__name__)
 
+    def restore_key_lines(self):
+        """12/11 15:10 Cô: web key right — put back the wrong-answer marks fix_key_lines took away (wording only)."""
+        self.st["keyOverride"] = {}
+        done = self.st.get("keyFixed") or {}
+        back = self.st.setdefault("keyRestored", {})
+        for s in self.st["subs"].values():
+            id_ = f"{s['cls']}|{s['code']}|{s['submittedAt']}|{s['student']}"
+            bad = done.get(id_)
+            if not bad or back.get(id_) or s.get("status") != "published":
+                continue
+            res = s.get("result") or {}
+            wrong = sorted(set(res.get("wrong") or []) | set(bad))
+            line = f"• Đáp án làm lại vẫn sai ở câu: {ranges(wrong)} — con đối chiếu lại phần chữa đề."
+            old = s.get("published") or ""
+            if "• Đáp án làm lại vẫn sai ở câu:" in old:
+                new = re.sub(r"• Đáp án làm lại vẫn sai ở câu: [^\n]*", line, old, count=1)
+            elif "\n⚠ Bài chưa đạt" in old:
+                new = old.replace("\n⚠ Bài chưa đạt", "\n" + line + "\n⚠ Bài chưa đạt", 1)
+            else:
+                new = old.rstrip() + "\n" + line
+            a1 = self.here(s)
+            if not a1:
+                continue
+            m = re.search(r"đạt (\d+)%", new)
+            dl = dt.datetime.fromisoformat(s["deadline"]) if s.get("deadline") else None
+            if self.write(s, a1, dl, new, bool(s.get("ok")), int(m.group(1)) if m else None) == "ok":
+                s.update(published=new, result=dict(res, wrong=wrong))
+                back[id_] = True
+                self.tick("key_line_restored")
+
     def fix_key_lines(self):
         """A pupil marked wrong on a question whose web key differs from Cô's correction doc: that mark is taken back
         (wording only, no reading). Runs whenever a new override is known."""
@@ -2029,7 +2059,7 @@ class FighterNotebooks:
                 self.tick("hand_fixed")
             s["ver"] = VERSION
         self.repair()
-        self.fix_key_lines()
+        self.restore_key_lines()
         for s in subs.values():   # "reused" against a later submission (the pupil sent it under another unit first): read again
             src = (s.get("result") or {}).get("reusedFrom") or {}
             o = subs.get(src.get("sid"), {})
