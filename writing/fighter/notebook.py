@@ -475,7 +475,8 @@ ROW_FACTOR = 2              # rows holding our comments: twice the class sheet's
 REGRADE = set(PROGRAM_HEAD)   # v28: every kind (second Sonnet look at full size for a failing notebook)
 DEBUG_NAMES = set()               # pupils whose reading is printed to the run log (debugging only)
 DAILY_CAP_VND = None           # Cô 11/11 21:40: no cap — every submitted notebook is graded
-REGRADE_ONLY = {("le tran thao nhi", "AP")}   # v35 too   # v34: only these pupils' notebooks are read again (Cô 12/11, Rebecca)
+REGRADE_ONLY = set()          # Cô 12/11 13:01: no paid re-reads; wrong results are fixed by hand (HAND_FIXED)
+HAND_FIXED = {("le tran thao nhi", "AP-B03"): "2026-11-12T13:30:00+07:00"}   # cell corrected by hand: submissions up to this time are never read or rewritten
 REGRADE_MATCH = r"(?!)"          # v32: wording only — nothing is read again   # v31: only notebooks where no word was found are read again (printed-word workbooks)
 REGRADE_FAILED_ONLY = False  # on a VERSION bump only notebooks below 100% are read again (a clean pass stays)      # programmes whose reading rules changed in this VERSION; others are only re-styled
 FLAG = "LỖI: ❌ CẦN NỘP LẠI"   # cell note prefix of our own "redo" mark
@@ -964,7 +965,7 @@ class FighterNotebooks:
             start = str(start or "").strip()
             import difflib
             n = len(start.split())
-            return n >= 4 and any(difflib.SequenceMatcher(None, core(" ".join(x.split()[:n])), core(start)).ratio() >= 0.8 for x in sents)
+            return n >= 4 and any(difflib.SequenceMatcher(None, core(" ".join(x.split()[:n])), core(start)).ratio() >= 0.95 for x in sents)   # near word-for-word only: a real rewrite often opens like the model (0.80–0.85 seen 12/11)
         revised = any(r["revised"]["present"] in ("yes", "unclear") and (r["revised"]["words"] >= 60 or r["revised"]["present"] == "unclear")
                       and not is_model(r["revised"].get("start")) and not r["revised"].get("isDraft") for r in reads)
         pct = round(100 * ((1 if revised else 0) + outline + (1 if model_full else reach) + len(have) / len(ref["vocab"])) / 4)
@@ -1791,6 +1792,19 @@ class FighterNotebooks:
         self.collect_batches()
         self.scan()
         subs = self.st["subs"]
+        for s in subs.values():   # a cell Cô/Claude corrected by hand: keep it, spend nothing on it
+            cut = HAND_FIXED.get((bare(norm(s["student"])), s.get("code")))
+            try:
+                cut = bool(cut) and not s.get("handFixed") and parse_vn_time(s["submittedAt"]) <= dt.datetime.fromisoformat(cut)
+            except Exception:
+                cut = False
+            if cut:
+                if s["status"] == "published":
+                    s.update(ver=VERSION, paintVer=PAINT_VERSION)
+                else:
+                    s.update(status="skipped", hold="hand_fixed")
+                s["handFixed"] = True
+                self.tick("hand_fixed")
         for s in subs.values():   # "reused" against a later submission (the pupil sent it under another unit first): read again
             src = (s.get("result") or {}).get("reusedFrom") or {}
             o = subs.get(src.get("sid"), {})
