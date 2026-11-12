@@ -604,6 +604,28 @@ class Scans:
     def inclass_key(meta):
         return label(meta).replace("Viết trên lớp ", "") + (f" · Task {meta['task']}" if meta.get("task") else "")
 
+    def session_column(self, tr, grid, meta):
+        """Column already holding this in-class session: a 'VIẾT TRÊN LỚP' column where a pupil of the same session
+        (another scan file, e.g. the main one before a 'bổ sung') has exactly the machine's text."""
+        same = lambda m: all(m.get(k) == meta.get(k) for k in ("cls", "kind", "date", "week", "buoi", "task"))
+        for rec in self.st.get("files", {}).values():
+            if not same(rec.get("meta") or {}):
+                continue
+            for s in rec.get("students", {}).values():
+                if s.get("status") != "published" or not s.get("result"):
+                    continue
+                row = tr.row_of(s["name"])
+                if not row or row - 1 >= len(grid):
+                    continue
+                tasks = [t.get("task") for t in s["result"].get("tasks") or []] or [None]
+                texts = {(self.cell_text(rec, s["result"], t, legacy=lg) or "").strip() for t in tasks for lg in (False, True)}
+                texts.discard("")
+                for c, v in enumerate(grid[row - 1]):
+                    top = unicodedata.normalize("NFC", str(grid[1][c]) if len(grid) > 1 and c < len(grid[1]) else "").upper()
+                    if "VIẾT TRÊN LỚP" in top and str(v).strip() in texts:
+                        return c
+        return None
+
     def inclass_column(self, tr, grid, meta, create=True):
         """In-class writing: its own column, row 2 'VIẾT TRÊN LỚP', row 3 '<Buổi N | bài N> · dd/mm/yyyy'.
         Created at the first empty column after the tracker's used area (no merged header is touched)."""
@@ -615,6 +637,9 @@ class Scans:
             sub = unicodedata.normalize("NFC", str(row(2)[c]) if c < len(row(2)) else "")
             if "VIẾT TRÊN LỚP" in top and sub.split("\n")[0].strip() == key and meta["date"] in sub:
                 return c
+        c = self.session_column(tr, grid, meta)   # header lost (e.g. merged by hand): find it by results already written
+        if c is not None:
+            return c
         if not create:
             return None
         info = self.g._req(f"https://sheets.googleapis.com/v4/spreadsheets/{tr.id}?fields=sheets.properties(sheetId,title,gridProperties)")
