@@ -385,14 +385,17 @@ def draw_inclass(data):
     X_HAS, X_RES = 520, 770
     cols = [("Họ tên", P), ("Bài viết", X_HAS), ("Kết quả", X_RES)]
     if sm:   # per-pupil stats instead of a bare "Đã chữa"
-        XS = [352, 496, 604, 718, 830] if sm.get("fighter") else [372, 482, 592, 702, 812]
+        XS = [380, 510, 612, 722, 832] if sm.get("fighter") else [372, 482, 592, 702, 812]
         heads = (["Chất lượng", "Từ vựng", "Ngữ pháp", "Lập luận", "Quy ước"] if sm.get("fighter")
                  else ["Band", "Số từ", "Từ vựng", "Ngữ pháp", "Lập luận"])
         cols = [("Họ tên", P)] + list(zip(heads, XS))
 
         def rows(d, i, y):
             p = pupils[i]
-            d.text((P, y + 16), p["name"], font=sans(26), fill=INK)
+            fn = sans(26)
+            while tw(d, p["name"], fn) > XS[0] - P - 18 and fn.size > 20:   # long names shrink, never overlap
+                fn = sans(fn.size - 1)
+            d.text((P, y + 16 + (26 - fn.size) // 2), p["name"], font=fn, fill=INK)
             if not p["has"]:
                 status(d, XS[0], y, "Không có bài", ROSE)
                 return

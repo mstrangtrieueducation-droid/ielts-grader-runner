@@ -286,7 +286,7 @@ def quality_pct(errors, words, free_length=False):
     pct = 100 - 2.5 * pen * 150 / max(w, 100)
     if not free_length and w < 140:
         pct *= w / 140
-    return max(0, min(100, round(pct)))
+    return max(15, min(100, round(pct)))   # floor: a written paragraph never shows as 0%
 
 
 def paper_stats(res, fighter, free_length=False):
@@ -333,7 +333,8 @@ def class_notes(runner, cls, title, fighter, comments, top):
         c = cw.cost_usd("claude-haiku-5-5", u)
         cw.ledger({"at": cw.now_iso(), "category": f"{cls} · Nhận xét chung ảnh Zalo", "step": "zalo-notes",
                    "model": "claude-haiku-5-5", "usage": u, "usd": c, "vnd": round(c * cw.USD_VND)})
-        return " ".join(b.text for b in r.content if getattr(b, "type", "") == "text").strip()
+        out = " ".join(b.text for b in r.content if getattr(b, "type", "") == "text").strip()
+        return re.sub(r"[*_#`]+", "", out)   # plain text on the picture
     except Exception as e:
         runner.tick(f"zalo_notes_failed_{type(e).__name__}")
         return ""
