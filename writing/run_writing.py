@@ -774,6 +774,11 @@ def main():
         if mode in ("cycle", "publish"):
             run.publish(approve)
             if run.auto_publish():
+                try:   # Cô 12/11 'ok sửa': one-shot recount of results already published (machine only)
+                    import recount
+                    recount.run(run)
+                except Exception as e:
+                    run.tick(f"recount_failed_{type(e).__name__}")
                 try:   # parent dashboard: bài chữa + kết quả vở (only what is already on the tracker)
                     import dashboard
                     dashboard.Dashboard(run).run()

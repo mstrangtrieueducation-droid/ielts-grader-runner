@@ -184,7 +184,7 @@ def essay_records(cls, s, roster_name, a, grid=None, spreadsheet=""):
     by_de = {E.de_number(lbl, i): txt for i, (lbl, txt) in enumerate(sorted(s.get("essays", {}).items()))
              if str(E.de_number(lbl, i)) in meta["labels"]}
     submitted = iso_vn(s.get("submittedAt", ""))
-    published = s.get("publishedAt") or utc_now()
+    published = s.get("correctedAt") or s.get("publishedAt") or utc_now()   # Cô 12/11: a corrected bài chữa wins
     task1 = meta.get("task", 1) == 1
     names = {"vocab": "Từ vựng", "grammar": "Ngữ pháp", "coherence": "Mạch lạc"}
     out = []

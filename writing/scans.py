@@ -56,10 +56,12 @@ def _bracket(m):
     low = inner.lower()
     if "không rõ" in low:
         return " x "
-    if re.search(r"chèn|thêm|insert|added", low):
-        a, _, b = inner.partition(":")
-        word = b if re.search(r"chèn|thêm|insert|added", a.lower()) else a
-        return " " + word + " "
+    tag = r"chèn|thêm|insert|added"
+    if re.search(tag, low):
+        if ":" in inner:
+            a, _, b = inner.partition(":")
+            return " " + (b if re.search(tag, a.lower()) else a) + " "
+        return " " + re.sub(rf"\(?[^()]*\b(?:{tag})\b[^()]*\)?\s*$", " ", inner) + " "   # 'words (chèn trên dòng)'
     return " "
 
 
