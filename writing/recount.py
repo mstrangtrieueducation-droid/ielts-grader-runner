@@ -260,9 +260,20 @@ def run_pct(runner):
         for s in rec.get("students", {}).values():
             if s.get("status") != "published" or not s.get("result"):
                 continue
-            for t in [t.get("task") for t in s["result"].get("tasks") or []]:
-                old, new = sc.cell_text(rec, s["result"], t, legacy=True), sc.cell_text(rec, s["result"], t)
+            olds = {t.get("task"): sc.cell_text(rec, s["result"], t.get("task"), legacy=True) for t in s["result"].get("tasks") or []}
+            import calculate_class_score as ccs
+            for t in s["result"].get("tasks") or []:   # 12/11 tối: label lines ('Full essay:') no longer counted
+                try:
+                    w = scans.paper_words(t.get("transcript"))
+                    t["_qa"]["words"] = w
+                    t["_qa"]["classScore"] = ccs.calculate(t["task"] if t["task"] in (1, 2) else 1, w,
+                                                           [int(t["criteria"][x]["band"]) for x in ("TA_TR", "CC", "LR", "GRA")])
+                except Exception:
+                    pass
+            for t, old in olds.items():
+                new = sc.cell_text(rec, s["result"], t)
                 if old and new and old != new:
                     items.append({"cls": meta["cls"], "name": s["name"], "old": old, "new": new, "mode": "exact"})
     apply_cells(runner, items, "inclass_pct")
+    sc.save()
     runner.state["inclassPct1112Done"] = True

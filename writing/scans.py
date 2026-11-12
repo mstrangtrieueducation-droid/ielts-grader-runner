@@ -87,7 +87,8 @@ def paper_words(t):
     """Cô 12/11: word count of a handwritten paper = what the pupil left as the essay. Not the [gạch bỏ …] parts,
     not the transcriber's notes, not the name or heading line at the top."""
     t = re.sub(r"\[([^\]]*)\]", _bracket, t or "")
-    lines = [ln for ln in t.splitlines() if ln.strip()]
+    lines = [ln for ln in t.splitlines() if ln.strip()
+             and not (ln.strip().endswith(":") and len(ln.split()) <= 4)]   # transcriber labels: 'Full essay:', 'Bài làm:'
     if len(lines) > 1:
         first = lines[0].strip().rstrip(".")
         toks = first.split()
