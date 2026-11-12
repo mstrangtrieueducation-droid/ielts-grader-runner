@@ -24,7 +24,7 @@ GREEN, AMBER, ROSE = (62, 123, 90), (183, 131, 42), (176, 80, 63)
 SUB = {"on": ("Đúng hạn", GREEN), "late": ("Muộn", AMBER), "none": ("Chưa nộp", ROSE)}
 NB = {"Đạt": ("Đạt", GREEN), "Cần bổ sung": ("Cần bổ sung", AMBER), "Không đạt": ("Chưa đạt", ROSE),
       "Chưa đủ dữ liệu để kết luận": ("Chụp lại", MUTED)}
-CRIT = (("TR", "Trả lời đúng đề"), ("CC", "Mạch lạc, liên kết"), ("LR", "Từ vựng"), ("GRA", "Ngữ pháp"))
+CRIT = (("TR", "Đáp ứng yêu cầu đề"), ("CC", "Mạch lạc, liên kết"), ("LR", "Từ vựng"), ("GRA", "Ngữ pháp"))   # TR = TA (Task 1) or TR (Task 2)
 ROW = 62
 ROWS_PER_PAGE = 15
 
@@ -195,6 +195,7 @@ def table_pages(data, cols, rows_draw, n, foot):
 
 
 def draw(data):
+    data = dict(data, pupils=rank_homework(data["pupils"]))
     pupils = data["pupils"]
     nb_only = data.get("notebook_only")
     show_band = data.get("show_band") and not nb_only and any(p.get("band") for p in pupils)
@@ -267,8 +268,31 @@ def draw(data):
     return pages + table_pages(data, cols, rows, len(pupils), foot)
 
 
+def rank_inclass(pupils):
+    """Cô 12/11: best result first, pupils without a paper at the bottom (list order kept within ties)."""
+    def key(ip):
+        i, p = ip
+        st = p.get("stats") or {}
+        v = p.get("band") if p.get("band") is not None else st.get("pct")
+        return (0 if p["has"] else 1, -(v if v is not None else -1), i)
+    return [p for _, p in sorted(enumerate(pupils), key=key)]
+
+
+def rank_homework(pupils):
+    """Band first (high → low), then handed in without a band (on time, then late), 'Chưa nộp' last."""
+    def key(ip):
+        i, p = ip
+        if p["sub"] == "none":
+            return (3, 0, i)
+        if p.get("band") is not None:
+            return (0, -p["band"], i)
+        return (1 if p["sub"] == "on" else 2, 0 if p.get("nb") == "Đạt" else 1, i)
+    return [p for _, p in sorted(enumerate(pupils), key=key)]
+
+
 def draw_inclass(data):
     """In-class writing and paper tests. unit "band" (IELTS) or "/1" (Fighter test score)."""
+    data = dict(data, pupils=rank_inclass(data["pupils"]))
     pupils, crit, scored = data["pupils"], data.get("crit") or {}, data.get("scored")
     kind, unit = data.get("kind") or "Bài viết trên lớp", data.get("unit") or "band"
     val = (lambda v: f"{v:.2f}".rstrip("0").rstrip(".").replace(".", ",") + "/1") if unit == "/1" else (lambda v: f"{v:.1f}")
@@ -362,7 +386,7 @@ def draw_inclass(data):
             y = rule(d, y + 6)
             y = label(d, y, "Tổng số lỗi đã chữa theo nhóm")
             groups = [("Từ vựng", tot.get("vocab", 0), NAVY), ("Ngữ pháp", tot.get("grammar", 0), GOLD),
-                      ("Lập luận, liên kết", tot.get("coherence", 0), GREEN)]
+                      ("Lập luận, liên kết" if sm.get("fighter") else "Mạch lạc, liên kết", tot.get("coherence", 0), GREEN)]
             if sm.get("fighter"):
                 groups.append(("Quy ước lớp", tot.get("ql", 0), AMBER))
             total = max(1, sum(g[1] for g in groups))
@@ -396,7 +420,7 @@ def draw_inclass(data):
     if sm:   # per-pupil stats instead of a bare "Đã chữa"
         XS = [380, 510, 612, 722, 832] if sm.get("fighter") else [372, 482, 592, 702, 812]
         heads = (["Chất lượng", "Từ vựng", "Ngữ pháp", "Lập luận", "Quy ước"] if sm.get("fighter")
-                 else ["Band", "Số từ", "Từ vựng", "Ngữ pháp", "Lập luận"])
+                 else ["Band", "Số từ", "Từ vựng", "Ngữ pháp", "Liên kết"])   # IELTS: coherence & cohesion (Task 1 has no argument)
         cols = [("Họ tên", P)] + list(zip(heads, XS))
 
         def rows(d, i, y):
