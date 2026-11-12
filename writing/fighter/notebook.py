@@ -481,6 +481,9 @@ REPAIR_TAB = "Sửa ô ghi lệch"
 REGRADE_ONLY = set()          # Cô 12/11 13:01: no paid re-reads; wrong results are fixed by hand (HAND_FIXED)
 HAND_FIXED = {   # cells corrected by hand after checking the photos (Cô 12/11 13:01: no paid re-reads); (name, unit): (submitted up to, passed, comment)
     ("le tran thao nhi", "AP-B03"): ("2026-11-12T13:30:00+07:00", False, "❌ Chất lượng: đạt 72% — Chưa đạt (Yêu cầu nộp lại, cần từ 90%).\n• Revised version (đoạn văn con viết lại sau khi chữa): CHƯA CÓ.\n• Outline: đã chép đủ.\n• Bài mẫu: đã chép đủ.\n• Từ vựng và cụm từ: có 7/8 — thiếu: recharge one’s energy.\n⚠ Bài chưa đạt nên vẫn tính là CHƯA NỘP BÀI cho tới khi con nộp lại đạt yêu cầu.\n→ Yêu cầu: con bổ sung ĐỦ các mục còn thiếu ở trên vào vở, chụp lại toàn bộ và NỘP LẠI trước buổi học tới."),
+    ("nguyen minh ngoc", "AP-B03"): ("2026-11-12T15:30:00+07:00", False, "❌ Chất lượng: đạt 75% — Chưa đạt (Yêu cầu nộp lại, cần từ 90%).\n• Revised version (đoạn văn con viết lại sau khi chữa): đã có.\n• Outline: đã chép đủ.\n• Bài mẫu: đã chép đủ.\n• Từ vựng và cụm từ: có 0/8 — thiếu: prevalent; broaden one’s horizons; immerse oneself in; ethnic minorities; cultural appreciation; hectic schedules; recharge one’s energy; strengthen bonds.\n⚠ Bài chưa đạt nên vẫn tính là CHƯA NỘP BÀI cho tới khi con nộp lại đạt yêu cầu.\n→ Yêu cầu: con bổ sung ĐỦ các mục còn thiếu ở trên vào vở, chụp lại toàn bộ và NỘP LẠI trước buổi học tới."),
+    ("do ngoc bao tram", "RI2-C04"): ("2026-11-12T15:30:00+07:00", False, "❌ Chất lượng: đạt 89% — Chưa đạt (Yêu cầu nộp lại, cần từ 90%).\n• Sổ từ vựng (từ cô in đỏ): 95% — có 10/10 từ.\n• Vở chữa bài: 89% — làm lại 66/66 câu, giải thích 21/36 câu cần giải thích.\n• Bỏ trống cột Từ loại ở 1 từ: số 4.\n• Bỏ trống cột Phiên âm ở 1 từ: số 4.\n• Bỏ trống cột Ví dụ ở 1 từ: số 4.\n• Chưa chép giải thích câu: 1–15.\n⚠ Bài chưa đạt nên vẫn tính là CHƯA NỘP BÀI cho tới khi con nộp lại đạt yêu cầu.\n→ Yêu cầu: con bổ sung đủ các mục trên vào sổ từ vựng và vở chữa bài, chụp lại toàn bộ và NỘP LẠI trước buổi học tới."),
+    ("phung mai vy", "RI2-C04"): ("2026-11-12T15:30:00+07:00", True, "✅ Chất lượng: đạt 100% — Đạt yêu cầu.\n• Sổ từ vựng (từ cô in đỏ): 100% — có 10/10 từ.\n• Vở chữa bài: 100% — làm lại 66/66 câu, giải thích 36/36 câu cần giải thích."),
     ("ha khanh an", "AP-B03"): ("2026-11-12T13:30:00+07:00", True, "✅ Chất lượng: đạt 97% — Đạt yêu cầu.\n• Revised version (đoạn văn con viết lại sau khi chữa): đã có.\n• Outline: đã chép đủ.\n• Bài mẫu: đã chép đủ.\n• Từ vựng và cụm từ: có 7/8 — thiếu: strengthen bonds."),
 }
 REGRADE_MATCH = r"(?!)"          # v32: wording only — nothing is read again   # v31: only notebooks where no word was found are read again (printed-word workbooks)
@@ -727,6 +730,22 @@ def test_section(text, n):
     return ""
 
 
+def parse_doc_answers(text, total):
+    """Cô's correction table, answer column, one per row ('' when unreadable)."""
+    out = []
+    for line in text.splitlines():
+        if not line.lstrip().startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) < 3 or set("".join(cells)) <= set(":- ") or "Đáp án" in cells[1]:
+            continue
+        a = re.sub(r"[*\\\s]", "", cells[1])
+        if not a:
+            continue
+        out.append(a)
+    return out if len(out) == total else None
+
+
 def parse_doc_why(text, total):
     rows = []
     for line in text.splitlines():
@@ -930,7 +949,7 @@ class FighterNotebooks:
             out = self.ap_score([r1], ref, imgs, hashes, reused)
             if out["kind"] in ("scored", "wrong_unit") and self.tier(s) == LEAN_MODEL and (
                     (out["pct"] < 50 and side < SIDE) or (turned(r1) and (out["pct"] < PASS or out["messy"]))
-                    or (side < SIDE and out["kind"] == "scored" and not out["modelFull"])):   # model looked short: re-check at full size
+                    or (side < SIDE and out["kind"] == "scored" and (not out["modelFull"] or out["outline"] < 1))):   # model/outline looked short (12/11: last lines at the page edge were missed): re-check at full size
                 # looks like a misread (half the notebook unseen): second look at full size, merged in the pupil's favour
                 content[1:1 + len(imgs)] = [img_block(b, SIDE) for b in fix_turn(imgs, r1)]
                 r2 = self.call(content, AP_SCHEMA, cat, model=self.tier(s), batch=True)
@@ -1085,8 +1104,8 @@ class FighterNotebooks:
                           for k, w in enumerate(words, 1)], "questions": qs}
 
     def reading_ref(self, code):
-        if self.st.get("refsVersion") != VERSION:
-            self.st["readingRefs"], self.st["refsVersion"] = {}, VERSION
+        if self.st.get("refsVersion") != f"{VERSION}-doc-key":   # 12/11: refs rebuilt once so Cô's doc key applies
+            self.st["readingRefs"], self.st["refsVersion"] = {}, f"{VERSION}-doc-key"
         ref = self.st.setdefault("readingRefs", {})
         if code not in ref and code.startswith("PT"):
             ref[code] = self.practice_ref(code)
@@ -1119,12 +1138,22 @@ class FighterNotebooks:
             if why:   # Cô's correction doc decides which answers need a written explanation
                 for q, w in zip(sorted(qs, key=lambda q: q["n"]), why):
                     q["needsWhy"] = w
+            docans = getattr(self, "_doc_answers", None) if why else None
+            if docans:   # Cô's correction is the key: a web answer that differs from it is not used to mark pupils wrong
+                for q, a in zip(sorted(qs, key=lambda q: q["n"]), docans):
+                    if re.fullmatch(r"[A-Za-z]", a) and re.fullmatch(r"[A-Za-z]", q["answer"].strip()) and a.upper() != q["answer"].strip().upper():
+                        self.tick(f"key_from_doc[{code}|{q['n']}]")
+                        q["answer"] = a.upper()
+                        ov = self.st.setdefault("keyOverride", {}).setdefault(code, [])
+                        if q["n"] not in ov:
+                            ov.append(q["n"])
             ref[code] = {"title": (test or {}).get("title", code), "total": int((test or {}).get("total") or len(qs)),
                          "words": words, "questions": qs}
         return ref[code]
 
     def doc_why(self, doc, total, part=None):
         """One flag per answer row of the correction doc's table: True when Cô wrote an explanation there."""
+        self._doc_answers = None
         if not doc:
             return None
         try:
@@ -1133,6 +1162,7 @@ class FighterNotebooks:
             return None
         if part:   # one doc holding every test: keep the "TEST n" section only
             text = test_section(text, part)
+        self._doc_answers = parse_doc_answers(text, total) if text else None
         return parse_doc_why(text, total) if text else None
 
     def grade_reading(self, sid, s):
@@ -1197,7 +1227,7 @@ class FighterNotebooks:
                        "messy": p.get("neat") == q.get("neat") == "messy"})
         out = {"type": "reading", "kind": "scored", "pages": len(imgs), "hashes": hashes, "vocab": vocab, "total": total,
                "work": work, "notAnswered": [n for n in key if n not in ans],
-               "notExplained": [n for n in answered if n in need_why and n not in explained], "needWhy": len(need_why),
+               "notExplained": [n for n in answered if n in need_why and n not in explained], "needWhy": len(need_why), "needWhyNums": sorted(need_why),
                "wrong": wrong, "messy": bool(pg) and sum(p["messy"] for p in pg) * 3 >= len(pg) * 2}
         out["pct"] = min(vocab["pct"], work)
         if pg and sum(p["kind"] == "printed_or_screen" for p in pg) * 2 > len(pg):
@@ -1420,7 +1450,7 @@ class FighterNotebooks:
             lines = [head(pct, ok),
                      f"• Sổ từ vựng (từ cô in đỏ): {v['pct']}% — có {v['total'] - len(v['missing'])}/{v['total']} từ.",
                      f"• {name}: {res['work']}% — làm lại {res['total'] - len(res['notAnswered'])}/{res['total']} câu, "
-                     f"giải thích {need - len(res['notAnswered']) - len(res['notExplained'])}/{need} câu cần giải thích."]
+                     f"giải thích {max(0, need - len(res['notExplained']) - len([n for n in res['notAnswered'] if n in res.get('needWhyNums', res['notAnswered'])]))}/{need} câu cần giải thích."]
             if v["missing"]:
                 lines.append(f"• Thiếu {len(v['missing'])} từ: số {ranges(v['missing'])}.")
             for f, lab in FIELDS:
@@ -1802,6 +1832,39 @@ class FighterNotebooks:
         except Exception as e:
             self.tick("unpaint_error_" + type(e).__name__)
 
+    def fix_key_lines(self):
+        """A pupil marked wrong on a question whose web key differs from Cô's correction doc: that mark is taken back
+        (wording only, no reading). Runs whenever a new override is known."""
+        for code in sorted({s["code"] for s in self.st["subs"].values() if s.get("status") == "published"
+                            and (s.get("result") or {}).get("type") == "reading" and (s.get("result") or {}).get("wrong")}):
+            try:
+                self.reading_ref(code)   # builds the key once (cached): fills keyOverride where Cô's doc differs
+            except Exception as e:
+                self.tick("key_ref_error_" + type(e).__name__)
+        ov = self.st.get("keyOverride") or {}
+        done = self.st.setdefault("keyFixed", {})
+        for s in self.st["subs"].values():
+            res = s.get("result") or {}
+            bad = set(ov.get(s.get("code"), [])) & set(res.get("wrong") or [])
+            if s.get("status") != "published" or not bad or done.get(id_ := f"{s['cls']}|{s['code']}|{s['submittedAt']}|{s['student']}") == sorted(bad):
+                continue
+            new_wrong = [n for n in res["wrong"] if n not in bad]
+            line = f"• Đáp án làm lại vẫn sai ở câu: {ranges(new_wrong)} — con đối chiếu lại phần chữa đề." if new_wrong else ""
+            old = s.get("published") or ""
+            new = re.sub(r"\n?• Đáp án làm lại vẫn sai ở câu: [^\n]*", ("\n" + line) if line else "", old, count=1)
+            if new == old:
+                done[id_] = sorted(bad)
+                continue
+            a1 = self.here(s)
+            if not a1:
+                continue
+            m = re.search(r"đạt (\d+)%", new)
+            dl = dt.datetime.fromisoformat(s["deadline"]) if s.get("deadline") else None
+            if self.write(s, a1, dl, new, bool(s.get("ok")), int(m.group(1)) if m else None) == "ok":
+                s.update(published=new, result=dict(res, wrong=new_wrong))
+                done[id_] = sorted(bad)
+                self.tick("key_line_fixed")
+
     def here(self, s):
         """The cell for this notebook NOW: columns get inserted in the class sheets, so a stored address goes stale
         (12/11: AP Buổi 3 comments were rewritten into 'Reading 2 – Vở chữa Unit 5' after new columns came in)."""
@@ -1960,15 +2023,13 @@ class FighterNotebooks:
                 fix = None
             if not fix:
                 continue
-            if s.get("published"):   # its comment is the hand one (also a notebook that was waiting for a re-read: no re-read)
-                if s.get("published") != fix[2] or s["status"] != "published":
-                    s.update(status="published", published=fix[2], ok=fix[1], paintVer=0, regrade=False)
-                    self.tick("hand_fixed")
-                s["ver"] = VERSION
-            elif s["status"] != "skipped":
-                s.update(status="skipped", hold="hand_fixed")
-                self.tick("hand_fixed_skip")
+            if s.get("published") != fix[2] or s["status"] != "published":   # the hand comment is this notebook's comment, no reading
+                s.update(status="published", published=fix[2], ok=fix[1], paintVer=0, regrade=False, hold=None)
+                self.here(s)
+                self.tick("hand_fixed")
+            s["ver"] = VERSION
         self.repair()
+        self.fix_key_lines()
         for s in subs.values():   # "reused" against a later submission (the pupil sent it under another unit first): read again
             src = (s.get("result") or {}).get("reusedFrom") or {}
             o = subs.get(src.get("sid"), {})
