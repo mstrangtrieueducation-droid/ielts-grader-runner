@@ -183,3 +183,58 @@ def run(runner):
             s["recountedAt"] = stamp
     sc.save()
     runner.state["recount1112Done"] = stamp
+
+
+def run_cells(runner):
+    """Pass 2 (12/11 evening): the first pass could not find some cells (columns moved, a merged header). Each
+    correction is now located by its exact old text in the pupil's row and rewritten only if that text is still there."""
+    if not runner.cfg.get("recount1112b") or runner.state.get("recount1112bDone"):
+        return
+    from run_writing import BUNDLE, MARK, col_letter, norm
+    path = BUNDLE / "recount_cells.json"
+    if not path.exists():
+        return
+    items = json.loads(path.read_text(encoding="utf-8"))
+    by_cls = {}
+    for it in items:
+        by_cls.setdefault(it["cls"], []).append(it)
+    for cls, its in by_cls.items():
+        try:
+            tr = runner.tracker(cls)
+            tr._grid = None
+            tr.cached("A", 1)
+            grid = tr._grid
+        except Exception as ex:
+            runner.tick(f"recount2_tracker_failed_{type(ex).__name__}")
+            continue
+        for it in its:
+            row = tr.row_of(norm(it["name"]))
+            if not row:
+                runner.tick("recount2_no_row")
+                continue
+            cells = grid[row - 1] if row - 1 < len(grid) else []
+            old = it["old"].strip()
+            hits = [c for c, v in enumerate(cells) if (str(v).strip() == old if it["mode"] == "exact"
+                                                       else (MARK in str(v) and it["old"] in str(v)))]
+            if len(hits) != 1:
+                done = any(str(v).strip() == it["new"].strip() or (it["mode"] != "exact" and it["new"] in str(v)) for v in cells)
+                runner.tick("recount2_already" if done else ("recount2_not_found" if not hits else "recount2_ambiguous"))
+                continue
+            a1 = f"{col_letter(hits[0])}{row}"
+            cur = tr.cell(a1)   # live read right before the write
+            if it["mode"] == "exact":
+                if cur.strip() != old:
+                    runner.tick("recount2_changed_meanwhile")
+                    continue
+                new = it["new"]
+            else:
+                if it["old"] not in cur:
+                    runner.tick("recount2_changed_meanwhile")
+                    continue
+                new = cur.replace(it["old"], it["new"])
+            tr.write(a1, new)
+            ok = tr.cell(a1).strip() == new.strip()
+            runner.tick("recount2_rewritten" if ok else "recount2_readback")
+            if ok and it.get("sub") in runner.state.get("subs", {}):
+                runner.state["subs"][it["sub"]].update(publishedComment=it["comment"], publishedBlock=it["new"], cell=a1)
+    runner.state["recount1112bDone"] = True
