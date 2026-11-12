@@ -475,12 +475,13 @@ ROW_FACTOR = 2              # rows holding our comments: twice the class sheet's
 REGRADE = set(PROGRAM_HEAD)   # v28: every kind (second Sonnet look at full size for a failing notebook)
 DEBUG_NAMES = set()               # pupils whose reading is printed to the run log (debugging only)
 DAILY_CAP_VND = None           # Cô 11/11 21:40: no cap — every submitted notebook is graded
+REPAIR_RUN = 1                # 12/11: comments rewritten at stale addresses (columns inserted) — put every comment back in its own cell
+REPAIR_APPLY = False          # False: only list the planned changes on the comparison sheet (tab REPAIR_TAB); True: do them
+REPAIR_TAB = "Sửa ô ghi lệch"
 REGRADE_ONLY = set()          # Cô 12/11 13:01: no paid re-reads; wrong results are fixed by hand (HAND_FIXED)
-HAND_FIXED = {   # cells corrected by hand after checking the photos (Cô 12/11 13:01: no paid re-reads); (name, unit): (submitted up to, passed, verdict)
-    ("le tran thao nhi", "AP-B03"): ("2026-11-12T13:30:00+07:00", False,
-        "❌ Chất lượng: đạt 72% — Chưa đạt (Yêu cầu nộp lại, cần từ 90%).\n• Revised version (đoạn văn con viết lại sau khi chữa): CHƯA CÓ."),
-    ("ha khanh an", "AP-B03"): ("2026-11-12T13:30:00+07:00", True,
-        "✅ Chất lượng: đạt 97% — Đạt yêu cầu.\n• Revised version (đoạn văn con viết lại sau khi chữa): đã có."),
+HAND_FIXED = {   # cells corrected by hand after checking the photos (Cô 12/11 13:01: no paid re-reads); (name, unit): (submitted up to, passed, comment)
+    ("le tran thao nhi", "AP-B03"): ("2026-11-12T13:30:00+07:00", False, "❌ Chất lượng: đạt 72% — Chưa đạt (Yêu cầu nộp lại, cần từ 90%).\n• Revised version (đoạn văn con viết lại sau khi chữa): CHƯA CÓ.\n• Outline: đã chép đủ.\n• Bài mẫu: đã chép đủ.\n• Từ vựng và cụm từ: có 7/8 — thiếu: recharge one’s energy.\n⚠ Bài chưa đạt nên vẫn tính là CHƯA NỘP BÀI cho tới khi con nộp lại đạt yêu cầu.\n→ Yêu cầu: con bổ sung ĐỦ các mục còn thiếu ở trên vào vở, chụp lại toàn bộ và NỘP LẠI trước buổi học tới."),
+    ("ha khanh an", "AP-B03"): ("2026-11-12T13:30:00+07:00", True, "✅ Chất lượng: đạt 97% — Đạt yêu cầu.\n• Revised version (đoạn văn con viết lại sau khi chữa): đã có.\n• Outline: đã chép đủ.\n• Bài mẫu: đã chép đủ.\n• Từ vựng và cụm từ: có 7/8 — thiếu: strengthen bonds."),
 }
 REGRADE_MATCH = r"(?!)"          # v32: wording only — nothing is read again   # v31: only notebooks where no word was found are read again (printed-word workbooks)
 REGRADE_FAILED_ONLY = False  # on a VERSION bump only notebooks below 100% are read again (a clean pass stays)      # programmes whose reading rules changed in this VERSION; others are only re-styled
@@ -1591,9 +1592,8 @@ class FighterNotebooks:
                 pos += len(line) + 1
             cell = {"textFormatRuns": runs}
             fields = "textFormatRuns"
-            if not ok:
-                cell["userEnteredFormat"] = {"backgroundColor": rgb("#f4cccc")}
-                fields += ",userEnteredFormat.backgroundColor"
+            cell["userEnteredFormat"] = {"backgroundColor": rgb("#f4cccc")} if not ok else {}   # a pass clears an old red
+            fields += ",userEnteredFormat.backgroundColor"
             reqs = [{"updateCells": {
                 "range": {"sheetId": sid, "startRowIndex": row - 1, "endRowIndex": row, "startColumnIndex": col - 1, "endColumnIndex": col},
                 "rows": [{"values": [cell]}], "fields": fields}}]
@@ -1665,6 +1665,133 @@ class FighterNotebooks:
             self.tick("flag_set" if want else "flag_cleared")
         except Exception as e:
             self.tick("flag_error_" + type(e).__name__)
+
+    def repair(self):
+        """Put every Fighter notebook comment back in its own cell: a comment of ours sitting in a cell that is not its
+        notebook's (current) cell is taken out, and each published notebook's cell shows its own comment. No reading, no cost.
+        Cô's own notes are never touched (only bodies in our format)."""
+        key = f"{REPAIR_RUN}-{'apply' if REPAIR_APPLY else 'plan'}"
+        done = self.st.setdefault("repairs", [])
+        if key in done:
+            return
+        ours = re.compile(r"^(?:[✅❌] )?Chất lượng:|^ℹ️ Lần nộp")
+        stamp = lambda x: parse_vn_time(x["submittedAt"]).strftime("%d/%m/%Y %H:%M")
+        rows_out, n = [], {"clear": 0, "rewrite": 0, "ok": 0}
+        by_cls = {}
+        for s in self.st["subs"].values():
+            if s.get("published") and s.get("cell"):   # incl. notebooks waiting for a new reading: their comment stays
+                by_cls.setdefault(s["cls"], []).append(s)
+        for cls, lst in sorted(by_cls.items()):
+            try:
+                tr = self.r.tracker(cls)
+                grid = self.g.values(tr.id, f"'{tr.tab}'!A1:ZZ200")
+                names = {i + 1: (r[1].split("\n")[0] if len(r) > 1 else "") for i, r in enumerate(grid)}
+                def hdr(c):
+                    r2 = grid[1] if len(grid) > 1 else []
+                    return str(r2[c] if c < len(r2) else "").replace("\n", " ").strip()
+                expect, times, texts = {}, {}, {}
+                for s in lst:
+                    a1 = self.here(s)
+                    if not a1:
+                        continue
+                    o = expect.get(a1)
+                    if not o or (s.get("publishedAt") or "") > (o.get("publishedAt") or ""):
+                        expect[a1] = s
+                    times.setdefault(int(re.sub(r"\D", "", a1)), {})[stamp(s)] = a1
+                    texts.setdefault(int(re.sub(r"\D", "", a1)), {})[s["published"].strip()] = a1
+                for s in self.st["subs"].values():   # every notebook of the pupil (also replaced or waiting ones): receipt times we may have written
+                    if s["cls"] != cls or not s.get("cell") or s in lst or not s.get("submittedAt"):
+                        continue
+                    a1 = self.here(s)
+                    if a1:
+                        times.setdefault(int(re.sub(r"\D", "", a1)), {}).setdefault(stamp(s), a1)
+                cells = {}
+                for ri, r in enumerate(grid):
+                    for ci, v in enumerate(r):
+                        v = str(v)
+                        a1 = f"{col_letter(ci)}{ri + 1}"
+                        if MARK in v or a1 in expect:
+                            cells[a1] = (ci, ri + 1, v)
+                for a1 in expect:
+                    if a1 not in cells:
+                        m = re.match(r"([A-Z]+)(\d+)", a1)
+                        ci = sum((ord(ch) - 64) * 26 ** k for k, ch in enumerate(reversed(m.group(1)))) - 1
+                        cells[a1] = (ci, int(m.group(2)), "")
+                for a1, (ci, row, v) in sorted(cells.items(), key=lambda x: (x[1][1], x[1][0])):
+                    prefix, body = (v.split(MARK, 1) + [""])[:2] if MARK in v else (v, "")
+                    body = body.strip()
+                    s = expect.get(a1)
+                    if s:
+                        want = s["published"].strip()
+                        if body == want:
+                            n["ok"] += 1
+                            continue
+                        if body and not ours.match(body):
+                            self.tick("repair_teacher_note_kept")
+                            continue
+                        mine = stamp(s) in prefix
+                        foreign = any(t in prefix and a != a1 for t, a in times.get(row, {}).items())
+                        unmarked = not prefix.strip() or prefix.strip().startswith("⛔") or "CHƯA GHI NHẬN" in prefix.split("\n")[0] \
+                            or prefix.strip().startswith("❌ CẦN NỘP LẠI")
+                        dl = dt.datetime.fromisoformat(s["deadline"]) if s.get("deadline") else None
+                        receipt = ("⚠️ ĐÃ NỘP MUỘN" if dl and parse_vn_time(s["submittedAt"]) > dl else "✅ ĐÃ NỘP") + "\n" + stamp(s)
+                        head = prefix.rstrip() if mine or not (foreign or unmarked) else receipt
+                        new, act, ok = head + "\n\n" + MARK + "\n" + want, "rewrite", bool(s.get("ok"))
+                    else:
+                        if not body or not ours.match(body):
+                            continue
+                        home = texts.get(row, {}).get(body)
+                        if not home or home == a1:   # our format but no notebook of this pupil owns it: list it, touch nothing
+                            act = "check"
+                            n["check"] = n.get("check", 0) + 1
+                            rows_out.append([now().strftime("%d/%m/%Y %H:%M"), cls, a1, hdr(ci) or "?", names.get(row, ""), act,
+                                             body.split("\n")[0] + " | đầu ô: " + prefix.strip().replace("\n", " ")[:40], "(để nguyên, cần xem)"])
+                            continue
+                        foreign = any(t in prefix and a != a1 for t, a in times.get(row, {}).items())
+                        new = "— CHƯA GHI NHẬN" if foreign or not prefix.strip() else prefix.rstrip()
+                        act, ok = "clear", True
+                    n[act] = n.get(act, 0) + 1
+                    rows_out.append([now().strftime("%d/%m/%Y %H:%M"), cls, a1, hdr(ci) or "?", names.get(row, ""), act,
+                                     (body.split("\n")[0] if body else "(trống)") + " | đầu ô: " + prefix.strip().replace("\n", " ")[:40],
+                                     new.split(MARK)[-1].strip().split("\n")[0] + " | đầu ô: " + new.split(MARK)[0].strip().replace("\n", " ")[:40]])
+                    if REPAIR_APPLY:
+                        tr.write(a1, new)
+                        if act == "rewrite":
+                            self.paint(tr, a1, new, ok)
+                        else:
+                            self.unpaint(tr, a1)
+            except Exception as e:
+                self.tick("repair_error_" + type(e).__name__)
+                return
+        for k, v in n.items():
+            self.tick(f"repair_{key}_{k}", v)
+        try:
+            import urllib.parse
+            try:
+                self.g._req(f"https://sheets.googleapis.com/v4/spreadsheets/{COMPARE_SHEET}:batchUpdate", "POST",
+                            {"requests": [{"addSheet": {"properties": {"title": REPAIR_TAB}}}]})
+                rows_out.insert(0, ["Lúc", "Lớp", "Ô", "Cột", "Học sinh", "Việc", "Trước", "Sau"])
+            except Exception:
+                pass
+            rows_out.insert(0, [f"=== {'ĐÃ SỬA' if REPAIR_APPLY else 'DỰ KIẾN (chưa sửa)'} — lượt {REPAIR_RUN} — "
+                                f"xoá {n['clear']}, ghi lại {n['rewrite']}, cần xem {n.get('check', 0)}, đúng sẵn {n['ok']} ==="])
+            rng = urllib.parse.quote(f"'{REPAIR_TAB}'!A:H")
+            for i in range(0, len(rows_out), 400):
+                self.g._req(f"https://sheets.googleapis.com/v4/spreadsheets/{COMPARE_SHEET}/values/{rng}:append"
+                            "?valueInputOption=RAW&insertDataOption=INSERT_ROWS", "POST", {"values": rows_out[i:i + 400]})
+        except Exception as e:
+            self.tick("repair_sheet_error_" + type(e).__name__)
+        done.append(key)
+
+    def unpaint(self, tr, a1):
+        try:
+            sid, row, col = self.cell_ref(tr, a1)
+            self.g._req(f"https://sheets.googleapis.com/v4/spreadsheets/{tr.id}:batchUpdate", "POST", {"requests": [{"updateCells": {
+                "range": {"sheetId": sid, "startRowIndex": row - 1, "endRowIndex": row, "startColumnIndex": col - 1, "endColumnIndex": col},
+                "rows": [{"values": [{"textFormatRuns": [], "userEnteredFormat": {}}]}],
+                "fields": "textFormatRuns,userEnteredFormat.backgroundColor"}}]})
+        except Exception as e:
+            self.tick("unpaint_error_" + type(e).__name__)
 
     def here(self, s):
         """The cell for this notebook NOW: columns get inserted in the class sheets, so a stored address goes stale
@@ -1826,12 +1953,13 @@ class FighterNotebooks:
                 continue
             if s["status"] == "published":
                 s["ver"] = VERSION
-                if not s.get("handFixed"):   # its verdict start is in the cell: the repaint below colours it (green/red)
+                if s.get("published") != fix[2]:   # the hand comment is in the cell: the repaint below colours it (green/red)
                     s.update(published=fix[2], ok=fix[1], paintVer=0, handFixed=True)
                     self.tick("hand_fixed")
             elif s["status"] != "skipped":
                 s.update(status="skipped", hold="hand_fixed")
                 self.tick("hand_fixed_skip")
+        self.repair()
         for s in subs.values():   # "reused" against a later submission (the pupil sent it under another unit first): read again
             src = (s.get("result") or {}).get("reusedFrom") or {}
             o = subs.get(src.get("sid"), {})
