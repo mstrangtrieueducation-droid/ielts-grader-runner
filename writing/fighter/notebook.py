@@ -651,6 +651,9 @@ def turned(read):
     return any(p.get("turn") in ("right", "left", "upside_down") for p in read.get("pages", []))
 
 
+TURN_ANGLE = {"right": 90, "left": -90, "upside_down": 180}
+
+
 def fix_turn(imgs, read):
     """Photos taken sideways/upside down (as the first read reported them) are turned upright for the second look."""
     from PIL import Image, ImageOps
@@ -1205,10 +1208,7 @@ class FighterNotebooks:
             undone = [q["n"] for q in ref["questions"] if q["n"] not in {x["n"] for x in a.get("answers", [])}]
             near = any(m and worth_second_look(low, m, ns) for m, ns in ((v1["missing"], [w["n"] for w in ref["words"]]),
                                                                           (undone, [q["n"] for q in ref["questions"]])))
-            if self.tier(s) == LEAN_MODEL and ((low < 20 and side < SIDE) or (turned(a) and low < PASS) or near):
-                self.tick("second_look_near" if near else "second_look")
-                content[1:1 + len(imgs)] = [img_block(x, SIDE) for x in fix_turn(imgs, a)]   # looks like a misread: full-size second look
-                b = unpack(self.call(content, LEAN_READING_SCHEMA, cat, 20000, model=self.tier(s), batch=True))
+            b = self.look2(s, imgs, a, content, LEAN_READING_SCHEMA, cat, 20000, low, side, near) or a
         else:
             with cf.ThreadPoolExecutor(2) as ex:
                 a, b = ex.map(lambda _: self.call(content, READING_SCHEMA, cat, 20000), range(2))
@@ -1229,7 +1229,7 @@ class FighterNotebooks:
         explained = sorted(n for n, xs in ans.items() if n not in need_why or any(x["explained"] != "no" for x in xs))
         norm_a = lambda v: re.sub(r"[^a-z0-9]", "", bare(v))
         wrong = sorted(n for n, xs in ans.items()   # only clear single-letter answers, both reads agreeing
-                       if key[n]["choices"] and re.fullmatch(r"[A-Za-z]", key[n]["answer"].strip()) and len(xs) == len(reads)
+                       if key[n]["choices"] and re.fullmatch(r"[A-Za-z]", key[n]["answer"].strip()) and (len(xs) == len(reads) or b.get("_partial"))
                        and norm_a(xs[0]["answer"]) == norm_a(xs[-1]["answer"]) and re.fullmatch(r"[a-z]", norm_a(xs[0]["answer"]) or "")
                        and norm_a(xs[0]["answer"]) != norm_a(key[n]["answer"]))
         total = ref["total"]
@@ -1263,6 +1263,39 @@ class FighterNotebooks:
             return "unreadable"
         d = (m.get("videoMediaMetadata") or {}).get("durationMillis")
         return round(int(d) / 1000) if d else None
+
+    def batch_known(self, content, schema, model):
+        """True when this exact request is already queued or answered (already paid: always use it, never re-ask)."""
+        key = h(json.dumps([model, schema, content], ensure_ascii=False, sort_keys=True), 40)
+        return key in self.st.get("batchRes", {}) or key in self.st.get("batchPending", {})
+
+    def look2(self, s, imgs, a, content, schema, cat, max_tokens, low, side, near):
+        """Cô 13/11 ("tối ưu, không tốn tiền"): at most ONE second Sonnet read, and only of what can change the verdict.
+        - near miss (50–89%, not just a missing tail): every page again at full size;
+        - only sideways pages to blame: just those pages, turned upright (the others were read fine);
+        - under 20% on small photos: only when the first read said a page was hard to read (else the pupil really did little).
+        Merged with the first read in the pupil's favour. A second look already queued/answered is always used as it was."""
+        model = self.tier(s)
+        if model != LEAN_MODEL:
+            return None
+        full = [content[0]] + [img_block(x, SIDE) for x in fix_turn(imgs, a)] + content[1 + len(imgs):]
+        if self.batch_known(full, schema, model):
+            return unpack(self.call(full, schema, cat, max_tokens, model=model, batch=True))
+        unclear = any(p.get("readable") in ("partly", "no") for p in a.get("pages", []))
+        rot = [i for i, p in enumerate(imgs, 1) if TURN_ANGLE.get({q.get("page"): q.get("turn") for q in a.get("pages", [])}.get(i))]
+        if near or (low < 20 and side < SIDE and unclear):
+            self.tick("second_look_near" if near else "second_look_low")
+            return unpack(self.call(full, schema, cat, max_tokens, model=model, batch=True))
+        if rot and low < PASS:
+            fixed = fix_turn(imgs, a)
+            sub = [dict(content[0], text=re.sub(r"\(\d+ ảnh\)", f"({len(rot)} ảnh — các trang chụp ngang, đã xoay thẳng)", content[0]["text"]))] \
+                + [img_block(fixed[i - 1], SIDE) for i in rot] + content[1 + len(imgs):]
+            self.tick("second_look_turned_pages", len(rot))
+            b = unpack(self.call(sub, schema, cat, max_tokens, model=model, batch=True))
+            b["pages"] = [dict(p, page=rot[p["page"] - 1]) for p in b.get("pages", []) if isinstance(p.get("page"), int) and 1 <= p["page"] <= len(rot)]
+            b["_partial"] = True
+            return b
+        return None
 
     def call(self, content, schema, category, max_tokens=12000, model=MODEL, batch=False):
         if batch:   # answered by a Message Batch (half price): queued now, the answer is picked up by a later cycle
@@ -1384,10 +1417,7 @@ class FighterNotebooks:
             low = score(unit, {"entries": a.get("entries", [])})["pct"]
             v1 = score(unit, {"entries": a.get("entries", [])})
             near = worth_second_look(low, v1["missing"], [e["n"] for e in unit["entries"]])
-            if self.tier(s) == LEAN_MODEL and ((low < 20 and side < SIDE) or (turned(a) and low < PASS) or near):   # misread / sideways photos / near miss
-                self.tick("second_look_near" if near else "second_look")
-                content[1:1 + len(imgs)] = [img_block(x, SIDE) for x in fix_turn(imgs, a)]
-                b = unpack(self.call(content, LEAN_SCHEMA, cat, model=self.tier(s), batch=True))
+            b = self.look2(s, imgs, a, content, LEAN_SCHEMA, cat, 12000, low, side, near) or a
         else:      # two independent Haiku reads, merged in the pupil's favour
             with cf.ThreadPoolExecutor(2) as ex:
                 (a, ca), (b, cb) = ex.map(lambda _: read(), range(2))
@@ -2011,6 +2041,11 @@ class FighterNotebooks:
                         sp.pop(d)
                     self.tick("batch_reads")
                     self.tick("batch_read_vnd", round(c * cw.USD_VND))
+                    kind = (cat.split(" · ") + ["?"])[1]   # where the money goes, per notebook kind (no names)
+                    u = m["usage"]
+                    for k2, v2 in (("vnd", round(c * cw.USD_VND)), ("reads", 1), ("in_tok", u.get("input_tokens") or 0),
+                                   ("out_tok", u.get("output_tokens") or 0), ("cache_tok", u.get("cache_read_input_tokens") or 0)):
+                        self.tick(f"{k2}[{kind}]", v2)
                     txt = "".join(x.get("text") or "" for x in m["content"] if x.get("type") == "text")
                     tool = next((x.get("input") for x in m["content"] if x.get("type") == "tool_use"), None)
                     try:
