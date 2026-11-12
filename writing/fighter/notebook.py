@@ -63,7 +63,7 @@ IMG_FLOOR = 1000                     # pages share the budget, but a page is nev
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 34              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 35              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 0         # Cô 10/11: grade as soon as a notebook is submitted; we write the receipt line ourselves if the sync has not
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -172,9 +172,9 @@ TÀI LIỆU:
 {doc}"""
 AP_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["pages", "outline", "model", "vocab", "revised", "otherLesson"],
              "properties": {"pages": {"type": "array", "items": LEAN_PAGE},
-                            "revised": {"type": "object", "additionalProperties": False, "required": ["present", "words", "start"],
+                            "revised": {"type": "object", "additionalProperties": False, "required": ["present", "words", "start", "isDraft"],
                                         "properties": {"present": {"type": "string", "enum": ["yes", "no", "unclear"]}, "words": I,
-                                                       "start": S}},
+                                                       "start": S, "isDraft": {"type": "boolean"}}},
                             "outline": {"type": "object", "additionalProperties": False, "required": ["status", "lacking"],
                                         "properties": {"status": {"type": "string", "enum": ["full", "partly", "missing", "unclear"]},
                                                        "lacking": S}},
@@ -192,8 +192,10 @@ những gì nhìn thấy. Học sinh phải có: đoạn REVISED VERSION tự vi
    lacking: CHỈ khi partly — ghi ngắn (≤ 15 chữ) nhánh/ý còn thiếu; còn lại "".
 2b. revised: present = yes nếu có đoạn REVISED VERSION — đoạn văn học sinh TỰ VIẾT LẠI sau khi được cô chữa (thường ở ô
    REVISED VERSION, cùng đề bài, câu chữ KHÁC bài mẫu); words = số chữ ước lượng (0 nếu không có); start = 8 chữ đầu tiên của
-   đoạn đó, nguyên văn ("" nếu không có). Một đoạn chép lại các câu của BÀI MẪU (dù nằm ở ô Revised version) là bài mẫu, KHÔNG
-   phải revised version.
+   đoạn đó, nguyên văn ("" nếu không có); isDraft = true nếu đoạn đó là bài viết lần đầu / bài nháp (xem (b) dưới đây).
+   KHÔNG phải revised version: (a) đoạn chép lại các câu của BÀI MẪU (dù nằm ở ô Revised version); (b) đoạn viết lần đầu / bài
+   nháp viết cạnh OUTLINE (trang outline, có ngày viết) — đó là bài viết trên lớp TRƯỚC khi cô chữa. Vở in sẵn có ô REVISED
+   VERSION: ô đó để trống thì present = no.
 3. model: present = yes nếu có chép bài mẫu; lastSentence = SỐ THỨ TỰ câu cuối cùng của bài mẫu (đánh số bên dưới) mà học sinh
    đã chép tới — tính cả phần bài mẫu chép ở ô khác, ở ô Revised version, dòng cuối trang và trang sau. Chép hết → số câu cuối
    cùng; không chép → 0.
@@ -473,7 +475,7 @@ ROW_FACTOR = 2              # rows holding our comments: twice the class sheet's
 REGRADE = set(PROGRAM_HEAD)   # v28: every kind (second Sonnet look at full size for a failing notebook)
 DEBUG_NAMES = set()               # pupils whose reading is printed to the run log (debugging only)
 DAILY_CAP_VND = None           # Cô 11/11 21:40: no cap — every submitted notebook is graded
-REGRADE_ONLY = {("le tran thao nhi", "AP")}   # v34: only these pupils' notebooks are read again (Cô 12/11, Rebecca)
+REGRADE_ONLY = {("le tran thao nhi", "AP")}   # v35 too   # v34: only these pupils' notebooks are read again (Cô 12/11, Rebecca)
 REGRADE_MATCH = r"(?!)"          # v32: wording only — nothing is read again   # v31: only notebooks where no word was found are read again (printed-word workbooks)
 REGRADE_FAILED_ONLY = False  # on a VERSION bump only notebooks below 100% are read again (a clean pass stays)      # programmes whose reading rules changed in this VERSION; others are only re-styled
 FLAG = "LỖI: ❌ CẦN NỘP LẠI"   # cell note prefix of our own "redo" mark
@@ -920,7 +922,8 @@ class FighterNotebooks:
             r1 = self.call(content, AP_SCHEMA, cat, model=self.tier(s), batch=True)
             out = self.ap_score([r1], ref, imgs, hashes, reused)
             if out["kind"] in ("scored", "wrong_unit") and self.tier(s) == LEAN_MODEL and (
-                    (out["pct"] < 50 and side < SIDE) or (turned(r1) and (out["pct"] < PASS or out["messy"]))):
+                    (out["pct"] < 50 and side < SIDE) or (turned(r1) and (out["pct"] < PASS or out["messy"]))
+                    or (side < SIDE and out["kind"] == "scored" and not out["modelFull"])):   # model looked short: re-check at full size
                 # looks like a misread (half the notebook unseen): second look at full size, merged in the pupil's favour
                 content[1:1 + len(imgs)] = [img_block(b, SIDE) for b in fix_turn(imgs, r1)]
                 r2 = self.call(content, AP_SCHEMA, cat, model=self.tier(s), batch=True)
@@ -963,7 +966,7 @@ class FighterNotebooks:
             n = len(start.split())
             return n >= 4 and any(difflib.SequenceMatcher(None, core(" ".join(x.split()[:n])), core(start)).ratio() >= 0.8 for x in sents)
         revised = any(r["revised"]["present"] in ("yes", "unclear") and (r["revised"]["words"] >= 60 or r["revised"]["present"] == "unclear")
-                      and not is_model(r["revised"].get("start")) for r in reads)
+                      and not is_model(r["revised"].get("start")) and not r["revised"].get("isDraft") for r in reads)
         pct = round(100 * ((1 if revised else 0) + outline + (1 if model_full else reach) + len(have) / len(ref["vocab"])) / 4)
         pg = []
         pb = {p["page"]: p for p in reads[-1].get("pages", [])}
