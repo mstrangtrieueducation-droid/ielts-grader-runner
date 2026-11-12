@@ -1550,7 +1550,11 @@ class FighterNotebooks:
             rest = re.sub(r"mới chép đủ (\d+)/\1 phần", r"đã chép đủ \1/\1 phần", rest)
             new = first + sep + rest
             dl = dt.datetime.fromisoformat(s["deadline"]) if s.get("deadline") else None
-            w = self.write(s, s["cell"], dl, new, ok, pct)
+            a1 = self.here(s)
+            if not a1:
+                self.tick("restyle_no_cell")
+                return
+            w = self.write(s, a1, dl, new, ok, pct)
             if w == "ok":
                 s.update(published=new, ver=VERSION, paintVer=PAINT_VERSION)
                 self.tick("restyled")
@@ -1662,9 +1666,24 @@ class FighterNotebooks:
         except Exception as e:
             self.tick("flag_error_" + type(e).__name__)
 
+    def here(self, s):
+        """The cell for this notebook NOW: columns get inserted in the class sheets, so a stored address goes stale
+        (12/11: AP Buổi 3 comments were rewritten into 'Reading 2 – Vở chữa Unit 5' after new columns came in)."""
+        try:
+            a1, _, why = self.cell_for(s)
+        except Exception:
+            return None
+        if why or not a1:
+            return None
+        if s.get("cell") and a1 != s["cell"]:
+            s.setdefault("oldCells", []).append(s["cell"])
+            self.tick("cell_moved")
+        s["cell"] = a1
+        return a1
+
     def unpublish(self, s):
         prev = s.pop("published", None)
-        if not prev or not s.get("cell"):
+        if not prev or not s.get("cell") or not self.here(s):
             return
         tr = self.r.tracker(s["cls"])
         cur = tr.cell(s["cell"])
@@ -1842,6 +1861,8 @@ class FighterNotebooks:
             elif s["status"] == "published" and s.get("paintVer", 1) < PAINT_VERSION:
                 try:
                     tr = self.r.tracker(s["cls"])
+                    if not self.here(s):
+                        continue
                     cur = tr.cell(s["cell"])
                     if MARK in cur and (s.get("published") or "") in cur:
                         self.paint(tr, s["cell"], cur, bool(s.get("ok")))
@@ -1901,7 +1922,7 @@ class FighterNotebooks:
                               and family(x["prog"]) == family(s["prog"])})
             if res.get("kind") == "wrong_unit":   # sent under the wrong unit: an earlier submission of this unit is kept
                 try:
-                    first = self.r.tracker(s["cls"]).cell(s["cell"]).split("\n")[0]
+                    first = self.r.tracker(s["cls"]).cell(self.here(s) or s["cell"]).split("\n")[0]
                 except Exception:
                     first = ""
                 s["hadEarlier"] = first.startswith("🔁") or any(
@@ -1915,6 +1936,9 @@ class FighterNotebooks:
                 rep = f"• ĐÂY LÀ LẦN THỨ {len(earlier) + 1} con nộp {book} chưa đạt ({label} {units}) — con cần nghiêm túc hơn."
                 text += "\n" + rep
             dl = dt.datetime.fromisoformat(s["deadline"]) if s.get("deadline") else None
+            if not self.here(s):
+                self.tick("publish_no_cell")
+                continue
             w = self.write(s, s["cell"], dl, text, ok, pct)
             if w == "wait":
                 self.tick("waiting_status_line")
