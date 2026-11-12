@@ -256,7 +256,7 @@ def make(runner, now=None):
     return made
 
 
-FINAL = ("published", "dropped", "unidentified")
+FINAL = ("published", "dropped", "unidentified", "renamed")
 GROUPS = ("vocab", "grammar", "coherence")
 
 
@@ -350,11 +350,23 @@ def make_inclass(runner, scans_state, now=None):
         return []
     done = runner.state.setdefault("zaloDone", [])
     made = []
+    # Cô 12/11: a supplementary scan ("… bổ sung") of the same session joins the same picture
+    sessions = {}
     for fid, rec in (scans_state or {}).get("files", {}).items():
         meta = rec.get("meta") or {}
-        if meta.get("kind") not in ("inclass", "test") or rec.get("status") != "graded" or f"scan|{fid}" in done:
+        if meta.get("kind") not in ("inclass", "test"):
+            continue
+        skey = "|".join(str(meta.get(k)) for k in ("cls", "kind", "date", "n", "buoi", "week", "task"))
+        sessions.setdefault(skey, []).append((fid, rec))
+    for skey, files in sessions.items():
+        fid, rec = files[0]
+        meta = rec.get("meta") or {}
+        if (f"scan|{skey}" in done or any(f"scan|{f}" in done for f, _ in files)
+                or any(r.get("status") not in ("graded", "teacher_done") for _, r in files)):
             continue   # Cô 11/11: every graded paper (in-class writing and paper tests) gets its picture
-        studs = [s for s in rec.get("students", {}).values()]
+        if any(r.get("status") == "teacher_done" for _, r in files):
+            continue
+        studs = [s for _, r in files for s in r.get("students", {}).values()]
         if not studs or any(s.get("status") not in FINAL for s in studs):
             continue
         cls = meta["cls"]
@@ -426,8 +438,8 @@ def make_inclass(runner, scans_state, now=None):
                                       "crit": {k: sum(v) / len(v) for k, v in crit.items()}, "scored": scored,
                                       "kind": "Bài kiểm tra" if test else "Bài viết trên lớp", "unit": unit,
                                       "unknown": sum(1 for s in studs if s.get("status") == "unidentified")})
-        store(runner, cls, f"scan|{fid}", f"{cls} – {title}", png, now)
-        done.append(f"scan|{fid}")
+        store(runner, cls, f"scan|{skey}", f"{cls} – {title}", png, now)
+        done.append(f"scan|{skey}")
         del done[:-400]
         made.append((cls, title))
         runner.tick("zalo_picture_inclass")

@@ -273,8 +273,32 @@ class Scans:
         return reqs
 
     def rescue(self):
-        """Papers left unidentified (English or short name on the paper): match them again with column C names."""
+        """Papers left unidentified (English or short name on the paper): match them again with column C names.
+        Cô can also name a page herself (cfg scanNames: {file id: {page: "FULL NAME"}})."""
         reqs, mapping = [], {}
+        for fid, fix in (self.r.cfg.get("scanNames") or {}).items():
+            rec = self.st["files"].get(fid)
+            if not rec or rec["status"] not in ("graded", "submitted"):
+                continue
+            groups = []
+            for x in rec["students"].values():
+                name = fix.get(str((x.get("pages") or [None])[0]))
+                if x["status"] == "unidentified" and name:
+                    groups.append({"pages": x["pages"], "nameRead": x.get("nameRead"), "name": norm(name)})
+                    x["status"] = "renamed"
+            if not groups:
+                continue
+            try:
+                rq = self.build(fid, rec, self.g.download(fid), only=groups)
+            except Exception:
+                self.tick("rename_error")
+                continue
+            for q in rq:
+                mapping[q["custom_id"]] = fid
+            reqs += rq
+            if rq:
+                rec["status"] = "submitted"
+                self.tick("renamed", len(rq))
         for fid, rec in self.st["files"].items():
             if rec.get("rescued") == 2 or rec["status"] not in ("graded", "submitted") or not rec.get("meta"):
                 continue
@@ -608,6 +632,15 @@ class Scans:
             todo = [s for s in rec["students"].values() if s["status"] in ("graded", "held") and s.get("name")]
             if not todo:
                 continue
+            try:   # one file's trouble must not stop the others; the reason is kept for checking
+                self.publish_file(rec, todo)
+                rec.pop("publishError", None)
+            except Exception as e:
+                rec["publishError"] = f"{type(e).__name__}: {str(e)[:300]}"
+                self.tick("publish_error")
+
+    def publish_file(self, rec, todo):
+        if True:
             tr = self.r.tracker(rec["meta"]["cls"])
             tr._grid = None
             tr.cached("A", 1)
@@ -632,7 +665,7 @@ class Scans:
                 for s in todo:
                     s.update(status="held", hold="no_tracker_column")
                 self.tick("held_no_column", len(todo))
-                continue
+                return
             for s in todo:
                 row = tr.row_of(s["name"])
                 if not row:
