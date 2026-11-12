@@ -75,7 +75,11 @@ class Google:
                 if e.code in (429, 500, 502, 503) and attempt < retries - 1:
                     time.sleep(20 * (attempt + 1))  # Sheets read quota is per minute
                     continue
-                raise RuntimeError(f"GOOGLE_HTTP_{e.code}") from None
+                try:   # Google's own error message (no sheet content), so a failing call can be fixed
+                    msg = json.loads(e.read() or b"{}").get("error", {}).get("message", "")[:160]
+                except Exception:
+                    msg = ""
+                raise RuntimeError(f"GOOGLE_HTTP_{e.code} {msg}".strip()) from None
 
     # ------------------------------------------------------------ sheets
     def values(self, sheet_id, rng):

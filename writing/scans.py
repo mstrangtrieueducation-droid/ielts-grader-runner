@@ -576,12 +576,23 @@ class Scans:
         reqs = []
         if width >= cols:
             reqs.append({"appendDimension": {"sheetId": gid, "dimension": "COLUMNS", "length": 1}})
-        if width > 0:
-            reqs.append({"copyPaste": {"source": {"sheetId": gid, "startColumnIndex": width - 1, "endColumnIndex": width},
-                                       "destination": {"sheetId": gid, "startColumnIndex": width, "endColumnIndex": width + 1},
-                                       "pasteType": "PASTE_FORMAT"}})
         if reqs:
             self.g._req(f"https://sheets.googleapis.com/v4/spreadsheets/{tr.id}:batchUpdate", "POST", {"requests": reqs})
+        if width > 0:   # format of the pupils' rows only: the header rows may be merged (copying them fails with 400)
+            try:
+                self.g._req(f"https://sheets.googleapis.com/v4/spreadsheets/{tr.id}:batchUpdate", "POST", {"requests": [
+                    {"copyPaste": {"source": {"sheetId": gid, "startRowIndex": 4, "endRowIndex": 200,
+                                              "startColumnIndex": width - 1, "endColumnIndex": width},
+                                   "destination": {"sheetId": gid, "startRowIndex": 4, "endRowIndex": 200,
+                                                   "startColumnIndex": width, "endColumnIndex": width + 1},
+                                   "pasteType": "PASTE_FORMAT"}},
+                    {"repeatCell": {"range": {"sheetId": gid, "startRowIndex": 1, "endRowIndex": 3,
+                                              "startColumnIndex": width, "endColumnIndex": width + 1},
+                                    "cell": {"userEnteredFormat": {"textFormat": {"bold": True}, "wrapStrategy": "WRAP",
+                                                                   "horizontalAlignment": "CENTER"}},
+                                    "fields": "userEnteredFormat(textFormat.bold,wrapStrategy,horizontalAlignment)"}}]})
+            except Exception:
+                self.tick("inclass_column_format_skipped")
         self.g.set_cell(tr.id, f"'{tr.tab}'!{col_letter(width)}2", "VIẾT TRÊN LỚP")
         self.g.set_cell(tr.id, f"'{tr.tab}'!{col_letter(width)}3", f"{key}\n{meta['date']}")
         tr._hdr = None
