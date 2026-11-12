@@ -63,14 +63,25 @@ def band_of(sub):
             er = json.loads(er)
         except Exception:
             er = None
+    import calculate_class_score as ccs
+    task = 1 if min_words(sub.get("assignment")) == 150 else 2
     crit, overall = {}, []
     for e in (er or {}).get("essays") or []:
         c = {("TR" if k in ("TA_TR", "TA", "TR") else k): (v or {}).get("band") for k, v in (e.get("criteria") or {}).items()}
         c = {k: v for k, v in c.items() if isinstance(v, (int, float))}
-        if len(c) == 4:
-            overall.append(sum(c.values()) / 4)
-            for k, v in c.items():
-                crit.setdefault(k, []).append(v)
+        if len(c) != 4:
+            continue
+        # Cô 12/11: the class's under-length deduction (the band on the dashboard), not the raw criteria
+        words = (e.get("_qa") or {}).get("words")
+        try:
+            ca = ccs.calculate(task, int(words), [int(c[k]) for k in ("TR", "CC", "LR", "GRA")])["classAssessment"]
+            c = dict(zip(("TR", "CC", "LR", "GRA"), ca["criteria"].values()))
+        except Exception:
+            pass
+        qb = (e.get("_qa") or {}).get("band")
+        overall.append(float(qb) if isinstance(qb, (int, float)) else sum(c.values()) / 4)
+        for k, v in c.items():
+            crit.setdefault(k, []).append(v)
     if not overall:
         return None, {}
     return math.floor(sum(overall) / len(overall) * 2 + 0.5) / 2, {k: sum(v) / len(v) for k, v in crit.items()}
