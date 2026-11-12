@@ -1551,6 +1551,15 @@ class FighterNotebooks:
         if prefix.strip().startswith("❌ CẦN NỘP LẠI"):   # our own line for an earlier notebook: back to a receipt
             prefix = receipt
         prev = s.get("published")
+        if existing and existing != prev and not (prev and prev in existing):
+            # 12/11: a resubmission has no comment of its own yet — the cell holds OUR comment for the earlier
+            # submission of the same unit; that is ours to replace, not a teacher's note
+            for x in self.st["subs"].values():
+                p2 = (x.get("published") or "").strip()
+                if p2 and x is not s and x["cls"] == s["cls"] and x["code"] == s["code"] \
+                        and bare(norm(x["student"])) == bare(norm(s["student"])) and p2 in existing:
+                    prev = p2
+                    break
         existing = re.sub(r"\n*💬?\s*GHI CHÚ GV:\s*\n?" + re.escape(FLAG) + r"[^\n]*", "", existing).strip()
         if FLAG in prefix:   # the class sync shows our own note in the status block: drop it, it is set again below
             prefix = re.sub(r"\n*💬?\s*GHI CHÚ GV:\s*\n?" + re.escape(FLAG) + r"[^\n]*", "", prefix)
@@ -2060,6 +2069,15 @@ class FighterNotebooks:
             s["ver"] = VERSION
         self.repair()
         self.restore_key_lines()
+        if not self.st.get("retryTeacher1"):   # 12/11: resubmissions wrongly refused as a teacher note — publish their reading now (no new read)
+            for s in subs.values():
+                later = any(x is not s and x["cls"] == s["cls"] and x["code"] == s["code"]
+                            and bare(norm(x["student"])) == bare(norm(s["student"]))
+                            and parse_vn_time(x["submittedAt"]) > parse_vn_time(s["submittedAt"]) for x in subs.values())
+                if s["status"] == "skipped" and s.get("hold") == "teacher_comment" and s.get("result") and not later:
+                    s.update(status="graded", hold=None)
+                    self.tick("retry_teacher_comment")
+            self.st["retryTeacher1"] = True
         for s in subs.values():   # "reused" against a later submission (the pupil sent it under another unit first): read again
             src = (s.get("result") or {}).get("reusedFrom") or {}
             o = subs.get(src.get("sid"), {})
