@@ -63,7 +63,7 @@ IMG_FLOOR = 1000                     # pages share the budget, but a page is nev
 SIDE = 1568
 MAX_PAGES = 14
 PASS = 90
-VERSION = 33              # raise when the scoring changes: our own published results are regraded once and replaced
+VERSION = 34              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
 STATUS_WAIT_MIN = 0         # Cô 10/11: grade as soon as a notebook is submitted; we write the receipt line ourselves if the sync has not
 FIELDS = [("type", "Từ loại"), ("ipa", "Phiên âm"), ("vi", "Nghĩa tiếng Việt"), ("en", "Nghĩa tiếng Anh"), ("example", "Ví dụ")]
@@ -172,8 +172,9 @@ TÀI LIỆU:
 {doc}"""
 AP_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["pages", "outline", "model", "vocab", "revised", "otherLesson"],
              "properties": {"pages": {"type": "array", "items": LEAN_PAGE},
-                            "revised": {"type": "object", "additionalProperties": False, "required": ["present", "words"],
-                                        "properties": {"present": {"type": "string", "enum": ["yes", "no", "unclear"]}, "words": I}},
+                            "revised": {"type": "object", "additionalProperties": False, "required": ["present", "words", "start"],
+                                        "properties": {"present": {"type": "string", "enum": ["yes", "no", "unclear"]}, "words": I,
+                                                       "start": S}},
                             "outline": {"type": "object", "additionalProperties": False, "required": ["status", "lacking"],
                                         "properties": {"status": {"type": "string", "enum": ["full", "partly", "missing", "unclear"]},
                                                        "lacking": S}},
@@ -190,9 +191,12 @@ những gì nhìn thấy. Học sinh phải có: đoạn REVISED VERSION tự vi
    status = full (đủ các nhánh chính) / partly (thiếu rõ ràng một số nhánh/ý) / missing (không có) / unclear;
    lacking: CHỈ khi partly — ghi ngắn (≤ 15 chữ) nhánh/ý còn thiếu; còn lại "".
 2b. revised: present = yes nếu có đoạn REVISED VERSION — đoạn văn học sinh TỰ VIẾT LẠI sau khi được cô chữa (thường ở ô
-   REVISED VERSION, cùng đề bài, khác bài mẫu); words = số chữ ước lượng (0 nếu không có).
+   REVISED VERSION, cùng đề bài, câu chữ KHÁC bài mẫu); words = số chữ ước lượng (0 nếu không có); start = 8 chữ đầu tiên của
+   đoạn đó, nguyên văn ("" nếu không có). Một đoạn chép lại các câu của BÀI MẪU (dù nằm ở ô Revised version) là bài mẫu, KHÔNG
+   phải revised version.
 3. model: present = yes nếu có chép bài mẫu; lastSentence = SỐ THỨ TỰ câu cuối cùng của bài mẫu (đánh số bên dưới) mà học sinh
-   đã chép tới (đọc hết ô Bài mẫu tham khảo, kể cả dòng cuối trang và trang sau). Chép hết → số câu cuối cùng; không chép → 0.
+   đã chép tới — tính cả phần bài mẫu chép ở ô khác, ở ô Revised version, dòng cuối trang và trang sau. Chép hết → số câu cuối
+   cùng; không chép → 0.
 4. vocab: danh sách các từ/cụm từ tiếng Anh học sinh đã ghi trong MỤC TỪ VỰNG RIÊNG (danh sách từ kèm nghĩa, ở bất kỳ chỗ nào trên trang), mỗi mục một chuỗi, nguyên văn. KHÔNG tính các cụm chỉ nằm trong câu của bài mẫu hay đoạn văn — các cụm đó có sẵn trong bài mẫu.
 5. otherLesson = true nếu vở chủ yếu là bài của một buổi khác (đề bài khác).
 
@@ -469,8 +473,9 @@ ROW_FACTOR = 2              # rows holding our comments: twice the class sheet's
 REGRADE = set(PROGRAM_HEAD)   # v28: every kind (second Sonnet look at full size for a failing notebook)
 DEBUG_NAMES = set()               # pupils whose reading is printed to the run log (debugging only)
 DAILY_CAP_VND = None           # Cô 11/11 21:40: no cap — every submitted notebook is graded
+REGRADE_ONLY = {("le tran thao nhi", "AP")}   # v34: only these pupils' notebooks are read again (Cô 12/11, Rebecca)
 REGRADE_MATCH = r"(?!)"          # v32: wording only — nothing is read again   # v31: only notebooks where no word was found are read again (printed-word workbooks)
-REGRADE_FAILED_ONLY = True  # on a VERSION bump only notebooks below 100% are read again (a clean pass stays)      # programmes whose reading rules changed in this VERSION; others are only re-styled
+REGRADE_FAILED_ONLY = False  # on a VERSION bump only notebooks below 100% are read again (a clean pass stays)      # programmes whose reading rules changed in this VERSION; others are only re-styled
 FLAG = "LỖI: ❌ CẦN NỘP LẠI"   # cell note prefix of our own "redo" mark
 STATUS_RANK = {"missing": 0, "partly": 1, "unclear": 2, "full": 3}
 
@@ -952,8 +957,13 @@ class FighterNotebooks:
         have = [v for v in ref["vocab"] if any(sim(v, w) >= 0.8 for w in seen)]
         lack = [v for v in ref["vocab"] if v not in have]
         model_full = got >= len(sents)
+        def is_model(start):   # a "revised version" that opens with a model sentence is the model copied again
+            start = str(start or "").strip()
+            import difflib
+            n = len(start.split())
+            return n >= 4 and any(difflib.SequenceMatcher(None, core(" ".join(x.split()[:n])), core(start)).ratio() >= 0.8 for x in sents)
         revised = any(r["revised"]["present"] in ("yes", "unclear") and (r["revised"]["words"] >= 60 or r["revised"]["present"] == "unclear")
-                      for r in reads)
+                      and not is_model(r["revised"].get("start")) for r in reads)
         pct = round(100 * ((1 if revised else 0) + outline + (1 if model_full else reach) + len(have) / len(ref["vocab"])) / 4)
         pg = []
         pb = {p["page"]: p for p in reads[-1].get("pages", [])}
@@ -1798,7 +1808,8 @@ class FighterNotebooks:
                 m = re.search(r"đạt (\d+)%", s.get("published") or "")
                 clean = s.get("ok") and m and int(m.group(1)) >= 100
                 if s["prog"] in REGRADE and not (REGRADE_FAILED_ONLY and clean) and (
-                        not REGRADE_MATCH or re.search(REGRADE_MATCH, s.get("published") or "")):
+                        not REGRADE_MATCH or re.search(REGRADE_MATCH, s.get("published") or "")
+                        or (bare(norm(s["student"])), s["prog"]) in REGRADE_ONLY):
                     s.update(status="new", tries=0, regrade=True, prevPublished=s.get("published") or "", prevOk=s.get("ok"))
                     self.tick("regrade_new_rules")
                 else:   # same result, today's wording/colours: no new reading
