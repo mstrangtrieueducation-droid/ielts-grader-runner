@@ -475,7 +475,7 @@ ROW_FACTOR = 2              # rows holding our comments: twice the class sheet's
 REGRADE = set(PROGRAM_HEAD)   # v28: every kind (second Sonnet look at full size for a failing notebook)
 DEBUG_NAMES = set()               # pupils whose reading is printed to the run log (debugging only)
 DAILY_CAP_VND = None           # Cô 11/11 21:40: no cap — every submitted notebook is graded
-REPAIR_RUN = 1                # 12/11: comments rewritten at stale addresses (columns inserted) — put every comment back in its own cell
+REPAIR_RUN = 2                # 12/11: comments rewritten at stale addresses (columns inserted) — put every comment back in its own cell
 REPAIR_APPLY = False          # False: only list the planned changes on the comparison sheet (tab REPAIR_TAB); True: do them
 REPAIR_TAB = "Sửa ô ghi lệch"
 REGRADE_ONLY = set()          # Cô 12/11 13:01: no paid re-reads; wrong results are fixed by hand (HAND_FIXED)
@@ -1741,13 +1741,22 @@ class FighterNotebooks:
                         if not body or not ours.match(body):
                             continue
                         home = texts.get(row, {}).get(body)
+                        if not home:   # written at a stale ROW (rows moved): another pupil's comment with that pupil's receipt time
+                            own = set(times.get(row, {}))
+                            for r2, tx in texts.items():
+                                h2 = tx.get(body)
+                                if h2 and r2 != row and any(t2 in prefix and t2 not in own and a2 == h2 for t2, a2 in times.get(r2, {}).items()):
+                                    home = h2
+                                    break
                         if not home or home == a1:   # our format but no notebook of this pupil owns it: list it, touch nothing
+                            if "SHADOWING" in hdr(ci).upper():   # the shadowing grader's own comments
+                                continue
                             act = "check"
                             n["check"] = n.get("check", 0) + 1
                             rows_out.append([now().strftime("%d/%m/%Y %H:%M"), cls, a1, hdr(ci) or "?", names.get(row, ""), act,
                                              body.split("\n")[0] + " | đầu ô: " + prefix.strip().replace("\n", " ")[:40], "(để nguyên, cần xem)"])
                             continue
-                        foreign = any(t in prefix and a != a1 for t, a in times.get(row, {}).items())
+                        foreign = any(t in prefix and a != a1 for t, a in times.get(row, {}).items()) or int(re.sub(r"\D", "", home)) != row
                         new = "— CHƯA GHI NHẬN" if foreign or not prefix.strip() else prefix.rstrip()
                         act, ok = "clear", True
                     n[act] = n.get(act, 0) + 1
@@ -1951,11 +1960,11 @@ class FighterNotebooks:
                 fix = None
             if not fix:
                 continue
-            if s["status"] == "published":
-                s["ver"] = VERSION
-                if s.get("published") != fix[2]:   # the hand comment is in the cell: the repaint below colours it (green/red)
-                    s.update(published=fix[2], ok=fix[1], paintVer=0, handFixed=True)
+            if s.get("published"):   # its comment is the hand one (also a notebook that was waiting for a re-read: no re-read)
+                if s.get("published") != fix[2] or s["status"] != "published":
+                    s.update(status="published", published=fix[2], ok=fix[1], paintVer=0, regrade=False)
                     self.tick("hand_fixed")
+                s["ver"] = VERSION
             elif s["status"] != "skipped":
                 s.update(status="skipped", hold="hand_fixed")
                 self.tick("hand_fixed_skip")
