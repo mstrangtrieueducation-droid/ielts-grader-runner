@@ -333,11 +333,20 @@ def draw_inclass(data):
         d.text((P, 46), f"{data['cls']} – {data['title']}", font=sans(36, "SemiBold"), fill=NAVY)
         d.text((P, 96), "Nhận xét chung cả lớp", font=sans(23), fill=MUTED)
         y = 160
-        if sm.get("note"):
-            for ln in wrap_text(d, sm["note"], sans(27), SW - 2 * P):
-                d.text((P, y), ln, font=sans(27), fill=INK)
-                y += 42
-            y += 20
+        if sm.get("note"):   # three labelled lines: Làm tốt / Cần sửa / Buổi sau
+            fl, ft = sans(26, "SemiBold"), sans(26)
+            for raw in [x.strip() for x in sm["note"].splitlines() if x.strip()]:
+                lab, _, body = raw.partition(":")
+                if not body:
+                    lab, body = "", raw
+                if lab:
+                    d.text((P, y), lab.strip(), font=fl, fill=NAVY)
+                    y += 38
+                for ln in wrap_text(d, body.strip(), ft, SW - 2 * P):
+                    d.text((P, y), ln, font=ft, fill=INK)
+                    y += 38
+                y += 18
+            y += 4
         if sm.get("top"):
             y = rule(d, y)
             y = label(d, y, f"Lỗi gặp nhiều nhất trong {sm['n']} bài")

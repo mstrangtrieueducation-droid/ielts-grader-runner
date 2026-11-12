@@ -322,11 +322,14 @@ def class_notes(runner, cls, title, fighter, comments, top):
         import claude_worker as cw
         text = "\n".join(f"Bài {i + 1}: {c.strip()[:900]}" for i, c in enumerate(comments))
         common = "; ".join(f"{n} ({k} bài)" for n, k in top)
-        prompt = (f"Đây là nhận xét đã chấm cho từng bài viết trên lớp của lớp {cls} ({title}), "
-                  f"{'đoạn văn học thuật lớp Fighter' if fighter else 'bài viết IELTS'}. Lỗi gặp nhiều nhất (máy đếm): {common}.\n\n"
-                  f"{text}\n\nViết NHẬN XÉT CHUNG CẢ LỚP gửi phụ huynh, 3–4 câu tiếng Việt, giọng cô giáo ấm áp nhưng thẳng thắn: "
-                  "lớp làm tốt điều gì, lỗi chung cần sửa là gì, buổi sau các con cần chú ý gì. Không nêu tên học sinh, "
-                  "không cho điểm, không bịa điều không có trong nhận xét. Chỉ trả về đoạn văn.")
+        prompt = (f"Nhận xét đã chấm cho từng bài viết trên lớp ({'đoạn văn học thuật' if fighter else 'bài viết IELTS'}, {title}). "
+                  f"Lỗi gặp nhiều nhất (máy đếm): {common}.\n\n{text}\n\n"
+                  "Tóm tắt cho phụ huynh đúng 3 dòng, mỗi dòng một câu ngắn (tối đa 28 từ), viết như giáo viên ghi sổ: "
+                  "thẳng, cụ thể, nêu đúng cấu trúc/lỗi có trong nhận xét.\n"
+                  "Làm tốt: …\nCần sửa: …\nBuổi sau: …\n"
+                  "Không xưng 'Cô', không dùng 'các con lớp …', không 'mong', không 'hãy', không tính từ khen chung chung "
+                  "(tốt, khá tốt, ấn tượng…) trừ khi kèm ví dụ cụ thể, không nêu tên học sinh, không cho điểm, không bịa. "
+                  "Chỉ trả về 3 dòng đó.")
         r = cw.client().messages.create(model="claude-haiku-5-5", max_tokens=500, thinking={"type": "disabled"},
                                         messages=[{"role": "user", "content": prompt}])
         u = r.usage.model_dump()
