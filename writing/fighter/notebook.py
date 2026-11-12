@@ -637,6 +637,16 @@ def crop_page(jpeg: bytes) -> bytes:
     return out
 
 
+def worth_second_look(pct, missing, nums):
+    """Cô 13/11 ("thông minh, không tốn tiền"): a near-miss book (50–89%) gets ONE more Sonnet read at full size, merged in
+    the pupil's favour — unless what is missing is one block at the very end of the list (the pupil stopped early / that page
+    was never photographed: a second read of the same photos cannot find it)."""
+    if not 50 <= pct < PASS:
+        return False
+    m = sorted(set(missing))
+    return not m or m != sorted(nums)[-len(m):]
+
+
 def turned(read):
     return any(p.get("turn") in ("right", "left", "upside_down") for p in read.get("pages", []))
 
@@ -1192,7 +1202,11 @@ class FighterNotebooks:
             v1 = score({"entries": ref["words"]}, {"entries": a.get("entries", [])})
             done = len({x["n"] for x in a.get("answers", [])})
             low = min(v1["pct"], round(100 * done / ref["total"]) if ref["total"] else 0)
-            if self.tier(s) == LEAN_MODEL and ((low < 20 and side < SIDE) or (turned(a) and low < PASS)):
+            undone = [q["n"] for q in ref["questions"] if q["n"] not in {x["n"] for x in a.get("answers", [])}]
+            near = any(m and worth_second_look(low, m, ns) for m, ns in ((v1["missing"], [w["n"] for w in ref["words"]]),
+                                                                          (undone, [q["n"] for q in ref["questions"]])))
+            if self.tier(s) == LEAN_MODEL and ((low < 20 and side < SIDE) or (turned(a) and low < PASS) or near):
+                self.tick("second_look_near" if near else "second_look")
                 content[1:1 + len(imgs)] = [img_block(x, SIDE) for x in fix_turn(imgs, a)]   # looks like a misread: full-size second look
                 b = unpack(self.call(content, LEAN_READING_SCHEMA, cat, 20000, model=self.tier(s), batch=True))
         else:
@@ -1368,7 +1382,10 @@ class FighterNotebooks:
             a = unpack(self.call(content, LEAN_SCHEMA, cat, model=self.tier(s), batch=True))
             b, c = a, 0.0
             low = score(unit, {"entries": a.get("entries", [])})["pct"]
-            if self.tier(s) == LEAN_MODEL and ((low < 20 and side < SIDE) or (turned(a) and low < PASS)):   # misread / sideways photos
+            v1 = score(unit, {"entries": a.get("entries", [])})
+            near = worth_second_look(low, v1["missing"], [e["n"] for e in unit["entries"]])
+            if self.tier(s) == LEAN_MODEL and ((low < 20 and side < SIDE) or (turned(a) and low < PASS) or near):   # misread / sideways photos / near miss
+                self.tick("second_look_near" if near else "second_look")
                 content[1:1 + len(imgs)] = [img_block(x, SIDE) for x in fix_turn(imgs, a)]
                 b = unpack(self.call(content, LEAN_SCHEMA, cat, model=self.tier(s), batch=True))
         else:      # two independent Haiku reads, merged in the pupil's favour
