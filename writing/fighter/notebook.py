@@ -476,7 +476,12 @@ REGRADE = set(PROGRAM_HEAD)   # v28: every kind (second Sonnet look at full size
 DEBUG_NAMES = set()               # pupils whose reading is printed to the run log (debugging only)
 DAILY_CAP_VND = None           # Cô 11/11 21:40: no cap — every submitted notebook is graded
 REGRADE_ONLY = set()          # Cô 12/11 13:01: no paid re-reads; wrong results are fixed by hand (HAND_FIXED)
-HAND_FIXED = {("le tran thao nhi", "AP-B03"): "2026-11-12T13:30:00+07:00"}   # cell corrected by hand: submissions up to this time are never read or rewritten
+HAND_FIXED = {   # cells corrected by hand after checking the photos (Cô 12/11 13:01: no paid re-reads); (name, unit): (submitted up to, passed, verdict)
+    ("le tran thao nhi", "AP-B03"): ("2026-11-12T13:30:00+07:00", False,
+        "❌ Chất lượng: đạt 72% — Chưa đạt (Yêu cầu nộp lại, cần từ 90%).\n• Revised version (đoạn văn con viết lại sau khi chữa): CHƯA CÓ."),
+    ("ha khanh an", "AP-B03"): ("2026-11-12T13:30:00+07:00", True,
+        "✅ Chất lượng: đạt 97% — Đạt yêu cầu.\n• Revised version (đoạn văn con viết lại sau khi chữa): đã có."),
+}
 REGRADE_MATCH = r"(?!)"          # v32: wording only — nothing is read again   # v31: only notebooks where no word was found are read again (printed-word workbooks)
 REGRADE_FAILED_ONLY = False  # on a VERSION bump only notebooks below 100% are read again (a clean pass stays)      # programmes whose reading rules changed in this VERSION; others are only re-styled
 FLAG = "LỖI: ❌ CẦN NỘP LẠI"   # cell note prefix of our own "redo" mark
@@ -1792,19 +1797,22 @@ class FighterNotebooks:
         self.collect_batches()
         self.scan()
         subs = self.st["subs"]
-        for s in subs.values():   # a cell Cô/Claude corrected by hand: keep it, spend nothing on it
-            cut = HAND_FIXED.get((bare(norm(s["student"])), s.get("code")))
+        for s in subs.values():   # a cell corrected by hand: never read, rewritten or restyled again; coloured by its verdict
+            fix = HAND_FIXED.get((bare(norm(s["student"])), s.get("code")))
             try:
-                cut = bool(cut) and not s.get("handFixed") and parse_vn_time(s["submittedAt"]) <= dt.datetime.fromisoformat(cut)
+                fix = fix if fix and parse_vn_time(s["submittedAt"]) <= dt.datetime.fromisoformat(fix[0]) else None
             except Exception:
-                cut = False
-            if cut:
-                if s["status"] == "published":
-                    s.update(ver=VERSION, paintVer=PAINT_VERSION)
-                else:
-                    s.update(status="skipped", hold="hand_fixed")
-                s["handFixed"] = True
-                self.tick("hand_fixed")
+                fix = None
+            if not fix:
+                continue
+            if s["status"] == "published":
+                s["ver"] = VERSION
+                if not s.get("handFixed"):   # its verdict start is in the cell: the repaint below colours it (green/red)
+                    s.update(published=fix[2], ok=fix[1], paintVer=0, handFixed=True)
+                    self.tick("hand_fixed")
+            elif s["status"] != "skipped":
+                s.update(status="skipped", hold="hand_fixed")
+                self.tick("hand_fixed_skip")
         for s in subs.values():   # "reused" against a later submission (the pupil sent it under another unit first): read again
             src = (s.get("result") or {}).get("reusedFrom") or {}
             o = subs.get(src.get("sid"), {})
