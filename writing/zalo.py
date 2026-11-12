@@ -327,7 +327,7 @@ def class_notes(runner, cls, title, fighter, comments, top):
                   "Tóm tắt cho phụ huynh đúng 3 dòng, mỗi dòng một câu ngắn (tối đa 28 từ), viết như giáo viên ghi sổ: "
                   "thẳng, cụ thể, nêu đúng cấu trúc/lỗi có trong nhận xét.\n"
                   "Làm tốt: …\nCần sửa: …\nBuổi sau: …\n"
-                  "Không xưng 'Cô', không dùng 'các con lớp …', không 'mong', không 'hãy', không tính từ khen chung chung "
+                  "Nói về cả lớp (dùng 'nhiều bài', 'một số bài'), không xưng 'em' hay 'Cô', không dùng 'các con lớp …', không 'mong', không 'hãy', không tính từ khen chung chung "
                   "(tốt, khá tốt, ấn tượng…) trừ khi kèm ví dụ cụ thể, không nêu tên học sinh, không cho điểm, không bịa. "
                   "Chỉ trả về 3 dòng đó.")
         r = cw.client().messages.create(model="claude-haiku-5-5", max_tokens=500, thinking={"type": "disabled"},
@@ -424,13 +424,18 @@ def make_inclass(runner, scans_state, now=None):
         summary = {}
         if not test:   # Cô 12/11: in-class writing — class stats (free) + a short class comment (Haiku) + per-pupil stats
             names = code_names() if fighter else {}
-            per_code = {}
+            stop = {"viết", "dùng", "bị", "sai", "lỗi", "chưa", "đúng", "các", "của", "và"}
+            canon = lambda c: " ".join(sorted(w for w in c.split() if w not in stop)) or c   # 'viết sai tên nước' = 'sai tên nước'
+            per_code, shown = {}, {}
             for p in pupils:
-                for c in set((p.get("stats") or {}).get("codes") or []):
-                    if c:
-                        per_code[c] = per_code.get(c, 0) + 1
+                for c in {(c if fighter else canon(c)) for c in (p.get("stats") or {}).get("codes") or [] if c}:
+                    per_code[c] = per_code.get(c, 0) + 1
+                for c in (p.get("stats") or {}).get("codes") or []:
+                    k = canon(c) if c and not fighter else None
+                    if k and (k not in shown or len(c) < len(shown[k])):
+                        shown[k] = c   # the shortest wording of the same error
             top = sorted(per_code.items(), key=lambda kv: -kv[1])[:4]
-            top = [((names.get(c) or c) if fighter else c[:1].upper() + c[1:], k) for c, k in top]
+            top = [((names.get(c) or c) if fighter else shown.get(c, c)[:1].upper() + shown.get(c, c)[1:], k) for c, k in top]
             done_n = sum(1 for p in pupils if p["has"])
             tot = {g: sum((p.get("stats") or {}).get(g, 0) for p in pupils) for g in GROUPS + ("ql",)}
             ws = [p["stats"]["words"] for p in pupils if p.get("stats") and p["stats"].get("words")]
