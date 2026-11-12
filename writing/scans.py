@@ -49,6 +49,38 @@ def words(t):
     return len(WORD_RE.findall(re.sub(r"\[không rõ:[^\]]*\]", " x ", t or "")))
 
 
+def _bracket(m):
+    """Transcriber's notes in a handwritten paper: crossed-out words and notes don't count, inserted words do,
+    an unreadable word counts as one."""
+    inner = m.group(1)
+    low = inner.lower()
+    if "không rõ" in low:
+        return " x "
+    if re.search(r"chèn|thêm|insert|added", low):
+        a, _, b = inner.partition(":")
+        word = b if re.search(r"chèn|thêm|insert|added", a.lower()) else a
+        return " " + word + " "
+    return " "
+
+
+NO_COUNT = (" Không chép tên học sinh vào `transcript`. Chữ em gạch bỏ ghi [gạch bỏ: …], chữ em chèn thêm ghi [chèn: …]. "
+            "Không tự đếm hay ước lượng số từ, không khẳng định bài thiếu hay đủ số từ trong nhận xét và tiêu chí: máy đếm "
+            "chính xác rồi tự ghi số từ và phần trừ điểm vào kết quả.")
+
+
+def paper_words(t):
+    """Cô 12/11: word count of a handwritten paper = what the pupil left as the essay. Not the [gạch bỏ …] parts,
+    not the transcriber's notes, not the name or heading line at the top."""
+    t = re.sub(r"\[([^\]]*)\]", _bracket, t or "")
+    lines = [ln for ln in t.splitlines() if ln.strip()]
+    if len(lines) > 1:
+        first = lines[0].strip().rstrip(".")
+        toks = first.split()
+        if len(toks) <= 5 and not re.search(r"\d", first) and all(w[:1].isupper() for w in toks):
+            lines = lines[1:]   # 'Pham Viet Anh.', 'Khải Huyền', 'Task 1' …
+    return len(WORD_RE.findall("\n".join(lines)))
+
+
 def parse_name(title):
     m = NAME_RE.match(unicodedata.normalize("NFC", title))
     if not m:
@@ -341,7 +373,8 @@ class Scans:
             return (f"Bài viết TRÊN LỚP (viết tay), cùng chủ đề {spec['pack'].replace('ESSAY-', 'bài ')} trong tài liệu. "
                     "Chấm như bài viết của tuần đó nhưng là bài viết tay trên lớp, không chấm phần vở. "
                     f"Chấm Task {spec['tasks'][0]} (một mục trong `tasks`). Nếu đề trên giấy khác đề trong tài liệu, chấm theo đề "
-                    "trên giấy và ghi rõ ở `doubts`. Task 1 tối thiểu 150 từ, Task 2 tối thiểu 250 từ.")
+                    "trên giấy và ghi rõ ở `doubts`. Task 1 tối thiểu 150 từ, Task 2 tối thiểu 250 từ."
+                    + NO_COUNT)
         if spec["pack"] == "TEST-FIGHTER":
             kt = json.loads((BUNDLE / "packs/TEST-FIGHTER/kt.json").read_text(encoding="utf-8"))[spec["item"]]
             return (f"Bài kiểm tra tự viết {spec['item']} — chủ đề {kt['topic']}. Chế độ: 1-điểm (mục 13).\n"
@@ -350,7 +383,7 @@ class Scans:
         n = spec["pack"][-1]
         which = " và ".join(f"Task {t}" for t in spec["tasks"])
         return (f"Kiểm tra Writing lần {n}. Chấm {which} có trong ảnh bài làm (mỗi Task một mục trong `tasks`). "
-                "Ảnh đầu tiên là đề và biểu đồ Task 1. Task 1 tối thiểu 150 từ, Task 2 tối thiểu 250 từ.")
+                "Ảnh đầu tiên là đề và biểu đồ Task 1. Task 1 tối thiểu 150 từ, Task 2 tối thiểu 250 từ." + NO_COUNT)
 
     def reference_blocks(self, spec):
         if not spec["pack"].startswith("TEST-IELTS"):
@@ -452,7 +485,7 @@ class Scans:
         if spec["schema"] == "ielts":
             import calculate_class_score as ccs
             for t in res.get("tasks", []):
-                qa = {"words": words(t["transcript"]), "revisionWords": words(t.get("revisedText", ""))}
+                qa = {"words": paper_words(t["transcript"]), "revisionWords": words(t.get("revisedText", ""))}
                 qa["quotesNotFound"] = [x["quote"] for x in t["annotations"] if x["quote"] not in t["transcript"]]
                 qa["bannedInRevision"] = sorted({m.group(0) for m in BANNED_IELTS.finditer(t.get("revisedText", ""))})
                 op = [" ".join(x["explanation"].split()[:4]).lower() for x in t["annotations"]]
@@ -465,7 +498,7 @@ class Scans:
                 res["_overall"] = round(((sc[1] + 2 * sc[2]) / 3) * 2 + 1e-9) / 2
             return res
         t = res.get("transcript", "")
-        qa = {"words": words(t)}
+        qa = {"words": paper_words(t)}
         items = res.get("errors") or []
         qa["quotesNotFound"] = [x["quote"] for x in items if x["quote"] not in t]
         rev = res.get("revision") or ""

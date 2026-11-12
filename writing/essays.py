@@ -38,9 +38,10 @@ def request(a, s):
         n = de_number(label, i)
         if str(n) not in meta["labels"]:   # only the essays this lesson asked for
             continue
-        texts.append(f"=== ĐỀ {n} ({meta['labels'].get(str(n), label)}) — bài em đánh máy ===\n{txt}")
+        texts.append(f"=== ĐỀ {n} ({meta['labels'].get(str(n), label)}) — bài em đánh máy, máy đếm {scans.words(txt)} từ ===\n{txt}")
     content.append({"type": "text", "text": f"Học sinh {s['student']} · lớp {s['className']}. Chấm và chữa các bài sau "
-                                            f"(mỗi bài tối thiểu {meta['minWords']} từ):\n\n" + "\n\n".join(texts)})
+                                            f"(mỗi bài tối thiểu {meta['minWords']} từ). Số từ máy đếm ghi ở đầu mỗi bài là số chính xác: nếu nhắc đến số từ "
+                                            "thì dùng đúng số đó, không tự ước lượng.\n\n" + "\n\n".join(texts)})
     return {"model": MODEL, "max_tokens": 12000, "thinking": {"type": "between_tools"},
             "system": [{"type": "text", "text": head, "cache_control": {"type": "ephemeral", "ttl": "1h"}}],
             "output_config": {"format": {"type": "json_schema", "schema": SCHEMA}},
@@ -58,10 +59,33 @@ def checks(a, s, res):
         qa["quotesNotFound"] = [x["quote"] for x in e["annotations"] if x["quote"] not in txt]
         qa["bannedInRevision"] = sorted({m.group(0) for m in scans.BANNED_IELTS.finditer(e.get("revisedText", ""))})
         bands = [e["criteria"][k]["band"] for k in ("TA_TR", "CC", "LR", "GRA")]
-        qa["band"] = ccs.calculate(meta.get("task", 1), qa["words"], bands)["classAssessment"]["overallBand"]
+        cs = ccs.calculate(meta.get("task", 1), qa["words"], bands)
+        qa["band"] = cs["classAssessment"]["overallBand"]
+        qa["classScore"] = cs
         e["_qa"] = qa
     res["_labels"] = meta["labels"]
+    res["_task"] = meta.get("task", 1)
     return res
+
+
+def length_note(e, task1=True):
+    """One plain sentence from the machine count (Cô 12/11: count, deduction and band always agree)."""
+    import calculate_class_score as ccs
+    qa = e.get("_qa") or {}
+    cs = qa.get("classScore")
+    if not cs:
+        try:
+            cs = ccs.calculate(1 if task1 else 2, int(qa["words"]),
+                               [int(e["criteria"][k]["band"]) for k in ("TA_TR", "CC", "LR", "GRA")])
+        except Exception:
+            return ""
+    if not cs["shortfall"]:
+        return f"Số từ: {cs['wordCount']} (đủ tối thiểu {cs['minimum']})."
+    cr = cs["classAssessment"]["criteria"]
+    ta = "TA" if task1 else "TR"
+    return (f"Số từ: {cs['wordCount']}/{cs['minimum']}, thiếu {cs['shortfall']} từ: theo quy tắc lớp, CC, LR, GRA mỗi tiêu chí "
+            f"bị trừ {cs['deductionPerLanguageCriterion']:g} (sau khi trừ: {ta} {cr[ta]:g} · CC {cr['CC']:g} · LR {cr['LR']:g} · "
+            f"GRA {cr['GRA']:g}).")
 
 
 def summary(res):
@@ -69,5 +93,6 @@ def summary(res):
     out = []
     for e in sorted(res.get("essays", []), key=lambda x: x["de"]):
         lbl = res.get("_labels", {}).get(str(e["de"]), f"Đề {e['de']}")
-        out.append(f"【{lbl} · band {e['_qa']['band']:.1f}】\n{e['overall'].strip()}")
+        task1 = (e.get("_qa", {}).get("classScore") or {}).get("task", res.get("_task", 1)) == 1
+        out.append(f"【{lbl} · band {e['_qa']['band']:.1f}】\n{e['overall'].strip()}\n{length_note(e, task1)}".rstrip())
     return "\n\n".join(out)

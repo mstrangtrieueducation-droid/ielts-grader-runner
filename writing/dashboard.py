@@ -222,7 +222,8 @@ def essay_records(cls, s, roster_name, a, grid=None, spreadsheet=""):
         rec = {"schemaVersion": 1, "resultId": "claude-" + h(receipt + head_sha, 24),
                "className": cls, "studentName": roster_name, "assignmentCode": a["code"], "taskNumber": e["de"],
                "originalEssay": original, "originalWordCount": e.get("_qa", {}).get("words") or len(original.split()),
-               "overall": e["overall"].strip() + (f"\n\n**Band {band:.1f}** ({bands})" if band is not None else ""),
+               "overall": e["overall"].strip() + (f"\n\n**Band {band:.1f}** ({'điểm gốc theo tiêu chí: ' if (e.get('_qa', {}).get('words') or 0) < (150 if task1 else 250) else ''}{bands})\n{E.length_note(e, task1)}"
+                                                  if band is not None else ""),
                "learningVerdict": f"Band {band:.1f}" if band is not None else "Đã chữa",
                "submittedAt": submitted,
                "publication": {"state": "published", "status": "published", "publishedAt": published, "autoReturn": True,
