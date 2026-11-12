@@ -21,6 +21,7 @@ NAVY, SHEET = (11, 17, 53), (255, 255, 255)
 INK, MUTED, LINE, TRACK = (27, 33, 64), (110, 115, 135), (231, 227, 214), (238, 235, 227)
 GOLD, GOLD_DEEP, GOLD_SOFT = (212, 162, 42), (150, 108, 14), (250, 243, 224)
 GREEN, AMBER, ROSE = (62, 123, 90), (183, 131, 42), (176, 80, 63)
+ROSE_SOFT = (248, 230, 225)
 SUB = {"on": ("Đúng hạn", GREEN), "late": ("Muộn", AMBER), "none": ("Chưa nộp", ROSE)}
 NB = {"Đạt": ("Đạt", GREEN), "Cần bổ sung": ("Cần bổ sung", AMBER), "Không đạt": ("Chưa đạt", ROSE),
       "Chưa đủ dữ liệu để kết luận": ("Chụp lại", MUTED)}
@@ -92,13 +93,48 @@ def seal(d, cx, cy, big, small):
 
 
 def facts(d, x, y, items):
-    """Plain sentences with the number in bold: '25/25 bạn đã nộp bài'."""
+    """Plain sentences with the number in bold: '25/25 bạn đã nộp bài'. Optional third item = colour."""
     fb, fr = sans(34, "SemiBold"), sans(28)
-    for num, rest in items:
-        d.text((x, y), num, font=fb, fill=NAVY)
-        d.text((x + tw(d, num, fb) + 12, y + 5), rest, font=fr, fill=INK)
+    for it in items:
+        num, rest, c = (tuple(it) + (None,))[:3]
+        d.text((x, y), num, font=fb, fill=c or NAVY)
+        d.text((x + tw(d, num, fb) + 12, y + 5), rest, font=sans(28, "Medium") if c else fr, fill=c or INK)
         y += 60
     return y
+
+
+def flag(d, x, y, text):
+    """Rose pill in a table row: a word count under the minimum (Cô 12/11)."""
+    f = sans(24, "SemiBold")
+    w = tw(d, text, f)
+    d.rounded_rectangle((x - 12, y + 12, x + w + 12, y + 50), radius=19, fill=ROSE_SOFT)
+    d.text((x, y + 17), text, font=f, fill=ROSE)
+
+
+def min_label(mins):
+    """{150, 250} → 'Task 1: 150 từ, Task 2: 250 từ'."""
+    return ", ".join(f"Task {1 if m == 150 else 2}: {m} từ" for m in sorted(set(mins)))
+
+
+def short_warning(d, y, n, total, mins, what="bài"):
+    """The one loud line on the summary: how many papers are under the minimum length."""
+    if not n:
+        return y
+    f, fb = sans(25), sans(25, "SemiBold")
+    head = f"{n}/{total} {what} thiếu số từ tối thiểu ({min_label(mins)})."
+    lines = wrap_text(d, head, fb, SW - 2 * P - 28)
+    body = wrap_text(d, "Đây là lỗi rất nặng: bài thi thật bị trừ điểm. Các con đếm số từ trước khi nộp bài.",
+                     f, SW - 2 * P - 28)
+    h = 36 * (len(lines) + len(body)) + 8
+    d.rounded_rectangle((P, y, P + 6, y + h), radius=3, fill=ROSE)
+    yy = y + 2
+    for ln in lines:
+        d.text((P + 28, yy), ln, font=fb, fill=ROSE)
+        yy += 36
+    for ln in body:
+        d.text((P + 28, yy), ln, font=f, fill=INK)
+        yy += 36
+    return y + h + 30
 
 
 def rule(d, y):
@@ -204,7 +240,9 @@ def draw(data):
     on = [p for p in pupils if p["sub"] == "on"]
     ok = [p for p in handed if p.get("nb") == "Đạt"]
     bands = [p["band"] for p in pupils if p.get("band")]
-    stars = sorted([p for p in pupils if p.get("band") and p["sub"] == "on" and p.get("nb") == "Đạt"],
+    short = [p for p in pupils if p.get("short")]
+    mins = [p["min"] for p in pupils if p.get("min")]
+    stars = sorted([p for p in pupils if p.get("band") and p["sub"] == "on" and p.get("nb") == "Đạt" and not p.get("short")],
                    key=lambda p: -p["band"])
     stars = [p for p in stars if p["band"] >= stars[0]["band"] - 0.5][:6] if stars else []
 
@@ -222,6 +260,8 @@ def draw(data):
         fl.append((f"{len(bands)}", "bài viết được chữa"))
     facts(d, P + 280, y + (2 if len(fl) > 3 else 22), fl)
     y += 270
+    if not nb_only and bands and mins:
+        y = short_warning(d, y, len(short), len(bands), mins, "bài viết")
     if stars:
         y = rule(d, y)
         y = label(d, y, "Tuyên dương: bài tốt nhất, nộp đúng hạn")
@@ -252,6 +292,10 @@ def draw(data):
             return
         if p.get("band") and show_band:
             d.text((X_ES, y + 12), f"{p['band']:.1f}", font=sans(30, "SemiBold"), fill=NAVY)
+            if p.get("short"):
+                flag(d, X_ES + 78, y, f"{min(p['short'])} từ")
+        elif p.get("short"):
+            flag(d, X_ES + 12, y, f"{min(p['short'])} từ")
         elif p["sub"] == "late":
             d.text((X_ES, y + 19), "không chữa (muộn)", font=sans(20), fill=MUTED)
         elif p.get("nb") and p["nb"] != "Đạt":
@@ -263,6 +307,7 @@ def draw(data):
                 "Nhận xét chi tiết của từng bạn: xem trên dashboard phụ huynh."]
     else:
         foot = ["Bài viết chỉ được chữa và cho band khi con nộp đúng hạn và vở đạt.",
+                *([f"Ô đỏ: bài thiếu số từ tối thiểu ({min_label(mins)}), lỗi rất nặng."] if short and mins else []),
                 "Nộp muộn hoặc vở cần bổ sung: chỉ kiểm tra vở, không chữa bài viết.",
                 "Nhận xét chi tiết của từng bạn: xem trên dashboard phụ huynh."]
     return pages + table_pages(data, cols, rows, len(pupils), foot)
@@ -299,8 +344,10 @@ def draw_inclass(data):
     seal_val = (lambda v: f"{v:.2f}".rstrip("0").rstrip(".").replace(".", ",")) if unit == "/1" else (lambda v: f"{v:.1f}")
     has = [p for p in pupils if p["has"]]
     bands = [p["band"] for p in has if p.get("band") is not None]
+    mins = [m for p in has for _, m in (p.get("stats") or {}).get("mins") or []]
+    short = [p for p in has if (p.get("stats") or {}).get("short")]   # Cô 12/11: under the minimum length
     if scored:
-        stars = sorted([p for p in has if p.get("band") is not None], key=lambda p: -p["band"])
+        stars = sorted([p for p in has if p.get("band") is not None and p not in short], key=lambda p: -p["band"])
         stars = [p for p in stars if p["band"] >= stars[0]["band"] - (0.1 if unit == "/1" else 0.5)][:6] if stars else []
         if kind == "Bài kiểm tra" and unit == "/1":
             caution = ["Điểm bài kiểm tra đoạn văn chấm theo thang 1 điểm (4 tiêu chí, mỗi tiêu chí",
@@ -333,9 +380,13 @@ def draw_inclass(data):
         seal(d, P + 112, y + 126, seal_val(sum(bands) / len(bands)), "điểm TB /1" if unit == "/1" else "band TB lớp")
     else:
         seal(d, P + 112, y + 126, f"{len(has)}/{len(pupils)}", "có bài viết")
-    facts(d, P + 280, y + 40, [(f"{len(has)}/{len(pupils)}", "bạn có bài viết"),
-                               (f"{sum(1 for p in has if p.get('done'))}", "bài đã chấm" if scored else "bài đã chữa")])
+    fl = [(f"{len(has)}/{len(pupils)}", "bạn có bài viết"),
+          (f"{sum(1 for p in has if p.get('done'))}", "bài đã chấm" if scored else "bài đã chữa")]
+    if mins and not short:
+        fl.append((f"{len(has)}/{len(has)}", "bài đủ số từ tối thiểu", GREEN))
+    facts(d, P + 280, y + (22 if len(fl) > 2 else 40), fl)
     y += 270
+    y = short_warning(d, y, len(short), len(has), mins)
     if stars:
         y = rule(d, y)
         y = label(d, y, "Tuyên dương: " + ("bài tốt nhất" if scored or pcts else "bài viết cẩn thận, ít lỗi"))
@@ -409,7 +460,11 @@ def draw_inclass(data):
         if ws:
             d.text((P, y), f"Độ dài trung bình {round(sum(ws) / len(ws))} từ (ngắn nhất {min(ws)}, dài nhất {max(ws)}).",
                    font=sans(23), fill=MUTED)
-            y += 50
+            y += 40
+            if short:
+                d.text((P, y), f"{len(short)} bài thiếu số từ tối thiểu ({min_label(mins)}).", font=sans(23, "SemiBold"), fill=ROSE)
+                y += 40
+            y += 10
         pages.append(png(compose(img.crop((0, 0, SW, y + 30)), top_logo=False)))
     else:
         y = rule(d, y + 10)
@@ -439,6 +494,9 @@ def draw_inclass(data):
                     [val(p["band"]) if p.get("band") is not None else "—", st.get("words"), st.get("vocab"),
                      st.get("grammar"), st.get("coherence")])
             for k, (x, v) in enumerate(zip(XS, vals)):
+                if k == 1 and not sm.get("fighter") and st.get("short") and v is not None:
+                    flag(d, x, y, str(v))
+                    continue
                 bold = k == 0
                 d.text((x, y + (13 if bold else 17)), "—" if v is None else str(v),
                        font=sans(29 if bold else 25, "SemiBold" if bold else "Regular"), fill=NAVY if bold else INK)
@@ -446,6 +504,8 @@ def draw_inclass(data):
         foot = ["Số lỗi là số chỗ Cô đã chữa trong bài của con, theo từng nhóm."]
         if sm.get("fighter"):
             foot.append("% chất lượng: máy tính từ số lỗi, mức nặng nhẹ và độ dài bài, không phải điểm thi.")
+        elif short:
+            foot.append(f"Số từ tô đỏ: thiếu số từ tối thiểu ({min_label(mins)}), lỗi rất nặng.")
         foot += [
                  "“Không có bài”: máy không thấy bài của con trong tập scan của buổi này.",
                  "Bài chữa chi tiết và bản sửa gợi ý của từng bạn: xem trên dashboard phụ huynh."]
@@ -459,13 +519,19 @@ def draw_inclass(data):
         if not p["has"]:
             status(d, X_HAS, y, "Không có bài", ROSE)
             return
-        status(d, X_HAS, y, "Có bài", GREEN)
+        sh = (p.get("stats") or {}).get("short") or []
+        if sh:   # Cô 12/11: under the minimum length shows instead of "Có bài"
+            flag(d, X_HAS, y, "Thiếu từ: " + ", ".join(str(w) for _, w, _ in sh))
+        else:
+            status(d, X_HAS, y, "Có bài", GREEN)
         if scored and p.get("band") is not None:
             d.text((X_RES, y + 12), val(p["band"]), font=sans(30, "SemiBold"), fill=NAVY)
+
         elif p.get("done"):
             status(d, X_RES, y, "Đã chữa", NAVY)
 
     foot = [f"“Không có bài”: máy không thấy bài của con trong tập scan {'bài kiểm tra' if kind == 'Bài kiểm tra' else 'của buổi'} này.",
+            *([f"Ô đỏ: bài thiếu số từ tối thiểu ({min_label(mins)}), lỗi rất nặng."] if short else []),
             "Bài chữa chi tiết của từng bạn: xem trên dashboard phụ huynh."]
     if data.get("unknown"):
         foot.insert(1, f"Có {data['unknown']} tờ chưa đọc được tên học sinh nên chưa ghi vào bảng.")

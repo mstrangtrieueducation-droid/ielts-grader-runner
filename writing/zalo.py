@@ -76,15 +76,52 @@ def band_of(sub):
     return math.floor(sum(overall) / len(overall) * 2 + 0.5) / 2, {k: sum(v) / len(v) for k, v in crit.items()}
 
 
+def min_words(code):
+    """IELTS minimum length of an assignment: Task 1 = 150, Task 2 = 250 (from the pack)."""
+    from run_writing import BUNDLE
+    m = re.search(r"W(\d+)$", code or "")
+    if not m:
+        return None
+    w = int(m.group(1))
+    for pk in (f"ESSAY-W{w:02d}", f"W{w:02d}"):
+        try:
+            meta = json.loads((BUNDLE / "packs" / pk / "meta.json").read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if meta.get("minWords"):
+            return int(meta["minWords"])
+        if meta.get("task"):
+            return 150 if meta["task"] == 1 else 250
+        if meta.get("prefix"):
+            return 250 if str(meta["prefix"]).startswith("T2") else 150
+    return None
+
+
+def short_essays(sub, minimum):
+    """Word counts of the corrected essays that fall under the minimum (Cô 12/11: thiếu từ là rất nặng)."""
+    er = sub.get("essayResult")
+    if isinstance(er, str):
+        try:
+            er = json.loads(er)
+        except Exception:
+            er = None
+    out = []
+    for e in (er or {}).get("essays") or []:
+        w = (e.get("_qa") or {}).get("words")
+        if minimum and isinstance(w, int) and 0 < w < minimum:
+            out.append(w)
+    return out
+
+
 def collect(runner, cls, code, deadline):
     """Pupils on the class list (list order) with: submission status, notebook verdict, essay band."""
-    best = {}
+    best, minimum = {}, min_words(code)
     for s in runner.state.get("subs", {}).values():
         if s.get("className") != cls or s.get("assignment") != code:
             continue
         k = key_of(s.get("student", ""))
         t = parse_vn(s.get("firstAt") or s.get("submittedAt") or "")
-        b = best.setdefault(k, {"t": None, "nb": None, "band": None, "crit": {}})
+        b = best.setdefault(k, {"t": None, "nb": None, "band": None, "crit": {}, "short": []})
         if t and (b["t"] is None or t < b["t"]):
             b["t"] = t
         if s.get("status") == "published":
@@ -92,6 +129,7 @@ def collect(runner, cls, code, deadline):
             band, crit = band_of(s)
             if band is not None:
                 b["band"], b["crit"] = band, crit
+                b["short"] = short_essays(s, minimum)
     bare = lambda x: "".join(c for c in unicodedata.normalize("NFD", x) if not unicodedata.combining(c)).replace("Đ", "D")
     by_bare = {}
     for k, v in best.items():
@@ -104,7 +142,8 @@ def collect(runner, cls, code, deadline):
             pupils.append({"name": nice(n), "sub": "none", "nb": None, "band": None})
             continue
         sub = "on" if b["t"] <= deadline else "late"
-        pupils.append({"name": nice(n), "sub": sub, "nb": b["nb"], "band": b["band"]})
+        pupils.append({"name": nice(n), "sub": sub, "nb": b["nb"], "band": b["band"],
+                       "short": b["short"], "min": minimum})
         for c, v in b["crit"].items():
             crit.setdefault(c, []).append(v)
     return pupils, {c: sum(v) / len(v) for c, v in crit.items()}
@@ -291,7 +330,7 @@ def quality_pct(errors, words, free_length=False):
 
 def paper_stats(res, fighter, free_length=False):
     """Per pupil, counted from the graded result (free): words and errors per group (+ class conventions)."""
-    st = {"words": None, "vocab": 0, "grammar": 0, "coherence": 0, "ql": 0, "codes": [], "pct": None}
+    st = {"words": None, "vocab": 0, "grammar": 0, "coherence": 0, "ql": 0, "codes": [], "pct": None, "short": [], "mins": []}
     if fighter:
         st["words"] = (res.get("_qa") or {}).get("words")
         st["pct"] = quality_pct(res.get("errors"), st["words"], free_length)
@@ -305,7 +344,12 @@ def paper_stats(res, fighter, free_length=False):
     else:
         w = 0
         for t in res.get("tasks") or []:
-            w += ((t.get("_qa") or {}).get("classScore") or {}).get("wordCount") or 0
+            cs = (t.get("_qa") or {}).get("classScore") or {}
+            w += cs.get("wordCount") or 0
+            if cs.get("minimum"):
+                st["mins"].append((cs.get("task"), cs["minimum"]))
+                if (cs.get("shortfall") or 0) > 0:
+                    st["short"].append((cs.get("task"), cs.get("wordCount"), cs["minimum"]))
             for a in t.get("annotations") or []:
                 if a.get("kind") == "error" and a.get("group") in GROUPS:
                     st[a["group"]] += 1
@@ -314,7 +358,7 @@ def paper_stats(res, fighter, free_length=False):
     return st
 
 
-def class_notes(runner, cls, title, fighter, comments, top):
+def class_notes(runner, cls, title, fighter, comments, top, short=""):
     """Short class-level comment written by Haiku from the comments already given (no names)."""
     if not comments:
         return ""
@@ -323,7 +367,7 @@ def class_notes(runner, cls, title, fighter, comments, top):
         text = "\n".join(f"Bài {i + 1}: {c.strip()[:900]}" for i, c in enumerate(comments))
         common = "; ".join(f"{n} ({k} bài)" for n, k in top)
         prompt = (f"Nhận xét đã chấm cho từng bài viết trên lớp ({'đoạn văn học thuật' if fighter else 'bài viết IELTS'}, {title}). "
-                  f"Lỗi gặp nhiều nhất (máy đếm): {common}.\n\n{text}\n\n"
+                  f"Lỗi gặp nhiều nhất (máy đếm): {common}.{short}\n\n{text}\n\n"
                   "Tóm tắt cho phụ huynh đúng 3 dòng, mỗi dòng một câu ngắn (tối đa 28 từ), viết như giáo viên ghi sổ: "
                   "thẳng, cụ thể, nêu đúng cấu trúc/lỗi có trong nhận xét.\n"
                   "Làm tốt: …\nCần sửa: …\nBuổi sau: …\n"
@@ -439,8 +483,11 @@ def make_inclass(runner, scans_state, now=None):
             done_n = sum(1 for p in pupils if p["has"])
             tot = {g: sum((p.get("stats") or {}).get(g, 0) for p in pupils) for g in GROUPS + ("ql",)}
             ws = [p["stats"]["words"] for p in pupils if p.get("stats") and p["stats"].get("words")]
+            ns = sum(1 for p in pupils if (p.get("stats") or {}).get("short"))
+            short_line = (f" Số bài thiếu số từ tối thiểu: {ns}/{done_n} (lỗi rất nặng, dòng 'Cần sửa' phải nêu việc này)."
+                          if ns else "")
             summary = {"top": top, "n": done_n, "totals": tot, "words": ws, "fighter": fighter,
-                       "note": class_notes(runner, cls, title, fighter, comments, top)}
+                       "note": class_notes(runner, cls, title, fighter, comments, top, short_line)}
         import zalo_draw
         png = zalo_draw.draw_inclass({"summary": summary,"cls": cls, "title": title, "date": meta["date"], "made": now, "pupils": pupils,
                                       "crit": {k: sum(v) / len(v) for k, v in crit.items()}, "scored": scored,
