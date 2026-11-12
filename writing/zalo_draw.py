@@ -370,8 +370,7 @@ def draw_inclass(data):
     pcts = [p["stats"]["pct"] for p in has if (p.get("stats") or {}).get("pct") is not None] if data.get("pct") else []
     if pcts:   # Cô 12/11: in-class writing (Fighter, and IELTS from 12/11 tối) shows a quality percentage
         ok = [p for p in has if (p.get("stats") or {}).get("pct") is not None and p not in short]
-        best = max((p["stats"]["pct"] for p in ok), default=None)
-        stars = sorted([p for p in ok if p["stats"]["pct"] >= best - 5], key=lambda p: -p["stats"]["pct"])[:6] if ok else []
+        stars = sorted([p for p in ok if p["stats"]["pct"] >= 80], key=lambda p: -p["stats"]["pct"])[:8]   # Cô 12/11: chỉ từ 80% trở lên
         caution = (["% chất lượng: máy tính từ số lỗi Cô đã chữa và mức nặng nhẹ (trên mỗi 150 từ,",
                     "bài ngắn dưới 140 từ bị trừ theo độ dài). Đây là bài viết trên lớp có hướng dẫn,",
                     "không phải điểm thi."] if sm0.get("fighter") else
