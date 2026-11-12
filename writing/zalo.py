@@ -469,6 +469,15 @@ def make_inclass(runner, scans_state, now=None):
                                 crit.setdefault(k, []).append(v)
                 else:
                     p["level"] = (res.get("_qa") or {}).get("level")
+            if not s:   # Cô 12/11: a paper Cô had graded by hand (missing from the scan) — cfg manualInclass
+                for m in runner.cfg.get("manualInclass") or []:
+                    if (m.get("cls") == cls and str(m.get("date")) == meta.get("date") and key_of(m["name"]) == key_of(n)
+                            and m.get("week") == meta.get("week") and m.get("buoi") == meta.get("buoi")):
+                        st = {"words": m.get("words"), "vocab": m.get("vocab", 0), "grammar": m.get("grammar", 0),
+                              "coherence": m.get("coherence", 0), "ql": 0, "codes": [], "pct": m.get("pct"),
+                              "short": [(m.get("task"), m["words"], m["min"])] if m.get("words") and m.get("min") and m["words"] < m["min"] else [],
+                              "mins": [(m.get("task"), m["min"])] if m.get("min") else []}
+                        p.update(has=True, done=True, stats=st)
             pupils.append(p)
         if not pupils:
             continue
