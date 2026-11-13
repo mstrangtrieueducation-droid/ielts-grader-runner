@@ -502,6 +502,7 @@ HAND_FIXED = {   # cells corrected by hand after checking the photos (Cô 12/11 
     ('pham huy hoang', 'PT3'): ("2026-11-13T08:30:00+07:00", True, "✅ Chất lượng: đạt 98% — Đạt yêu cầu.\n• Sổ từ vựng (từ cô in đỏ): 98% — có 48/49 từ.\n• Sổ luyện đề: 100% — làm lại 100/100 câu, giải thích 100/100 câu cần giải thích.\n• Thiếu 1 từ: số 32.\n• Bỏ trống cột Nghĩa tiếng Việt ở 1 từ: số 4."),
     ('do thi anh phuong', 'PT3'): ("2026-11-13T08:30:00+07:00", False, "❌ Chất lượng: đạt 81% — Chưa đạt (Yêu cầu nộp lại, cần từ 90%).\n• Sổ từ vựng (từ cô in đỏ): 81% — có 40/49 từ.\n• Sổ luyện đề: 95% — làm lại 96/100 câu, giải thích 94/100 câu cần giải thích.\n• Thiếu 9 từ: số 8, 17, 28–29, 33, 39, 42–43, 45.\n• Bỏ trống cột Từ loại ở 1 từ: số 5.\n• Chưa làm lại câu: 97–100.\n• Chưa chép giải thích câu: 55, 87.\n• Đáp án làm lại vẫn sai ở câu: 71 — con đối chiếu lại phần chữa đề.\n⚠ Bài chưa đạt nên vẫn tính là CHƯA NỘP BÀI cho tới khi con nộp lại đạt yêu cầu.\n→ Yêu cầu: con bổ sung đủ các mục trên vào sổ từ vựng và sổ luyện đề, chụp lại toàn bộ và NỘP LẠI trước buổi học tới."),
     ('pham hoang hai', 'PT1'): ("2026-11-13T08:30:00+07:00", True, "✅ Chất lượng: đạt 100% — Đạt yêu cầu.\n• Sổ từ vựng (từ cô in đỏ): 100% — có 46/46 từ.\n• Sổ luyện đề: 100% — làm lại 100/100 câu, giải thích 100/100 câu cần giải thích."),
+    ("bui tue linh", "RI2-C07"): ("2026-11-13T22:50:00+07:00", False, "❌ Chất lượng: đạt 83% — Chưa đạt (Yêu cầu nộp lại, cần từ 90%).\n• Sổ từ vựng (từ cô in đỏ): 83% — có 27/27 từ.\n• Vở chữa bài: 100% — làm lại 61/61 câu, giải thích 35/35 câu cần giải thích, đáp án đúng hết.\n• Bỏ trống cột Phiên âm ở 27 từ: số 1–27.\n⚠ Bài chưa đạt nên vẫn tính là CHƯA NỘP BÀI cho tới khi con nộp lại đạt yêu cầu.\n→ Yêu cầu: con bổ sung cột Phiên âm cho 27 từ trong sổ từ vựng, chụp lại và NỘP LẠI trước buổi học tới."),
     ("ha khanh an", "AP-B03"): ("2026-11-12T13:30:00+07:00", True, "✅ Chất lượng: đạt 97% — Đạt yêu cầu.\n• Revised version (đoạn văn con viết lại sau khi chữa): đã có.\n• Outline: đã chép đủ.\n• Bài mẫu: đã chép đủ.\n• Từ vựng và cụm từ: có 7/8 — thiếu: strengthen bonds."),
 }
 REGRADE_MATCH = r"(?!)"          # v32: wording only — nothing is read again   # v31: only notebooks where no word was found are read again (printed-word workbooks)
@@ -1252,6 +1253,12 @@ class FighterNotebooks:
                        if key[n]["choices"] and re.fullmatch(r"[A-Za-z]", key[n]["answer"].strip()) and (len(xs) == len(reads) or b.get("_partial"))
                        and norm_a(xs[0]["answer"]) == norm_a(xs[-1]["answer"]) and re.fullmatch(r"[a-z]", norm_a(xs[0]["answer"]) or "")
                        and norm_a(xs[0]["answer"]) != norm_a(key[n]["answer"]))
+        # 13/11 (F8 Test 7): handwritten capitals the photo read can confuse are not reported as wrong (advice only, no score)
+        LOOKALIKE = [set("ODQC"), set("MNUWH"), set("CGE"), set("IJTL"), set("BDRP"), set("KXR"), set("AH"), set("FE")]
+        def lookalike(a, k):
+            a, k = a.upper(), k.upper()
+            return any(a in g and k in g for g in LOOKALIKE)
+        wrong = [n for n in wrong if not lookalike(norm_a(ans[n][0]["answer"]), norm_a(key[n]["answer"]))]
         # 13/11 audit: a pupil who copied one row twice writes every later answer one number off — those are not wrong
         def shifted(n, d):
             k = key.get(n + d)
