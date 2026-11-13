@@ -813,6 +813,12 @@ def main():
     finally:
         save_json(STATE_DIR / "state.json", state)
         run.review()
+        # public, no pupil data: the parent pages' data job refreshes as soon as this time is newer than its last run
+        changed = ("dash_notebooks", "dash_essays", "dash_policy_added", "dash_policy_corrected", "dash_cell_formatted",
+                   "dash_cell_restored", "scan_classwork_dash", "scan_classwork_dash_manual")
+        if any(run.counts.get(k) for k in changed):
+            save_json(STATE_DIR / "dash-stamp.json", {"at": now().isoformat(),
+                                                      "counts": {k: run.counts[k] for k in changed if run.counts.get(k)}})
         line = " · ".join(f"{k}={v}" for k, v in sorted(run.counts.items())) or "no changes"
         print("WRITING:", line)
         if os.environ.get("GITHUB_STEP_SUMMARY"):

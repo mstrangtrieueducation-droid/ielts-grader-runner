@@ -78,6 +78,7 @@ jobs:
             if [ -f "$RUNTIME_DIR/state/dashboard-assignments.json" ]; then   # public week list for the parent pages (no pupil data)
               pub=$(mktemp -d); cp "$RUNTIME_DIR/state/dashboard-assignments.json" "$pub/"
               [ -f "$RUNTIME_DIR/state/reports.json" ] && cp "$RUNTIME_DIR/state/reports.json" "$pub/"   # counts-only mail digests
+              [ -f "$RUNTIME_DIR/state/dash-stamp.json" ] && cp "$RUNTIME_DIR/state/dash-stamp.json" "$pub/"   # last time results went on the dash
               (cd "$pub" && git init -q -b writing-dashboard && git add -A \
                 && git -c user.name=writing-runner -c user.email=writing-runner@users.noreply.github.com commit -qm "weeks" \
                 && git push -fq "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}" writing-dashboard) || true
