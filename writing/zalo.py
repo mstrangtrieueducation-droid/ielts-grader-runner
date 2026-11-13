@@ -425,7 +425,9 @@ def make_inclass(runner, scans_state, now=None):
     for skey, files in sessions.items():
         fid, rec = files[0]
         meta = rec.get("meta") or {}
-        if (f"scan|{skey}" in done or any(f"scan|{f}" in done for f, _ in files)
+        redo_key = f"{meta.get('cls')}|{meta.get('date')}"   # Cô 13/11: picture made again once its late papers are in
+        redo = redo_key in (runner.cfg.get("zaloInclassRedo") or []) and redo_key not in runner.state.setdefault("zaloRedoMade", [])
+        if (((f"scan|{skey}" in done or any(f"scan|{f}" in done for f, _ in files)) and not redo)
                 or any(r.get("status") not in ("graded", "teacher_done") for _, r in files)):
             continue   # Cô 11/11: every graded paper (in-class writing and paper tests) gets its picture
         if any(r.get("status") == "teacher_done" for _, r in files):
@@ -524,6 +526,8 @@ def make_inclass(runner, scans_state, now=None):
                                       "kind": "Bài kiểm tra" if test else "Bài viết trên lớp", "unit": unit,
                                       "unknown": sum(1 for s in studs if s.get("status") == "unidentified")})
         store(runner, cls, f"scan|{skey}", f"{cls} – {title}", png, now)
+        if redo:
+            runner.state["zaloRedoMade"].append(redo_key)
         done.append(f"scan|{skey}")
         del done[:-400]
         made.append((cls, title))
