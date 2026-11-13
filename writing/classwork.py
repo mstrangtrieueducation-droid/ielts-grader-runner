@@ -186,6 +186,93 @@ def manual_override(runner, cls, meta, name):
     return None
 
 
+# Cô 13/11 (IELTS 50, Thanh Hoa): a classmate's paper scanned right after a pupil's was read as part of her paper —
+# the transcriber's English note and "em chép bài của bạn" reached the dash. Such pages are another pupil's paper:
+# never shown, never counted, never mentioned to this pupil.
+PAGE_HDR = re.compile(r"^\s*\[?Pages?\s*(\d+)(?:\s*[-–]\s*(\d+))?\s*\(([^)]*)\)[^\n]*", re.M)
+FOREIGN = re.compile(r"not the (?:student|pupil)|classmate|another (?:student|pupil)|someone else|bài của bạn|"
+                     r"không phải bài của em", re.I)
+NOTE_PAGES = re.compile(r"(?:ảnh|trang)\s*(\d+)(?:\s*(?:và|–|-|,|đến)\s*(\d+))?[^.]{0,80}?"
+                        r"(?:không phải bài của em|bài của bạn)", re.I)
+ABOUT_OTHER = re.compile(r"[^.!?\n]*(?:bài của bạn|chép (?:lại )?bài|của bạn [A-ZĐ])[^.!?\n]*[.!?]?\s*")
+
+
+def scrub(t):
+    """(pages to drop, 1-based within the pupil's pages; the task without the other pupil's paper) or None."""
+    import scans
+    tr, drop, out = t.get("transcript") or "", set(), []
+    for part in re.split(r"(?m)^(?=\s*\[?Pages?\s*\d)", tr):
+        m = PAGE_HDR.match(part)
+        if m and FOREIGN.search(m.group(3) + m.group(0)):
+            drop |= set(range(int(m.group(1)), int(m.group(2) or m.group(1)) + 1))
+            continue
+        out.append(part)
+    for m in NOTE_PAGES.finditer(t.get("transcriptionNote") or ""):
+        drop |= set(range(int(m.group(1)), int(m.group(2) or m.group(1)) + 1))
+    if not drop:
+        return None
+    new = json.loads(json.dumps(t))
+    new["transcript"] = "".join(out).rstrip() + "\n"
+    new["overall"] = ABOUT_OTHER.sub("", t.get("overall") or "").strip()
+    new["transcriptionNote"] = ""
+    cs = (new.get("_qa") or {}).get("classScore")
+    if cs:
+        w = scans.paper_words(new["transcript"])
+        cs["wordCount"] = new["_qa"]["words"] = w
+        cs["shortfall"] = max(0, cs["minimum"] - w)
+        cs["shortfallPercent"] = round(100 * cs["shortfall"] / cs["minimum"], 1)
+    return drop, new
+
+
+def scrub_published(scans_obj, cache):
+    """Papers already out with another pupil's pages: the tracker cell (only if it is still exactly ours), the dash
+    card (withdrawn and sent again with the pupil's own photos) — once each."""
+    runner = scans_obj.r
+    for fid, rec in scans_obj.st["files"].items():
+        meta = rec.get("meta") or {}
+        cls = meta.get("cls") or ""
+        if meta.get("kind") != "inclass" or not cls.startswith("IELTS") or cls not in runner.cfg["classes"]:
+            continue
+        for s in rec.get("students", {}).values():
+            if s.get("scrubbed") or s.get("status") != "published" or not s.get("result"):
+                continue
+            tasks = s["result"].get("tasks") or []
+            r = scrub(tasks[0]) if tasks else None
+            if not r:
+                continue
+            drop, new = r
+            try:
+                old_text = scans_obj.cell_text(rec, s["result"])
+                res = json.loads(json.dumps(s["result"]))
+                res["tasks"][0] = new
+                new_text = scans_obj.cell_text(rec, res)
+                tr = runner.tracker(cls)
+                row = tr.row_of(s["name"])
+                cell = None
+                if row and old_text:
+                    tr._grid = None
+                    vals = (runner.g.values(tr.id, f"'{tr.tab}'!A{row}:ZZ{row}") or [[]])[0]
+                    hits = [i for i, v in enumerate(vals) if str(v).strip() == old_text.strip()]
+                    if len(hits) == 1:
+                        from run_writing import col_letter
+                        cell = f"{col_letter(hits[0])}{row}"   # 0-based
+                        tr.write(cell, new_text)
+                        if tr.cell(cell).strip() != new_text.strip():
+                            raise RuntimeError("readback")
+                if s.get("dash"):
+                    week = meta.get("lesson") or meta.get("week") or meta.get("buoi")
+                    iso = dt.datetime.strptime(meta["date"], "%d/%m/%Y").date().isoformat()
+                    withdraw(runner, cls, f"classwork-b{week:02d}-viet-tren-lop", iso, [s["name"]])
+                    s.pop("dash", None)
+                pages = list(s.get("pages") or [])
+                s.update(resultBeforeScrub=s["result"], result=res, pagesAll=pages, scrubbedCell=cell or "not_found",
+                         pages=[p for i, p in enumerate(pages, 1) if i not in drop], scrubbed=True)
+                scans_obj.tick("classwork_scrubbed")
+            except Exception as e:
+                s["scrubError"] = f"{type(e).__name__}: {str(e)[:200]}"
+                scans_obj.tick("classwork_scrub_error")
+
+
 def lesson_of(runner, cls, date_vn, cache):
     """The class's lesson number on that day: the writing week whose closure day (policy cutoffDate = the next writing
     lesson) it is, plus one. IELTS 47: W28 closes 11/11 → the 11/11 paper is Buổi 29 (Cô 13/11). None if unknown."""
@@ -304,6 +391,10 @@ def publish(scans_obj):
     import scans
     runner = scans_obj.r
     cache = {}
+    try:   # another pupil's pages out of a paper first (Cô 13/11)
+        scrub_published(scans_obj, cache)
+    except Exception as e:
+        scans_obj.tick(f"classwork_scrub_failed_{type(e).__name__}")
     try:   # the card goes on the lesson of the paper's day (Cô 13/11: the 11/11 paper is Buổi 29)
         relabel(scans_obj, cache)
     except Exception as e:

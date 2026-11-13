@@ -763,6 +763,15 @@ class Scans:
                 self.tick("held_no_column", len(todo))
                 return
             for s in todo:
+                if rec["meta"]["cls"].startswith("IELTS") and (s.get("result") or {}).get("tasks") and not s.get("scrubbed"):
+                    import classwork   # another pupil's pages read into this paper: out before anything is written
+                    r = classwork.scrub(s["result"]["tasks"][0])
+                    if r:
+                        pages = list(s.get("pages") or [])
+                        s["resultBeforeScrub"] = json.loads(json.dumps(s["result"]))
+                        s["result"]["tasks"][0] = r[1]
+                        s.update(pagesAll=pages, pages=[p for i, p in enumerate(pages, 1) if i not in r[0]], scrubbed=True)
+                        self.tick("scrubbed_foreign_pages")
                 row = tr.row_of(s["name"])
                 if not row:
                     s.update(status="dropped", hold="not_in_roster")   # Cô 10/11: not on the class list → dropped
