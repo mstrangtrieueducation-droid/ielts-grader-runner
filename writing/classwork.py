@@ -366,7 +366,7 @@ def manual_cell(scans_obj, it):
     tr = runner.tracker(it["cls"])
     tr._grid = None
     tr.cached("A", 1)
-    c = scans_obj.inclass_column(tr, tr._grid, meta, create=False)
+    c = scans_obj.inclass_column(tr, tr._grid, meta, create=True)   # a session Cô sent as photos has no column yet
     row = tr.row_of(it["name"])
     if c is None or not row:
         scans_obj.st.setdefault("manualCell", {})[f"{it['cls']}|{it['date']}|{it['name']}"] = "no_column_or_row"
