@@ -339,7 +339,7 @@ def quality_pct(errors, words, free_length=False):
     return max(15, min(100, round(pct)))   # floor: a written paragraph never shows as 0%
 
 
-def paper_stats(res, fighter, free_length=False):
+def paper_stats(res, fighter, free_length=False, cls=None):
     """Per pupil, counted from the graded result (free): words and errors per group (+ class conventions)."""
     st = {"words": None, "vocab": 0, "grammar": 0, "coherence": 0, "ql": 0, "codes": [], "pct": None, "short": [], "mins": []}
     if fighter:
@@ -366,7 +366,7 @@ def paper_stats(res, fighter, free_length=False):
                     st[a["group"]] += 1
                     st["codes"].append(str(a.get("label") or "").strip().lower())
         st["words"] = w or None
-        ps = [__import__("scans").ielts_pct(t) for t in res.get("tasks") or [] if (t.get("_qa") or {}).get("classScore")]
+        ps = [__import__("scans").ielts_pct(t, cls) for t in res.get("tasks") or [] if (t.get("_qa") or {}).get("classScore")]
         st["pct"] = round(sum(ps) / len(ps)) if ps else None
     return st
 
@@ -456,7 +456,7 @@ def make_inclass(runner, scans_state, now=None):
             p = {"name": nice(n), "has": bool(s), "band": None, "level": None, "done": bool(s)}
             if s:
                 res = s.get("result") or {}
-                p["stats"] = paper_stats(res, fighter, meta.get("buoi") == 13)
+                p["stats"] = paper_stats(res, fighter, meta.get("buoi") == 13, meta.get("cls"))
                 if not test:
                     comments.append(res.get("overall") or " ".join(t.get("overall", "") for t in res.get("tasks") or []))
                 if scored and fighter:

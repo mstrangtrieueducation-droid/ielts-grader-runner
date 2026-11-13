@@ -70,14 +70,20 @@ NO_COUNT = (" Không chép tên học sinh vào `transcript`. Chữ em gạch b�
             "chính xác rồi tự ghi số từ và phần trừ điểm vào kết quả.")
 
 
-def ielts_pct(t):
+def strict_class(cls):
+    """Cô 13/11: from IELTS 51 on, a little stricter so the pupils do not get complacent."""
+    m = re.match(r"IELTS\s*(\d+)", cls or "")
+    return bool(m and int(m.group(1)) >= 51)
+
+
+def ielts_pct(t, cls=None):
     """Cô 12/11 tối: in-class IELTS writing shows a '% chất lượng' instead of a band. Computed by code like Fighter:
     100 − 4 × (errors Cô corrected per minimum length), scaled down by words/minimum when under the minimum.
     Fitted on 93 graded IELTS papers against band/9 (mean gap ≈ 2 points, mean |gap| ≈ 10)."""
     cs = (t.get("_qa") or {}).get("classScore") or {}
     w, mn = cs.get("wordCount") or 0, cs.get("minimum") or (150 if t.get("task") == 1 else 250)
     errs = sum(1 for a in t.get("annotations") or [] if a.get("kind") == "error")
-    pct = 100 - 4 * errs * mn / max(w, 100)
+    pct = 100 - (4.5 if strict_class(cls) else 4) * errs * mn / max(w, 100)
     if w < mn:
         pct *= w / mn
     return max(15, min(100, round(pct)))
@@ -705,7 +711,7 @@ class Scans:
                 note = f"Số từ: {cs['wordCount']}/{cs['minimum']}"
                 if cs["shortfall"] > 0:
                     note += f"; thiếu {cs['shortfall']} từ (lỗi rất nặng, % chất lượng đã trừ theo độ dài)"
-                lines.append(f"{ielts_pct(t)}% chất lượng\nĐã chữa: {g['grammar']} lỗi ngữ pháp, {g['vocab']} lỗi từ vựng, "
+                lines.append(f"{ielts_pct(t, rec['meta']['cls'])}% chất lượng\nĐã chữa: {g['grammar']} lỗi ngữ pháp, {g['vocab']} lỗi từ vựng, "
                              f"{g['coherence']} lỗi mạch lạc/liên kết\n{t['overall'].strip()}\n{note}.")
                 continue
             cr = cs["classAssessment"]["criteria"]

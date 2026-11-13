@@ -464,7 +464,7 @@ def publish(scans_obj):
             for s in todo:
                 t = (s["result"].get("tasks") or [{}])[0]
                 m = manual_override(runner, cls, meta, s["name"])
-                pct = {"pct": m["pct"], "note": m.get("note")} if m else {"pct": scans.ielts_pct(t)}
+                pct = {"pct": m["pct"], "note": m.get("note")} if m else {"pct": scans.ielts_pct(t, cls)}
                 srcs = [page_webp(doc[p - 1]) for p in s.get("pages") or [] if 0 < p <= len(doc)]
                 rows = build(rec, s, pct, cls, srcs)
                 # one card per paper: an earlier card of the same lesson for this pupil is withdrawn first
