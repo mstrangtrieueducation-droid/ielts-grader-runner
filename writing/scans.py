@@ -809,6 +809,15 @@ def run(runner, only=None, limit_files=None):
         for rec in sc.st["files"].values():   # a long scan could overflow the page-reading answer: retry once
             if rec["status"] == "error" and rec.get("error") == "JSONDecodeError" and not rec.get("retried"):
                 rec.update(status="new", retried=True, students={})
+        for fid, cls in (runner.cfg.get("scanClassFix") or {}).items():   # Cô 13/11: file named with the wrong class
+            rec = sc.st["files"].get(fid)
+            if rec and rec.get("meta") and rec.get("classFixed") != cls and cls in runner.cfg["classes"]:
+                if any(x.get("status") == "published" for x in rec.get("students", {}).values()):
+                    continue   # results already out under the old class: never re-graded silently
+                rec["meta"] = dict(rec["meta"], cls=cls)
+                rec.update(status="new" if pack_for(rec["meta"]) else "no_pack", students={}, classFixed=cls)
+                rec.pop("rescued", None)
+                sc.tick("class_fixed")
         for fid in runner.cfg.get("scanDone") or []:   # Cô already graded these in the old system: leave them alone
             rec = sc.st["files"].get(fid)
             if rec and rec["status"] != "teacher_done":

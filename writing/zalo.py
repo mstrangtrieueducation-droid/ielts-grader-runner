@@ -433,6 +433,8 @@ def make_inclass(runner, scans_state, now=None):
         studs = [s for _, r in files for s in r.get("students", {}).values()]
         if not studs or any(s.get("status") not in FINAL for s in studs):
             continue
+        if not any(s.get("status") == "published" for s in studs):
+            continue   # no paper matched the class list (e.g. a file named with the wrong class): no picture
         cls = meta["cls"]
         if cls not in runner.cfg["classes"] or (hold and cls not in released and f"{cls}|{meta.get('date')}" not in released):
             continue
