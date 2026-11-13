@@ -1252,6 +1252,15 @@ class FighterNotebooks:
                        if key[n]["choices"] and re.fullmatch(r"[A-Za-z]", key[n]["answer"].strip()) and (len(xs) == len(reads) or b.get("_partial"))
                        and norm_a(xs[0]["answer"]) == norm_a(xs[-1]["answer"]) and re.fullmatch(r"[a-z]", norm_a(xs[0]["answer"]) or "")
                        and norm_a(xs[0]["answer"]) != norm_a(key[n]["answer"]))
+        # 13/11 audit: a pupil who copied one row twice writes every later answer one number off — those are not wrong
+        def shifted(n, d):
+            k = key.get(n + d)
+            return bool(k) and n in ans and norm_a(ans[n][0]["answer"]) == norm_a(k["answer"])
+        for d in (-1, 1):
+            run = [n for n in wrong if shifted(n, d)]
+            if len(run) >= 2:
+                wrong = [n for n in wrong if n not in run]
+                self.tick("wrong_shifted_numbering")
         total = ref["total"]
         work = round(100 * (len(answered) + len(explained)) / (2 * total)) if total else 0
         explained = [n for n in explained if n in need_why]
