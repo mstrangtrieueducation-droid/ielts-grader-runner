@@ -413,7 +413,8 @@ def publish_manual(scans_obj, cache=None):
             done.append(k)
             scans_obj.st.setdefault("manualDashWeek", {})[k] = week
             try:
-                manual_cell(scans_obj, it)
+                if runner.cfg.get("manualCellWrite"):   # off: the in-class column was picked wrongly (IELTS 46, 13/11)
+                    manual_cell(scans_obj, it)
             except Exception as e:
                 scans_obj.st.setdefault("manualCellError", {})[k] = f"{type(e).__name__}: {str(e)[:200]}"
             scans_obj.tick("classwork_dash_manual")
