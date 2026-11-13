@@ -195,6 +195,13 @@ class Scans:
                 if old["status"] == "no_pack" and old.get("meta") and pack_for(old["meta"]):
                     old["status"] = "new"   # its pack has been added since
                     self.tick("new")
+                old.setdefault("md5", f.get("md5Checksum"))
+                continue
+            if (old and f.get("md5Checksum") and old.get("md5") == f.get("md5Checksum")
+                    and any(x.get("status") == "published" for x in old.get("students", {}).values())):
+                # Cô 13/11: a renamed file (same pages) is not read and graded again: its results are already out
+                old.update(title=f["name"], modified=f.get("modifiedTime"))
+                self.tick("renamed_kept")
                 continue
             meta = parse_name(f["name"])
             cut = self.r.cfg.get("scanBaselineBefore")
@@ -203,7 +210,7 @@ class Scans:
                                              "students": {}, "status": "baseline", "at": now().isoformat()}
                 continue
             rec = {"title": f["name"], "modified": f.get("modifiedTime"), "meta": meta, "students": {},
-                   "status": "new", "at": now().isoformat()}
+                   "status": "new", "at": now().isoformat(), "md5": f.get("md5Checksum")}
             if not meta or meta["cls"] not in self.r.cfg["classes"]:
                 rec["status"] = "unrecognised_name"
             elif not pack_for(meta):

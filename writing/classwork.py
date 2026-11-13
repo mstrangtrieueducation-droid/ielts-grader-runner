@@ -378,7 +378,9 @@ def publish_manual(scans_obj, cache=None):
             week = lesson_of(runner, it["cls"], it["date"], cache if cache is not None else {}) or it["week"]
             rec = {"meta": {"cls": it["cls"], "date": it["date"], "week": week, "kind": "inclass"}, "title": it["title"]}
             stu = {"name": it["name"], "result": it["result"]}
-            runner.g.append_rows(sid, TAB, build(rec, stu, {"pct": it["pct"]}, it["cls"], srcs))
+            rows = build(rec, stu, {"pct": it["pct"]}, it["cls"], srcs)
+            withdraw(runner, it["cls"], rows[0][3], rows[0][6], [it["name"]])   # one card per paper
+            runner.g.append_rows(sid, TAB, rows)
             done.append(k)
             scans_obj.st.setdefault("manualDashWeek", {})[k] = week
             scans_obj.tick("classwork_dash_manual")
@@ -409,8 +411,15 @@ def publish(scans_obj):
         cls = meta.get("cls")
         if meta.get("kind") != "inclass" or cls not in allowed or not cls.startswith("IELTS"):
             continue
-        todo = [s for s in rec.get("students", {}).values()
-                if s.get("status") == "published" and s.get("result") and s.get("name") and not s.get("dash")]
+        todo = []
+        for s in rec.get("students", {}).values():
+            if s.get("status") != "published" or not s.get("result") or not s.get("name") or s.get("dash"):
+                continue
+            if s.get("skippedCells"):   # a re-read of a file already out: the tracker keeps the earlier result,
+                s["dash"] = "kept_earlier"   # and so does the dash (never two cards for one paper)
+                scans_obj.tick("classwork_kept_earlier")
+                continue
+            todo.append(s)
         if not todo:
             continue
         try:
@@ -425,6 +434,8 @@ def publish(scans_obj):
                 pct = {"pct": m["pct"], "note": m.get("note")} if m else {"pct": scans.ielts_pct(t)}
                 srcs = [page_webp(doc[p - 1]) for p in s.get("pages") or [] if 0 < p <= len(doc)]
                 rows = build(rec, s, pct, cls, srcs)
+                # one card per paper: an earlier card of the same lesson for this pupil is withdrawn first
+                withdraw(runner, cls, rows[0][3], rows[0][6], [s["name"]])
                 runner.g.append_rows(sid, TAB, rows)
                 s["dash"] = rows[0][8]
                 scans_obj.tick("classwork_dash")
