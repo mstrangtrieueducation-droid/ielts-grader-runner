@@ -406,7 +406,11 @@ def make_inclass(runner, scans_state, now=None):
     08:00–20:00, own mail. Returns [(class, title)]."""
     import scans as sc
     now = now or dt.datetime.now(VN)
-    if not (8 <= now.astimezone(VN).hour < 20) or runner.cfg.get("zaloInclassHold"):   # hold: Cô checks a sample first
+    if not (8 <= now.astimezone(VN).hour < 20):
+        return []
+    hold = runner.cfg.get("zaloInclassHold")   # hold: Cô checks a sample first; Cô 13/11: released class by class
+    released = set(runner.cfg.get("zaloInclassRelease") or [])
+    if hold and not released:
         return []
     done = runner.state.setdefault("zaloDone", [])
     made = []
@@ -430,7 +434,7 @@ def make_inclass(runner, scans_state, now=None):
         if not studs or any(s.get("status") not in FINAL for s in studs):
             continue
         cls = meta["cls"]
-        if cls not in runner.cfg["classes"]:
+        if cls not in runner.cfg["classes"] or (hold and cls not in released and f"{cls}|{meta.get('date')}" not in released):
             continue
         try:   # Cô 11/11: in-class picture the day after the lesson
             lesson = dt.datetime.strptime(meta["date"], "%d/%m/%Y").date()
@@ -474,7 +478,7 @@ def make_inclass(runner, scans_state, now=None):
                     if (m.get("cls") == cls and str(m.get("date")) == meta.get("date") and key_of(m["name"]) == key_of(n)
                             and m.get("week") == meta.get("week") and m.get("buoi") == meta.get("buoi")):
                         st = {"words": m.get("words"), "vocab": m.get("vocab", 0), "grammar": m.get("grammar", 0),
-                              "coherence": m.get("coherence", 0), "ql": 0, "codes": [], "pct": m.get("pct"),
+                              "coherence": m.get("coherence", 0), "ql": 0, "codes": list(m.get("codes") or []), "pct": m.get("pct"),
                               "short": [(m.get("task"), m["words"], m["min"])] if m.get("words") and m.get("min") and m["words"] < m["min"] else [],
                               "mins": [(m.get("task"), m["min"])] if m.get("min") else []}
                         p.update(has=True, done=True, stats=st)
