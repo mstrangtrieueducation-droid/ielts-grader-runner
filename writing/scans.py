@@ -806,6 +806,8 @@ def run(runner, only=None, limit_files=None):
         sc.collect()
         if runner.auto_publish():
             sc.publish()
+            import classwork   # Cô 13/11: in-class reviews on the parent dashboard too
+            classwork.publish(sc)
         sc.discover()
         for rec in sc.st["files"].values():   # a long scan could overflow the page-reading answer: retry once
             if rec["status"] == "error" and rec.get("error") == "JSONDecodeError" and not rec.get("retried"):
