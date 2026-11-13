@@ -171,7 +171,7 @@ print("budget ok")
 # --- crop: a white page on a dark desk is cut out; a full-frame page is left alone
 _b = _io.BytesIO(); _im = _Im.new("RGB", (1000, 1000), (60, 40, 30)); _im.paste((250, 250, 245), (200, 150, 800, 850)); _im.save(_b, "JPEG")
 _w, _h2 = _Im.open(_io.BytesIO(_nb.crop_page(_b.getvalue()))).size
-assert 600 <= _w <= 680 and 700 <= _h2 <= 780, (_w, _h2)
+assert (_w, _h2) == (1000, 1000) if not _nb.CROP_PAGES else (600 <= _w <= 680 and 700 <= _h2 <= 780), (_w, _h2)   # 13/11: crop off
 _f = _jpg(800, 1000)
 assert _nb.crop_page(_f) == _f
 # --- barem first, pupil photos last

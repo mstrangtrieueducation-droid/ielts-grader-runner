@@ -591,9 +591,14 @@ def ham(a, b):
 _CROPS = {}
 
 
+CROP_PAGES = False   # Cô 13/11: photos go to Sonnet whole (fit_side keeps the cost); see crop_page
+
+
 def crop_page(jpeg: bytes) -> bytes:
     """Cut the desk/hands/background around the notebook page (code, free): the bright paper region found by row and
     column brightness. Conservative: no crop unless the page clearly covers less of the photo."""
+    if not CROP_PAGES:   # 13/11 audit: the crop cut off the STT/word column and the lower rows on yellow-printed notebook pages
+        return jpeg
     key = hashlib.sha1(jpeg).hexdigest()
     if key in _CROPS:
         return _CROPS[key]
