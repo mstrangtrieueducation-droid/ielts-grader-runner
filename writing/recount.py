@@ -277,3 +277,37 @@ def run_pct(runner):
     apply_cells(runner, items, "inclass_pct")
     sc.save()
     runner.state["inclassPct1112Done"] = True
+
+
+def run_words3(runner):
+    """13/11: label lines ('Full essay:') left out of the count — papers converted before that rule got their
+    count, % and cell refreshed once (only where the cell still holds the machine's text)."""
+    if runner.state.get("recount1113Done"):
+        return
+    import calculate_class_score as ccs
+    scans = sc_mod()
+    sc = scans.Scans(runner)
+    items = []
+    for rec in sc.st.get("files", {}).values():
+        meta = rec.get("meta") or {}
+        if meta.get("kind") != "inclass" or not str(meta.get("cls", "")).startswith("IELTS"):
+            continue
+        for s in rec.get("students", {}).values():
+            if s.get("status") != "published" or not s.get("result"):
+                continue
+            tasks = s["result"].get("tasks") or []
+            if all(scans.paper_words(t.get("transcript")) == (t.get("_qa") or {}).get("words") for t in tasks):
+                continue
+            olds = {t.get("task"): sc.cell_text(rec, s["result"], t.get("task")) for t in tasks}
+            for t in tasks:
+                w = scans.paper_words(t.get("transcript"))
+                t["_qa"]["words"] = w
+                t["_qa"]["classScore"] = ccs.calculate(t["task"] if t["task"] in (1, 2) else 1, w,
+                                                       [int(t["criteria"][x]["band"]) for x in ("TA_TR", "CC", "LR", "GRA")])
+            for k, old in olds.items():
+                new = sc.cell_text(rec, s["result"], k)
+                if old and new and old != new:
+                    items.append({"cls": meta["cls"], "name": s["name"], "old": old, "new": new, "mode": "exact"})
+    apply_cells(runner, items, "recount3")
+    sc.save()
+    runner.state["recount1113Done"] = True

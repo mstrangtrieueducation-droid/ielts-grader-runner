@@ -779,6 +779,7 @@ def main():
                     recount.run(run)
                     recount.run_cells(run)
                     recount.run_pct(run)
+                    recount.run_words3(run)
                 except Exception as e:
                     run.tick(f"recount_failed_{type(e).__name__}")
                 try:   # parent dashboard: bài chữa + kết quả vở (only what is already on the tracker)
