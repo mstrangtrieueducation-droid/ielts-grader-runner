@@ -106,7 +106,7 @@ def page_webp(page, side=1600):
 def build(rec, stu, pct, cls, pages_src):
     """Core and source payloads for one pupil."""
     meta = rec["meta"]
-    week = meta.get("week") or meta.get("buoi")
+    week = meta.get("lesson") or meta.get("week") or meta.get("buoi")   # lesson: the lesson of the paper's day
     res = stu["result"]
     t = (res.get("tasks") or [{}])[0]
     task = t.get("task") or 1
@@ -186,7 +186,92 @@ def manual_override(runner, cls, meta, name):
     return None
 
 
-def publish_manual(scans_obj):
+def lesson_of(runner, cls, date_vn, cache):
+    """The class's lesson number on that day: the writing week whose closure day (policy cutoffDate = the next writing
+    lesson) it is, plus one. IELTS 47: W28 closes 11/11 → the 11/11 paper is Buổi 29 (Cô 13/11). None if unknown."""
+    try:
+        iso = dt.datetime.strptime(date_vn, "%d/%m/%Y").date().isoformat()
+    except (TypeError, ValueError):
+        return None
+    if cls not in cache:
+        sid = runner.cfg["classes"][cls]
+        found = {}
+        if "_WRITING_POLICIES_V1" in runner.g.sheet_titles(sid):
+            for r in runner.g.values(sid, "'_WRITING_POLICIES_V1'!A1:C300")[1:]:
+                try:
+                    pol = json.loads(r[2]) if len(r) > 2 and r[0] == cls else None
+                except ValueError:
+                    pol = None
+                m = re.search(r"W0*(\d+)$", r[1]) if pol and pol.get("cutoffDate") else None
+                if m:
+                    found.setdefault(pol["cutoffDate"], set()).add(int(m.group(1)) + 1)
+        cache[cls] = {d: n.pop() for d, n in found.items() if len(n) == 1}
+    return cache[cls].get(iso)
+
+
+def withdraw(runner, cls, key, iso, names):
+    """Our rows of one session under a wrong lesson key: state → withdrawn (the viewer reads 'published' only)."""
+    sid = runner.cfg["classes"][cls]
+    rows = runner.g.values(sid, f"'{TAB}'!A1:H5000")
+    idents = {hashlib.sha256(f"{cls}|{n}".encode("utf-8")).hexdigest() for n in names}
+    hit = [i + 1 for i, r in enumerate(rows) if i and len(r) > 7 and r[1] == cls and r[3] == key and r[6] == iso
+           and r[2] in idents and r[7] == "published"]
+    runs = []
+    for n in hit:
+        if runs and n == runs[-1][1] + 1:
+            runs[-1][1] = n
+        else:
+            runs.append([n, n])
+    for a, b in runs:
+        runner.g.set_block(sid, f"'{TAB}'!H{a}:H{b}", [["withdrawn"]] * (b - a + 1))
+    return len(hit)
+
+
+def relabel(scans_obj, cache):
+    """Sessions sent under a lesson number that is not the lesson of that day are withdrawn and sent again."""
+    runner = scans_obj.r
+    allowed = set(runner.cfg.get("classworkClasses") or [])
+    for fid, rec in scans_obj.st["files"].items():
+        meta = rec.get("meta") or {}
+        cls = meta.get("cls")
+        if meta.get("kind") != "inclass" or cls not in allowed or not cls.startswith("IELTS"):
+            continue
+        lesson = lesson_of(runner, cls, meta.get("date"), cache)
+        week = meta.get("lesson") or meta.get("week") or meta.get("buoi")   # the lesson it was sent under
+        if not lesson or lesson == week:
+            continue
+        sent = [s for s in rec.get("students", {}).values() if s.get("dash")]
+        try:
+            iso = dt.datetime.strptime(meta["date"], "%d/%m/%Y").date().isoformat()
+            if sent:
+                n = withdraw(runner, cls, f"classwork-b{week:02d}-viet-tren-lop", iso, [s["name"] for s in sent])
+                scans_obj.tick("classwork_relabel_withdrawn", n)
+            meta["lesson"] = lesson   # meta week stays (Zalo picture and hand re-grades are keyed on it)
+            for s in sent:
+                s.pop("dash", None)
+            scans_obj.tick("classwork_relabelled")
+        except Exception as e:
+            rec["dashError"] = f"relabel {type(e).__name__}: {str(e)[:200]}"
+    done = scans_obj.st.setdefault("manualDash", [])
+    from run_writing import BUNDLE
+    path = BUNDLE / "classwork-manual" / "manual.json"
+    for it in (json.loads(path.read_text(encoding="utf-8")) if path.exists() else []):
+        k = f"{it['cls']}|{it['date']}|{it['name']}"
+        if k not in done or it["cls"] not in runner.cfg["classes"]:
+            continue
+        lesson = lesson_of(runner, it["cls"], it["date"], cache)
+        sent = scans_obj.st.setdefault("manualDashWeek", {}).get(k, it["week"])
+        if lesson and lesson != sent:
+            try:
+                iso = dt.datetime.strptime(it["date"], "%d/%m/%Y").date().isoformat()
+                withdraw(runner, it["cls"], f"classwork-b{sent:02d}-viet-tren-lop", iso, [it["name"]])
+                done.remove(k)
+                scans_obj.tick("classwork_relabelled_manual")
+            except Exception as e:
+                scans_obj.st.setdefault("manualDashError", {})[k] = f"relabel {type(e).__name__}: {str(e)[:200]}"
+
+
+def publish_manual(scans_obj, cache=None):
     """Papers Cô had graded by hand (not in a scan file): bundle classwork-manual/manual.json + their photos."""
     from run_writing import BUNDLE
     runner = scans_obj.r
@@ -203,10 +288,12 @@ def publish_manual(scans_obj):
             if TAB not in runner.g.sheet_titles(sid):
                 runner.g.add_hidden_sheet(sid, TAB, HEAD)
             srcs = ["data:image/webp;base64," + base64.b64encode((path.parent / p).read_bytes()).decode() for p in it["pages"]]
-            rec = {"meta": {"cls": it["cls"], "date": it["date"], "week": it["week"], "kind": "inclass"}, "title": it["title"]}
+            week = lesson_of(runner, it["cls"], it["date"], cache if cache is not None else {}) or it["week"]
+            rec = {"meta": {"cls": it["cls"], "date": it["date"], "week": week, "kind": "inclass"}, "title": it["title"]}
             stu = {"name": it["name"], "result": it["result"]}
             runner.g.append_rows(sid, TAB, build(rec, stu, {"pct": it["pct"]}, it["cls"], srcs))
             done.append(k)
+            scans_obj.st.setdefault("manualDashWeek", {})[k] = week
             scans_obj.tick("classwork_dash_manual")
         except Exception as e:
             scans_obj.st.setdefault("manualDashError", {})[k] = f"{type(e).__name__}: {str(e)[:200]}"
@@ -216,8 +303,13 @@ def publish(scans_obj):
     """Send every published in-class IELTS paper not sent yet. Errors are kept per file, never fatal."""
     import scans
     runner = scans_obj.r
+    cache = {}
+    try:   # the card goes on the lesson of the paper's day (Cô 13/11: the 11/11 paper is Buổi 29)
+        relabel(scans_obj, cache)
+    except Exception as e:
+        scans_obj.tick(f"classwork_relabel_error_{type(e).__name__}")
     try:
-        publish_manual(scans_obj)
+        publish_manual(scans_obj, cache)
     except Exception:
         scans_obj.tick("classwork_dash_manual_error")
     allowed = set(runner.cfg.get("classworkClasses") or [])

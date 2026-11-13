@@ -114,6 +114,11 @@ class Google:
                + urllib.parse.quote(rng, safe="") + "?valueInputOption=RAW")
         return self._req(url, "PUT", {"range": rng, "values": [row]})
 
+    def set_block(self, sheet_id, rng, rows):
+        url = (f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}/values/"
+               + urllib.parse.quote(rng, safe="") + "?valueInputOption=RAW")
+        return self._req(url, "PUT", {"range": rng, "values": rows})
+
     def links(self, sheet_id, rng):
         """Hyperlink targets of a range (cell link, rich-text link or literal HYPERLINK formula), row by row."""
         url = (f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}?ranges=" + urllib.parse.quote(rng, safe="")
