@@ -358,6 +358,51 @@ def relabel(scans_obj, cache):
                 scans_obj.st.setdefault("manualDashError", {})[k] = f"relabel {type(e).__name__}: {str(e)[:200]}"
 
 
+def manual_cell_text(it):
+    t = it["result"]["tasks"][0]
+    g = {k: sum(1 for a in t.get("annotations") or [] if a.get("kind") == "error" and a.get("group") == k)
+         for k in ("grammar", "vocab", "coherence")}
+    cs = t["_qa"]["classScore"]
+    return (f"{it['pct']}% chất lượng\nĐã chữa: {g['grammar']} lỗi ngữ pháp, {g['vocab']} lỗi từ vựng, "
+            f"{g['coherence']} lỗi mạch lạc/liên kết\n{t['overall'].strip()}\nSố từ: {cs['wordCount']}/{cs['minimum']}.")
+
+
+def manual_cells_by_map(scans_obj):
+    """Hand-graded papers → the session's in-class column named in cfg manualCellColumns {"<cls>|<date>": "FN"}.
+    Writes only an empty cell; our own text found in another column of the pupil's row (a wrong earlier write) is
+    cleared. Once per paper."""
+    runner = scans_obj.r
+    cols = runner.cfg.get("manualCellColumns") or {}
+    if not cols:
+        return
+    from run_writing import BUNDLE, col_letter
+    path = BUNDLE / "classwork-manual" / "manual.json"
+    fixed = scans_obj.st.setdefault("manualCellFixed", [])
+    for it in json.loads(path.read_text(encoding="utf-8")) if path.exists() else []:
+        k = f"{it['cls']}|{it['date']}|{it['name']}"
+        col = cols.get(f"{it['cls']}|{it['date']}")
+        if not col or k in fixed or it["cls"] not in runner.cfg["classes"]:
+            continue
+        try:
+            tr = runner.tracker(it["cls"])
+            row = tr.row_of(it["name"])
+            if not row:
+                fixed.append(k)
+                continue
+            text = manual_cell_text(it).strip()
+            vals = (runner.g.values(tr.id, f"'{tr.tab}'!A{row}:ZZ{row}") or [[]])[0]
+            for i, v in enumerate(vals):
+                if str(v).strip() == text and col_letter(i) != col:
+                    tr.write(f"{col_letter(i)}{row}", "")
+                    scans_obj.tick("classwork_manual_cell_moved")
+            if not tr.cell(f"{col}{row}").strip():
+                tr.write(f"{col}{row}", text)
+                scans_obj.tick("classwork_manual_cell")
+            fixed.append(k)
+        except Exception as e:
+            scans_obj.st.setdefault("manualCellError", {})[k] = f"{type(e).__name__}: {str(e)[:200]}"
+
+
 def manual_cell(scans_obj, it):
     """A paper Cô sent for hand grading → its tracker cell in the session's in-class column, in the class's % format,
     only while that cell is empty (Cô's own result is never overwritten)."""
@@ -439,6 +484,10 @@ def publish(scans_obj):
         publish_manual(scans_obj, cache)
     except Exception:
         scans_obj.tick("classwork_dash_manual_error")
+    try:
+        manual_cells_by_map(scans_obj)
+    except Exception:
+        scans_obj.tick("classwork_manual_cells_error")
     allowed = set(runner.cfg.get("classworkClasses") or [])
     for fid, rec in scans_obj.st["files"].items():
         meta = rec.get("meta") or {}
