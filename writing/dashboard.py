@@ -247,6 +247,7 @@ CONFIG_CANDIDATES = []
 POLICY = "_WRITING_POLICIES_V1"
 POLICY_HEADERS = ["class", "assignment", "policy_json", "policy_sha256", "enabled"]
 CELL_FMT = "v1"
+POLICY_OK = "ok2"
 
 
 def policy_json(cls, code, cutoff_date, spreadsheet, sheet, hdr):
@@ -358,52 +359,70 @@ class Dashboard:
             self.r.tick(f"dash_cell_format_failed_{type(e).__name__}")
 
     def ensure_policy(self, cls, sid, a):
-        """One _WRITING_POLICIES_V1 row per class + week, the same closure rule the earlier weeks use
-        (writing-next-lesson-day-hard-cutoff-v2, cutoff = the day after the tracker's 'Hạn'). Added once, never edited;
-        never a second row for a week (a duplicate would close every week of the class)."""
+        """One _WRITING_POLICIES_V1 row per class + week, the closure rule the earlier weeks use
+        (writing-next-lesson-day-hard-cutoff-v2: cutoff = the next writing lesson day after the tracker's 'Hạn').
+        The lesson day is learnt from the class's earlier policy rows (days from Hạn to cutoff, most common);
+        a class with none uses 2 days (IELTS 46, 47 and 50 all have their writing lesson 2 days after the Hạn).
+        Never a second row for a week (a duplicate would close every week of the class); only our own rows are
+        ever corrected."""
         done = self.r.state.setdefault("dashPolicy", {})
         key = f"{cls}|{a['code']}"
-        if done.get(key) in ("added", "have"):
+        if done.get(key) in ("have", POLICY_OK):
             return
         rows = self.table(sid, POLICY, POLICY_HEADERS)
-        if any(len(r) > 1 and r[0] == cls and r[1] == a["code"] for r in rows[1:]):
+        tr = self.r.tracker(cls)
+        mine = set(self.r.state.setdefault("dashPolicyOurs", [])) | {k for k, v in done.items() if v == "added"}
+        offsets = {}
+        for r in rows[1:]:
+            if len(r) < 3 or r[0] != cls or f"{cls}|{r[1]}" in mine:
+                continue
+            try:
+                other = json.loads(r[2])
+            except ValueError:
+                continue
+            _, d2 = tr.column(r[1])
+            if d2 and other.get("cutoffDate"):
+                n = (dt.date.fromisoformat(other["cutoffDate"]) - d2.date()).days
+                offsets[n] = offsets.get(n, 0) + 1
+        offset = max(offsets, key=lambda n: (offsets[n], -n)) if offsets else 2
+        if not 1 <= offset <= 7:
+            done[key] = "cutoff_rule_unclear"
+            return
+        idx = next((i for i, r in enumerate(rows) if i and len(r) > 1 and r[0] == cls and r[1] == a["code"]), None)
+        if idx is not None and key not in mine and done.get(key) != "added":
             done[key] = "have"
             return
-        _, deadline = self.r.tracker(cls).column(a["code"])
+        _, deadline = tr.column(a["code"])
         if not deadline:
             done[key] = "no_deadline"
             return
-        for r in rows[1:]:   # the rule must give the cutoff the earlier weeks of this class already use
-            try:
-                other = json.loads(r[2]) if len(r) > 2 and r[0] == cls else None
-            except ValueError:
-                other = None
-            if not other or not other.get("cutoffDate"):
-                continue
-            _, d2 = self.r.tracker(cls).column(r[1])
-            if d2 and (d2 + dt.timedelta(days=1)).strftime("%Y-%m-%d") != other["cutoffDate"]:
-                done[key] = "cutoff_rule_mismatch"
-                self.r.tick("dash_policy_rule_mismatch")
-                return
         grid = self.form(a["formTab"])
         hdr = [str(x) for x in (grid[0] if grid else [])][:3]
         if len(hdr) < 3 or not all(x.strip() for x in hdr):
             done[key] = "no_form_header"
             return
-        pol = policy_json(cls, a["code"], (deadline + dt.timedelta(days=1)).strftime("%Y-%m-%d"),
+        pol = policy_json(cls, a["code"], (deadline.date() + dt.timedelta(days=offset)).isoformat(),
                           self.r.cfg["formSheet"], a["formTab"], hdr)
         raw = canonical(pol)
-        self.g.append_rows(sid, POLICY, [[cls, a["code"], raw, sha(raw), "TRUE"]])
-        rows.append([cls, a["code"], raw, sha(raw), "TRUE"])
-        done[key] = "added"
-        self.r.tick("dash_policy_added")
+        row = [cls, a["code"], raw, sha(raw), "TRUE"]
+        if idx is None:
+            self.g.append_rows(sid, POLICY, [row])
+            rows.append(row)
+            self.r.tick("dash_policy_added")
+        elif rows[idx][:5] != row:   # our own earlier row (day-after-Hạn rule) → the lesson-day cutoff
+            self.g.set_row(sid, f"'{POLICY}'!A{idx + 1}:E{idx + 1}", row)
+            rows[idx] = row
+            self.r.tick("dash_policy_corrected")
+        if key not in self.r.state["dashPolicyOurs"]:
+            self.r.state["dashPolicyOurs"].append(key)
+        done[key] = POLICY_OK
 
     def format_cells(self):
         """Rewrite our own published result (only while the cell still holds it word for word) into the class's
         usual result block: 【KẾT QUẢ CHẤM WRITING】 … Đã trả N/N bài chữa trên dashboard. … 【HẾT KẾT QUẢ CHẤM】.
         Only once the dashboard has the result, so the line is true."""
         for k, s in self.r.state.get("subs", {}).items():
-            if s.get("status") != "published" or not s.get("cell") or s.get("cellFmt") == CELL_FMT:
+            if s.get("status") != "published" or not s.get("cell") or s.get("cellFmt") in (CELL_FMT, "kept"):
                 continue
             if s.get("className") not in self.r.cfg["classes"]:
                 continue
@@ -416,10 +435,17 @@ class Dashboard:
             new_blk = result_block(s)
             tr = self.r.tracker(s["className"])
             cur = tr.cell(s["cell"])
-            if cur.count(blk) != 1:   # Cô edited the cell: leave it as it is
-                s["cellFmt"] = "teacher_edited"
+            from run_writing import MARK
+            head, mark, tail = cur.partition(MARK)
+            if mark and not tail.strip() and blk not in cur:
+                # the status line was rewritten and our result went with it: put it back under the marker
+                new = head.rstrip() + "\n\n" + MARK + "\n" + new_blk
+                self.r.tick("dash_cell_restored")
+            elif cur.count(blk) != 1:   # Cô edited the cell (or it holds an earlier result): leave it as it is
+                s["cellFmt"] = "kept"
                 continue
-            new = cur.replace(blk, new_blk)
+            else:
+                new = cur.replace(blk, new_blk)
             tr.write(s["cell"], new)
             if tr.cell(s["cell"]) != new:
                 self.r.tick("dash_cell_format_readback")
