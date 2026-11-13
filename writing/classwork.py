@@ -186,10 +186,40 @@ def manual_override(runner, cls, meta, name):
     return None
 
 
+def publish_manual(scans_obj):
+    """Papers Cô had graded by hand (not in a scan file): bundle classwork-manual/manual.json + their photos."""
+    from run_writing import BUNDLE
+    runner = scans_obj.r
+    path = BUNDLE / "classwork-manual" / "manual.json"
+    if not path.exists():
+        return
+    done = scans_obj.st.setdefault("manualDash", [])
+    for it in json.loads(path.read_text(encoding="utf-8")):
+        k = f"{it['cls']}|{it['date']}|{it['name']}"
+        if k in done or it["cls"] not in runner.cfg["classes"]:
+            continue
+        try:
+            sid = runner.cfg["classes"][it["cls"]]
+            if TAB not in runner.g.sheet_titles(sid):
+                runner.g.add_hidden_sheet(sid, TAB, HEAD)
+            srcs = ["data:image/webp;base64," + base64.b64encode((path.parent / p).read_bytes()).decode() for p in it["pages"]]
+            rec = {"meta": {"cls": it["cls"], "date": it["date"], "week": it["week"], "kind": "inclass"}, "title": it["title"]}
+            stu = {"name": it["name"], "result": it["result"]}
+            runner.g.append_rows(sid, TAB, build(rec, stu, {"pct": it["pct"]}, it["cls"], srcs))
+            done.append(k)
+            scans_obj.tick("classwork_dash_manual")
+        except Exception as e:
+            scans_obj.st.setdefault("manualDashError", {})[k] = f"{type(e).__name__}: {str(e)[:200]}"
+
+
 def publish(scans_obj):
     """Send every published in-class IELTS paper not sent yet. Errors are kept per file, never fatal."""
     import scans
     runner = scans_obj.r
+    try:
+        publish_manual(scans_obj)
+    except Exception:
+        scans_obj.tick("classwork_dash_manual_error")
     allowed = set(runner.cfg.get("classworkClasses") or [])
     for fid, rec in scans_obj.st["files"].items():
         meta = rec.get("meta") or {}
