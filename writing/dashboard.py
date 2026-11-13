@@ -244,6 +244,38 @@ def essay_records(cls, s, roster_name, a, grid=None, spreadsheet=""):
 
 
 CONFIG_CANDIDATES = []
+POLICY = "_WRITING_POLICIES_V1"
+POLICY_HEADERS = ["class", "assignment", "policy_json", "policy_sha256", "enabled"]
+CELL_FMT = "v1"
+
+
+def policy_json(cls, code, cutoff_date, spreadsheet, sheet, hdr):
+    """Exactly the shape the class backend validates (writingPolicyValidate)."""
+    pol = {"assignmentCode": code, "className": cls, "closed": True, "cutoffAt": cutoff_date + "T00:00:00+07:00",
+           "cutoffDate": cutoff_date, "policyType": "writing-next-lesson-day-hard-cutoff-v2", "schemaVersion": 1,
+           "source": {"classColumn": 2, "classHeader": hdr[2], "nameColumn": 1, "nameHeader": hdr[1], "sheetName": sheet,
+                      "spreadsheetId": spreadsheet, "timestampColumn": 0, "timestampHeader": hdr[0]},
+           "timezone": "Asia/Ho_Chi_Minh"}
+    assert re.fullmatch(r"IELTS-WRITING-W\d{2,3}", code) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", cutoff_date)
+    assert re.fullmatch(r"[A-Za-z0-9_-]+", spreadsheet) and sheet and all(hdr)
+    return pol
+
+
+def result_block(s):
+    """Our published comment inside the class's result markers, with the 'returned' line the lesson card shows."""
+    blk = (s.get("publishedBlock") or s.get("publishedComment") or "").strip()
+    res = s.get("essayResult") or {}
+    essays = [e for e in res.get("essays", []) if e.get("revisedText")]
+    if essays:
+        total = max(len(res.get("_labels") or {}), len(essays))
+        lines = [f"Đã trả {len(essays)}/{total} bài chữa trên dashboard."]
+        lines += [f"Đề {e['de']}: Band {e['_qa']['band']:.1f}" for e in sorted(essays, key=lambda x: x["de"])
+                  if (e.get("_qa") or {}).get("band") is not None]
+    else:
+        lines = ["Đã trả 1/1 bài chữa trên dashboard."]
+    first, _, rest = blk.partition("\n")
+    body = first + "\n" + "\n".join(lines) + ("\n" + rest if rest.strip() else "")
+    return "【KẾT QUẢ CHẤM WRITING】\n" + body.rstrip() + "\n【HẾT KẾT QUẢ CHẤM】"
 ESSAY_CONFIG = "_WRITING_ASSIGNMENTS_V1"
 ESSAY_CONFIG_HEADERS = ['class', 'assignment', 'task', 'source_spreadsheet_id', 'source_sheet_name', 'timestamp_column',
                         'name_column', 'class_column', 'essay_column', 'criteria_sha256', 'context_sha256', 'enabled']
@@ -314,7 +346,88 @@ class Dashboard:
                 self.config_for(cls, self.r.cfg["classes"][cls], a, n, pack_sha, ref_sha)
             except Exception:
                 self.r.tick("dash_config_check_failed")
+            try:   # the week's closure policy: the page then counts every returned bài chữa as current ("Đã trả N/N")
+                self.ensure_policy(cls, self.r.cfg["classes"][cls], assignments[code])
+            except Exception as e:
+                self.r.tick("dash_policy_failed")
+                print("dashboard policy:", cls, code, type(e).__name__, str(e)[:80])
         save_json(MANIFEST, manifest)
+        try:   # Cô 13/11: the tracker cell says the result is back ("Đã trả N/N bài chữa"), in the class's usual format
+            self.format_cells()
+        except Exception as e:
+            self.r.tick(f"dash_cell_format_failed_{type(e).__name__}")
+
+    def ensure_policy(self, cls, sid, a):
+        """One _WRITING_POLICIES_V1 row per class + week, the same closure rule the earlier weeks use
+        (writing-next-lesson-day-hard-cutoff-v2, cutoff = the day after the tracker's 'Hạn'). Added once, never edited;
+        never a second row for a week (a duplicate would close every week of the class)."""
+        done = self.r.state.setdefault("dashPolicy", {})
+        key = f"{cls}|{a['code']}"
+        if done.get(key) in ("added", "have"):
+            return
+        rows = self.table(sid, POLICY, POLICY_HEADERS)
+        if any(len(r) > 1 and r[0] == cls and r[1] == a["code"] for r in rows[1:]):
+            done[key] = "have"
+            return
+        _, deadline = self.r.tracker(cls).column(a["code"])
+        if not deadline:
+            done[key] = "no_deadline"
+            return
+        for r in rows[1:]:   # the rule must give the cutoff the earlier weeks of this class already use
+            try:
+                other = json.loads(r[2]) if len(r) > 2 and r[0] == cls else None
+            except ValueError:
+                other = None
+            if not other or not other.get("cutoffDate"):
+                continue
+            _, d2 = self.r.tracker(cls).column(r[1])
+            if d2 and (d2 + dt.timedelta(days=1)).strftime("%Y-%m-%d") != other["cutoffDate"]:
+                done[key] = "cutoff_rule_mismatch"
+                self.r.tick("dash_policy_rule_mismatch")
+                return
+        grid = self.form(a["formTab"])
+        hdr = [str(x) for x in (grid[0] if grid else [])][:3]
+        if len(hdr) < 3 or not all(x.strip() for x in hdr):
+            done[key] = "no_form_header"
+            return
+        pol = policy_json(cls, a["code"], (deadline + dt.timedelta(days=1)).strftime("%Y-%m-%d"),
+                          self.r.cfg["formSheet"], a["formTab"], hdr)
+        raw = canonical(pol)
+        self.g.append_rows(sid, POLICY, [[cls, a["code"], raw, sha(raw), "TRUE"]])
+        rows.append([cls, a["code"], raw, sha(raw), "TRUE"])
+        done[key] = "added"
+        self.r.tick("dash_policy_added")
+
+    def format_cells(self):
+        """Rewrite our own published result (only while the cell still holds it word for word) into the class's
+        usual result block: 【KẾT QUẢ CHẤM WRITING】 … Đã trả N/N bài chữa trên dashboard. … 【HẾT KẾT QUẢ CHẤM】.
+        Only once the dashboard has the result, so the line is true."""
+        for k, s in self.r.state.get("subs", {}).items():
+            if s.get("status") != "published" or not s.get("cell") or s.get("cellFmt") == CELL_FMT:
+                continue
+            if s.get("className") not in self.r.cfg["classes"]:
+                continue
+            if s.get("dashNb") != NB_VERSION or (s.get("essayResult") and s.get("dashEssay") != ESSAY_VERSION):
+                continue
+            blk = s.get("publishedBlock") or s.get("publishedComment")
+            if not blk or blk.lstrip().startswith("【KẾT QUẢ CHẤM WRITING】"):
+                s["cellFmt"] = CELL_FMT
+                continue
+            new_blk = result_block(s)
+            tr = self.r.tracker(s["className"])
+            cur = tr.cell(s["cell"])
+            if cur.count(blk) != 1:   # Cô edited the cell: leave it as it is
+                s["cellFmt"] = "teacher_edited"
+                continue
+            new = cur.replace(blk, new_blk)
+            tr.write(s["cell"], new)
+            if tr.cell(s["cell"]) != new:
+                self.r.tick("dash_cell_format_readback")
+                continue
+            s.update(publishedBlock=new_blk, cellFmt=CELL_FMT)
+            if s.get("publishedComment") == blk:
+                s["publishedComment"] = new_blk
+            self.r.tick("dash_cell_formatted")
 
     def form(self, tab):
         """Form tab display values; the merged-PDF column's hyperlinks are added as URLs (its cells only show a label)."""

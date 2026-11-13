@@ -689,6 +689,7 @@ class Runner:
                 continue
             s.update(status="published", cell=a1, publishedComment=comment, publishedBlock=blk,
                      publishedAt=now().isoformat(), hold=None)
+            s.pop("cellFmt", None)   # the dashboard step puts the new result in the result block once it is on the dash
             self.tick("published")
 
     def revert_appended(self):
