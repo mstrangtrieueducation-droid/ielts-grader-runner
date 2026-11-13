@@ -358,6 +358,35 @@ def relabel(scans_obj, cache):
                 scans_obj.st.setdefault("manualDashError", {})[k] = f"relabel {type(e).__name__}: {str(e)[:200]}"
 
 
+def manual_cell(scans_obj, it):
+    """A paper Cô sent for hand grading → its tracker cell in the session's in-class column, in the class's % format,
+    only while that cell is empty (Cô's own result is never overwritten)."""
+    runner = scans_obj.r
+    meta = {"cls": it["cls"], "date": it["date"], "week": it["week"], "kind": "inclass", "buoi": None, "n": None, "task": None}
+    tr = runner.tracker(it["cls"])
+    tr._grid = None
+    tr.cached("A", 1)
+    c = scans_obj.inclass_column(tr, tr._grid, meta, create=False)
+    row = tr.row_of(it["name"])
+    if c is None or not row:
+        scans_obj.st.setdefault("manualCell", {})[f"{it['cls']}|{it['date']}|{it['name']}"] = "no_column_or_row"
+        return
+    from run_writing import col_letter
+    a1 = f"{col_letter(c)}{row}"
+    if tr.cell(a1).strip():
+        scans_obj.st.setdefault("manualCell", {})[f"{it['cls']}|{it['date']}|{it['name']}"] = "kept:" + a1
+        return
+    t = it["result"]["tasks"][0]
+    g = {k: sum(1 for a in t.get("annotations") or [] if a.get("kind") == "error" and a.get("group") == k)
+         for k in ("grammar", "vocab", "coherence")}
+    cs = t["_qa"]["classScore"]
+    text = (f"{it['pct']}% chất lượng\nĐã chữa: {g['grammar']} lỗi ngữ pháp, {g['vocab']} lỗi từ vựng, "
+            f"{g['coherence']} lỗi mạch lạc/liên kết\n{t['overall'].strip()}\nSố từ: {cs['wordCount']}/{cs['minimum']}.")
+    tr.write(a1, text)
+    scans_obj.st.setdefault("manualCell", {})[f"{it['cls']}|{it['date']}|{it['name']}"] = a1
+    scans_obj.tick("classwork_manual_cell")
+
+
 def publish_manual(scans_obj, cache=None):
     """Papers Cô had graded by hand (not in a scan file): bundle classwork-manual/manual.json + their photos."""
     from run_writing import BUNDLE
@@ -383,6 +412,10 @@ def publish_manual(scans_obj, cache=None):
             runner.g.append_rows(sid, TAB, rows)
             done.append(k)
             scans_obj.st.setdefault("manualDashWeek", {})[k] = week
+            try:
+                manual_cell(scans_obj, it)
+            except Exception as e:
+                scans_obj.st.setdefault("manualCellError", {})[k] = f"{type(e).__name__}: {str(e)[:200]}"
             scans_obj.tick("classwork_dash_manual")
         except Exception as e:
             scans_obj.st.setdefault("manualDashError", {})[k] = f"{type(e).__name__}: {str(e)[:200]}"
