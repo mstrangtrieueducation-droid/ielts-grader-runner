@@ -466,7 +466,8 @@ class Scans:
                 self.tick("graded")
             del self.st["batches"][bid]
         for rec in self.st["files"].values():
-            if rec["status"] == "submitted" and all(s["status"] in ("graded", "unidentified") for s in rec["students"].values()):
+            if rec["status"] == "submitted" and all(s["status"] in ("graded", "unidentified", "published")   # Cô 13/11: a late rename
+                                                    for s in rec["students"].values()):   # left F5 Buổi 4 'submitted' with every paper out
                 rec["status"] = "graded"
 
     def fix_revision(self, rec, res, free_len=False):
