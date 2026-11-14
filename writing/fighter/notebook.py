@@ -61,7 +61,8 @@ LEAN_TABLE_SIDE = 1400               # vocab tables have 7 narrow columns: a lit
 IMG_BUDGET = 9000                    # Cô 11/11 "dưới 300–400đ một bài": photo tokens per notebook (≈ 230đ in a batch);
 IMG_FLOOR = 1000                     # pages share the budget, but a page is never smaller than this (handwriting stays legible)
 SIDE = 1568
-MAX_PAGES = 14
+MAX_PAGES = 40                  # 14/11: a notebook is never graded on part of its pages (was 14: later pages dropped = "not done")
+PAGE_HOLD = 80                  # beyond this the notebook is held for a person, never graded on a cut set
 PASS = 90
 VERSION = 35              # raise when the scoring changes: our own published results are regraded once and replaced
 GROUP_MINUTES = 30          # rows of one student/unit sent within 30 min = one submission (photos split over rows)
@@ -503,6 +504,7 @@ HAND_FIXED = {   # cells corrected by hand after checking the photos (Cô 12/11 
     ('do thi anh phuong', 'PT3'): ("2026-11-13T08:30:00+07:00", False, "❌ Chất lượng: đạt 81% — Chưa đạt (Yêu cầu nộp lại, cần từ 90%).\n• Sổ từ vựng (từ cô in đỏ): 81% — có 40/49 từ.\n• Sổ luyện đề: 95% — làm lại 96/100 câu, giải thích 94/100 câu cần giải thích.\n• Thiếu 9 từ: số 8, 17, 28–29, 33, 39, 42–43, 45.\n• Bỏ trống cột Từ loại ở 1 từ: số 5.\n• Chưa làm lại câu: 97–100.\n• Chưa chép giải thích câu: 55, 87.\n• Đáp án làm lại vẫn sai ở câu: 71 — con đối chiếu lại phần chữa đề.\n⚠ Bài chưa đạt nên vẫn tính là CHƯA NỘP BÀI cho tới khi con nộp lại đạt yêu cầu.\n→ Yêu cầu: con bổ sung đủ các mục trên vào sổ từ vựng và sổ luyện đề, chụp lại toàn bộ và NỘP LẠI trước buổi học tới."),
     ('pham hoang hai', 'PT1'): ("2026-11-13T08:30:00+07:00", True, "✅ Chất lượng: đạt 100% — Đạt yêu cầu.\n• Sổ từ vựng (từ cô in đỏ): 100% — có 46/46 từ.\n• Sổ luyện đề: 100% — làm lại 100/100 câu, giải thích 100/100 câu cần giải thích."),
     ("bui tue linh", "RI2-C07"): ("2026-11-13T22:50:00+07:00", False, "❌ Chất lượng: đạt 83% — Chưa đạt (Yêu cầu nộp lại, cần từ 90%).\n• Sổ từ vựng (từ cô in đỏ): 83% — có 27/27 từ.\n• Vở chữa bài: 100% — làm lại 61/61 câu, giải thích 35/35 câu cần giải thích, đáp án đúng hết.\n• Bỏ trống cột Phiên âm ở 27 từ: số 1–27.\n⚠ Bài chưa đạt nên vẫn tính là CHƯA NỘP BÀI cho tới khi con nộp lại đạt yêu cầu.\n→ Yêu cầu: con bổ sung cột Phiên âm cho 27 từ trong sổ từ vựng, chụp lại và NỘP LẠI trước buổi học tới."),
+    ("do khoi nguyen", "RI2-C07"): ("2026-11-14T17:30:00+07:00", True, "✅ Chất lượng: đạt 100% — Đạt yêu cầu.\n• Sổ từ vựng (từ cô in đỏ): 100% — có 27/27 từ.\n• Vở chữa bài: 100% — làm lại 61/61 câu, giải thích 35/35 câu cần giải thích."),
     ("ha khanh an", "AP-B03"): ("2026-11-12T13:30:00+07:00", True, "✅ Chất lượng: đạt 97% — Đạt yêu cầu.\n• Revised version (đoạn văn con viết lại sau khi chữa): đã có.\n• Outline: đã chép đủ.\n• Bài mẫu: đã chép đủ.\n• Từ vựng và cụm từ: có 7/8 — thiếu: strengthen bonds."),
 }
 REGRADE_MATCH = r"(?!)"          # v32: wording only — nothing is read again   # v31: only notebooks where no word was found are read again (printed-word workbooks)
@@ -936,10 +938,13 @@ class FighterNotebooks:
                     out.append(pg.get_pixmap(matrix=fitz.Matrix(z, z), colorspace=fitz.csRGB).tobytes("jpeg", jpg_quality=82))
             else:
                 out.append(to_jpeg(data))
-            if len(out) >= limit:
-                break
+        if len(out) > PAGE_HOLD:
+            self.tick(f"too_many_pages[{s['code']}]")
+            raise RuntimeError("TOO_MANY_PAGES")
+        if len(out) > limit:
+            self.tick("pages_over_limit_kept_all")
         keep, seen = [], []   # the same page sent twice is read once
-        for b in out[:limit]:
+        for b in out:
             d = dhash(b)
             if any(ham(d, x) <= 30 for x in seen):
                 self.tick("duplicate_page_dropped")
@@ -1204,7 +1209,7 @@ class FighterNotebooks:
 
     def grade_reading(self, sid, s):
         ref = self.reading_ref(s["code"])
-        imgs = self.pages(s, limit=24)
+        imgs = self.pages(s, limit=60)
         if not imgs:
             return {"kind": "no_photos", "type": "reading"}
         hashes = [dhash(b) for b in imgs]
@@ -2242,6 +2247,9 @@ class FighterNotebooks:
                     if str(e) == "FILE_UNREADABLE":   # our access problem: take back any result shown, wait for access
                         self.unpublish(s)
                         s.update(status="new", hold="file_unreadable")
+                        continue
+                    if str(e) == "TOO_MANY_PAGES":   # never grade on a cut set of pages: held for Cô / a person to check
+                        s["status"] = "held_error"
                         continue
                     s["tries"] = s.get("tries", 0) + 1
                     s["error"] = type(e).__name__
