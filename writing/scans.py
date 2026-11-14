@@ -4,7 +4,7 @@ File names: "<IELTS|FIGHTER> <n>_<DD-MM-YYYY>_Viết [task 1|2] kiểm tra lần
 Results are kept (encrypted with the runner state) for the teacher's review; nothing is written to trackers here.
 Grading uses the lean packs approved 09/11/2026: Sonnet without the reasoning pass, only the fields students see.
 """
-import base64, io, json, re, unicodedata
+import base64, hashlib, io, json, re, unicodedata
 from pathlib import Path
 
 import claude_worker as cw
@@ -761,6 +761,39 @@ class Scans:
             lines.insert(0, f"Overall: {res['_overall']:.1f}")
         return "\n\n".join(lines)
 
+    def fighter_dash(self):
+        """Fighter in-class paragraphs already written to the tracker → the class store the dashboard reads
+        (fighter_reviews). Seeds in the bundle (fighter-review-seed/<class>.json: reviews published before this
+        existed) go in once, so the store keeps them. A review is written again only when it changed."""
+        import fighter_reviews as fr
+        done = self.st.setdefault("fighterDash", {})
+        todo = {}
+        seeds = BUNDLE / "fighter-review-seed"
+        for f in sorted(seeds.glob("*.json")) if seeds.exists() else []:
+            for r in json.loads(f.read_text(encoding="utf-8")):
+                if r.get("className") in self.r.cfg["classes"]:
+                    todo.setdefault(r["className"], []).append(r)
+        for rec in self.st["files"].values():
+            meta = rec.get("meta") or {}
+            if meta.get("kind") != "inclass" or not str(meta.get("cls", "")).startswith("FIGHTER") or not meta.get("buoi"):
+                continue
+            if meta["cls"] not in self.r.cfg["classes"]:
+                continue
+            for s in rec.get("students", {}).values():
+                if s.get("status") == "published" and s.get("result"):
+                    r = fr.review_of(meta, s)
+                    if r:
+                        todo.setdefault(meta["cls"], []).append(r)
+        for cls, reviews in todo.items():
+            sig = lambda r: hashlib.sha1(json.dumps(r, ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:16]
+            fresh = [r for r in reviews if done.get(r["reviewId"]) != sig(r)]
+            if not fresh:
+                continue
+            fr.publish(self.g, self.r.cfg["classes"][cls], fresh)
+            for r in fresh:
+                done[r["reviewId"]] = sig(r)
+            self.tick("fighter_dash_reviews", len(fresh))
+
     def publish(self):
         """Graded paper tests → the class tracker. A cell that already has anything is never touched (the result was
         given before); a test without its tracker column waits until the column exists."""
@@ -860,6 +893,10 @@ def run(runner, only=None, limit_files=None):
             sc.publish()
             import classwork   # Cô 13/11: in-class reviews on the parent dashboard too
             classwork.publish(sc)
+            try:   # Cô 14/11: Fighter in-class paragraph reviews on the Fighter dashboard too
+                sc.fighter_dash()
+            except Exception as e:
+                sc.tick(f"fighter_dash_failed_{type(e).__name__}")
         sc.discover()
         for rec in sc.st["files"].values():   # a long scan could overflow the page-reading answer: retry once
             if rec["status"] == "error" and rec.get("error") == "JSONDecodeError" and not rec.get("retried"):
