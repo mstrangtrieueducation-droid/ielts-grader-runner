@@ -1,0 +1,149 @@
+{
+ "schemaVersion": 1,
+ "entries": [
+  {
+   "className": "IELTS 50",
+   "assignmentCode": "IELTS-WRITING-W05",
+   "session": 5,
+   "tasks": []
+  },
+  {
+   "className": "IELTS 50",
+   "assignmentCode": "IELTS-WRITING-W07",
+   "session": 7,
+   "tasks": [
+    {
+     "taskNumber": 1,
+     "title": "Task 1 · Car production"
+    },
+    {
+     "taskNumber": 2,
+     "title": "Task 1 · Prison population"
+    }
+   ]
+  },
+  {
+   "className": "IELTS 51",
+   "assignmentCode": "IELTS-WRITING-W05",
+   "session": 5,
+   "tasks": []
+  },
+  {
+   "className": "IELTS 48",
+   "assignmentCode": "IELTS-WRITING-W12",
+   "session": 12,
+   "tasks": []
+  },
+  {
+   "className": "IELTS 48",
+   "assignmentCode": "IELTS-WRITING-W16",
+   "session": 16,
+   "tasks": []
+  },
+  {
+   "className": "IELTS 49",
+   "assignmentCode": "IELTS-WRITING-W12",
+   "session": 12,
+   "tasks": []
+  },
+  {
+   "className": "IELTS 47",
+   "assignmentCode": "IELTS-WRITING-W26",
+   "session": 26,
+   "tasks": []
+  },
+  {
+   "className": "IELTS 47",
+   "assignmentCode": "IELTS-WRITING-W27",
+   "session": 27,
+   "tasks": []
+  },
+  {
+   "className": "IELTS 47",
+   "assignmentCode": "IELTS-WRITING-W28",
+   "session": 28,
+   "tasks": [
+    {
+     "taskNumber": 1,
+     "title": "Task 2 · Bài 2.2"
+    }
+   ]
+  },
+  {
+   "className": "IELTS 46",
+   "assignmentCode": "IELTS-WRITING-W36",
+   "session": 36,
+   "tasks": [
+    {
+     "taskNumber": 1,
+     "title": "Task 2 · Bài 14.1.4"
+    }
+   ]
+  },
+  {
+   "className": "IELTS 52",
+   "assignmentCode": "IELTS-WRITING-W06",
+   "session": 6,
+   "tasks": []
+  },
+  {
+   "className": "IELTS 51",
+   "assignmentCode": "IELTS-WRITING-W06",
+   "session": 6,
+   "tasks": []
+  },
+  {
+   "className": "IELTS 46",
+   "assignmentCode": "IELTS-WRITING-W37",
+   "session": 37,
+   "tasks": [
+    {
+     "taskNumber": 1,
+     "title": "Task 2 · Bài 17.1.1"
+    }
+   ]
+  },
+  {
+   "className": "IELTS 49",
+   "assignmentCode": "IELTS-WRITING-W13",
+   "session": 13,
+   "tasks": [
+    {
+     "taskNumber": 1,
+     "title": "Task 1 · Most common sports in the UK"
+    },
+    {
+     "taskNumber": 2,
+     "title": "Task 1 · Doctors and other workers’ salaries"
+    }
+   ]
+  },
+  {
+   "className": "IELTS 45",
+   "assignmentCode": "IELTS-WRITING-W33",
+   "session": 33,
+   "tasks": []
+  },
+  {
+   "className": "IELTS 50",
+   "assignmentCode": "IELTS-WRITING-W08",
+   "session": 8,
+   "tasks": [
+    {
+     "taskNumber": 1,
+     "title": "Task 1 · Meat and fish consumption"
+    },
+    {
+     "taskNumber": 2,
+     "title": "Task 1 · Higher education"
+    }
+   ]
+  },
+  {
+   "className": "IELTS 47",
+   "assignmentCode": "IELTS-WRITING-W29",
+   "session": 29,
+   "tasks": []
+  }
+ ]
+}
