@@ -608,6 +608,9 @@ class Scans:
             {"copyPaste": {"source": {"sheetId": gid, "startColumnIndex": max(kts), "endColumnIndex": max(kts) + 1},
                            "destination": {"sheetId": gid, "startColumnIndex": at, "endColumnIndex": at + 1},
                            "pasteType": "PASTE_FORMAT"}}]})
+        # The dashboard exporter reads a KT mark only where row 1 of that very column says
+        # "KIỂM TRA VỞ VIẾT TẠI LỚP" (Cô 14/11: KT 02+ were missing from the dash without it).
+        self.g.set_cell(tr.id, f"'{tr.tab}'!{col_letter(at)}1", "KIỂM TRA VỞ VIẾT TẠI LỚP")
         self.g.set_cell(tr.id, f"'{tr.tab}'!{col_letter(at)}2", f"KT {n:02d}")
         self.g.set_cell(tr.id, f"'{tr.tab}'!{col_letter(at)}3", str(row(2)[max(kts)]))
         tr._hdr = None   # columns moved: every cached column position of this tracker is stale
