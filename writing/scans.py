@@ -384,6 +384,33 @@ class Scans:
             if rq:
                 rec["status"] = "submitted"
                 self.tick("rescued", len(rq))
+        # A paper whose batch answer failed ("retry") was never sent again and held the whole file (F7 KT 04,
+        # 12/11): send it once more, at most twice per paper.
+        for fid, rec in self.st["files"].items():
+            if rec["status"] not in ("graded", "submitted") or not rec.get("meta"):
+                continue
+            tries = rec.setdefault("retryCount", {})
+            redo = [(k, x) for k, x in rec["students"].items()
+                    if x["status"] == "retry" and x.get("name") and tries.get(x["name"], 0) < 2]
+            if not redo:
+                continue
+            groups = [{"pages": x["pages"], "nameRead": x.get("nameRead"), "name": x["name"]} for _, x in redo]
+            for k, x in redo:
+                tries[x["name"]] = tries.get(x["name"], 0) + 1
+                rec["students"].pop(k, None)
+            try:
+                rq = self.build(fid, rec, self.g.download(fid), only=groups)
+            except Exception:
+                for k, x in redo:
+                    rec["students"][k] = x
+                self.tick("retry_error")
+                continue
+            for q in rq:
+                mapping[q["custom_id"]] = fid
+            reqs += rq
+            if rq:
+                rec["status"] = "submitted"
+                self.tick("retried", len(rq))
         if reqs:
             b = self.cl.messages.batches.create(requests=reqs)
             self.st["batches"][b.id] = {"at": now().isoformat(), "map": mapping}

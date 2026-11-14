@@ -444,7 +444,8 @@ def make_inclass(runner, scans_state, now=None):
             lesson = dt.datetime.strptime(meta["date"], "%d/%m/%Y").date()
         except Exception:
             continue
-        if now.astimezone(VN).date() < lesson + dt.timedelta(days=1) or lesson < ZALO_SINCE:
+        old_ok = f"{cls}|{meta.get('date')}" in (runner.cfg.get("zaloSinceExempt") or []) or cls in (runner.cfg.get("zaloSinceExempt") or [])
+        if now.astimezone(VN).date() < lesson + dt.timedelta(days=1) or (lesson < ZALO_SINCE and not old_ok):   # Cô 14/11: F6/F7 KT pictures too
             continue
         spec = sc.pack_for(meta) or {}
         test = meta["kind"] == "test"
