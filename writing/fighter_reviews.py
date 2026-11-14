@@ -34,7 +34,8 @@ def review_of(meta, stu):
     if not res.get("transcript") or not stu.get("name"):
         return None
     d, m, y = meta["date"].split("/")
-    buoi = int(meta.get("buoi") or 0)
+    test = meta.get("kind") == "test"
+    buoi = int((meta.get("n") if test else meta.get("buoi")) or 0)
     paras = classwork.paragraphs_of(res["transcript"], stu.get("nameRead") or stu["name"])
     essay = "\n\n".join(paras)
     corrections = []
@@ -47,16 +48,26 @@ def review_of(meta, stu):
         corrections.append({"index": len(corrections) + 1, "category": CATEGORY.get(e.get("group"), "grammar"),
                             "quote": quote, "correction": (e.get("replacement") or "").strip(), "explanation": _plain(expl)})
     revision = (res.get("revision") or "").strip()
-    rid = f"{meta['cls'].lower().replace(' ', '')}-dvht-s{buoi}-{y}{m}{d}-" + hashlib.sha1(stu["name"].encode()).hexdigest()[:8]
-    return {
+    tag = f"kt{buoi:02d}" if test else f"s{buoi}"
+    rid = f"{meta['cls'].lower().replace(' ', '')}-dvht-{tag}-{y}{m}{d}-" + hashlib.sha1(stu["name"].encode()).hexdigest()[:8]
+    sc = res.get("score") if isinstance(res.get("score"), dict) else None
+    extra = {}
+    if test:   # KT card on the dashboard: score /1 with the four criteria (0,25 each)
+        if not sc or not isinstance(sc.get("tong"), (int, float)):
+            return None
+        extra = {"assessmentNumber": buoi, "assessmentDate": f"{y}-{m}-{d}", "score": sc["tong"],
+                 "scoreBreakdown": [{"criterion": c.get("ten", ""), "score": c.get("diem", 0), "maxScore": 0.25,
+                                     "rationale": _plain(c.get("bangChung"))} for c in sc.get("tieuChi") or []]}
+    return dict({
         "reviewId": rid, "className": meta["cls"], "studentName": stu["name"], "lessonNumber": buoi,
-        "lessonDate": f"{y}-{m}-{d}", "assignmentCode": f"DVHT-S{buoi}-{d}{m}{y}", "scored": isinstance(res.get("score"), (int, float)),
-        "score": res.get("score"), "sourcePages": stu.get("pages") or [],
+        "lessonDate": f"{y}-{m}-{d}", "assignmentCode": f"DVHT-{'KT%02d' % buoi if test else 'S%d' % buoi}-{d}{m}{y}",
+        "scored": bool(test), "score": None, "sourcePages": stu.get("pages") or [],
         "originalEssay": essay, "originalWordCount": (res.get("_qa") or {}).get("words") or _words(essay),
         "transcriptionNotes": "", "overall": _plain(res.get("overall")),
         "corrections": corrections, "suggestedRevision": revision, "suggestedRevisionWordCount": _words(revision),
         "revisionNotes": f"Bản sửa {_words(revision)} từ; giữ ý của em và sửa những lỗi đã chữa.", "revisionAnalysis": [],
-    }
+        "learningTransfer": [],
+    }, **extra)
 
 
 def _row(r, state="published"):

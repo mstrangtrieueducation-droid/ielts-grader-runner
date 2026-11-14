@@ -775,7 +775,8 @@ class Scans:
                     todo.setdefault(r["className"], []).append(r)
         for rec in self.st["files"].values():
             meta = rec.get("meta") or {}
-            if meta.get("kind") != "inclass" or not str(meta.get("cls", "")).startswith("FIGHTER") or not meta.get("buoi"):
+            if not str(meta.get("cls", "")).startswith("FIGHTER") or not (
+                    (meta.get("kind") == "inclass" and meta.get("buoi")) or (meta.get("kind") == "test" and meta.get("n"))):
                 continue
             if meta["cls"] not in self.r.cfg["classes"]:
                 continue
